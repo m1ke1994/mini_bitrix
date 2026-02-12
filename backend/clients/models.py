@@ -63,6 +63,9 @@ class Client(models.Model):
         base_url = getattr(settings, "PUBLIC_BASE_URL", "").rstrip("/")
         if base_url:
             return f"{base_url}/tracker.js"
+        # Local/dev safe default so client installs always get an absolute URL.
+        if getattr(settings, "DEBUG", False):
+            return "http://localhost:9000/tracker.js"
         return "/tracker.js"
 
     @property
