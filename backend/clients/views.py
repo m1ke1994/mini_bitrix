@@ -74,6 +74,145 @@ def tracker_js_view(request):
     return null;
   }
 
+  function isEmail(value) {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(value);
+  }
+
+  function isPhone(value) {
+    var normalized = String(value).replace(/[^\d+]/g, '');
+    var digits = normalized.replace(/\D/g, '');
+    return digits.length >= 7;
+  }
+
+  function collectFormFields(form) {
+    var fields = [];
+    var nodes = form.querySelectorAll('input, textarea, select');
+    for (var i = 0; i < nodes.length; i++) {
+      var node = nodes[i];
+      if (!node) { continue; }
+      var key = (node.name || node.id || '').trim();
+      var rawValue = typeof node.value === 'string' ? node.value.trim() : '';
+      if (!rawValue) { continue; }
+      fields.push({ key: key, value: rawValue });
+    }
+    return fields;
+  }
+
+  function collectObjectFields(payload) {
+    var fields = [];
+    function walk(data, path) {
+      if (data === null || data === undefined) {
+        return;
+      }
+      if (typeof data === 'string' || typeof data === 'number') {
+        var value = String(data).trim();
+        if (value) {
+          fields.push({ key: path || '', value: value });
+        }
+        return;
+      }
+      if (Array.isArray(data)) {
+        for (var i = 0; i < data.length; i++) {
+          walk(data[i], path);
+        }
+        return;
+      }
+      if (typeof data === 'object') {
+        var keys = Object.keys(data);
+        for (var j = 0; j < keys.length; j++) {
+          var key = keys[j];
+          walk(data[key], key);
+        }
+      }
+    }
+    walk(payload, '');
+    return fields;
+  }
+
+  function assignLeadFromFields(fields, payload) {
+    var extracted = {
+      name: null,
+      email: null,
+      phone: null,
+      message: null
+    };
+
+    function setNameIfMissing(value) {
+      if (!extracted.name && value) { extracted.name = value; }
+    }
+    function setEmailIfMissing(value) {
+      if (!extracted.email && value) { extracted.email = value; }
+    }
+    function setPhoneIfMissing(value) {
+      if (!extracted.phone && value) { extracted.phone = value; }
+    }
+    function setMessageIfMissing(value) {
+      if (!extracted.message && value) { extracted.message = value; }
+    }
+
+    for (var i = 0; i < fields.length; i++) {
+      var item = fields[i];
+      var key = (item.key || '').toLowerCase();
+      var value = item.value;
+      if (!value) { continue; }
+
+      if (key.indexOf('name') !== -1 || key.indexOf('fullname') !== -1 || key.indexOf('fio') !== -1) {
+        setNameIfMissing(value);
+      }
+      if (key.indexOf('message') !== -1 || key.indexOf('comment') !== -1 || key.indexOf('text') !== -1) {
+        setMessageIfMissing(value);
+      }
+
+      if (key === 'contact' || key.indexOf('contact') !== -1 || key.indexOf('user_contact') !== -1) {
+        if (isEmail(value)) {
+          setEmailIfMissing(value);
+        } else if (isPhone(value)) {
+          setPhoneIfMissing(value);
+        }
+      }
+
+      if (
+        key === 'email' ||
+        key === 'email_address' ||
+        key.indexOf('mail') !== -1
+      ) {
+        if (isEmail(value)) {
+          setEmailIfMissing(value);
+        }
+      }
+
+      if (
+        key === 'phone' ||
+        key === 'phone_number' ||
+        key === 'tel' ||
+        key.indexOf('phone') !== -1 ||
+        key.indexOf('tel') !== -1
+      ) {
+        if (isPhone(value)) {
+          setPhoneIfMissing(value);
+        }
+      }
+    }
+
+    for (var j = 0; j < fields.length; j++) {
+      var candidate = fields[j].value;
+      if (!candidate) { continue; }
+      if (!extracted.email && isEmail(candidate)) {
+        extracted.email = candidate;
+      }
+      if (!extracted.phone && isPhone(candidate)) {
+        extracted.phone = candidate;
+      }
+    }
+
+    if (extracted.name) { payload.name = extracted.name; }
+    if (extracted.email) { payload.email = extracted.email; }
+    if (extracted.phone) { payload.phone = extracted.phone; }
+    if (extracted.message) { payload.message = extracted.message; }
+
+    return extracted;
+  }
+
   function sendPayload(endpoint, payload) {
     var url = baseUrl + endpoint + '?api_key=' + encodeURIComponent(apiKey);
     var body = JSON.stringify(payload);
@@ -134,15 +273,19 @@ def tracker_js_view(request):
         return;
       }
       var payload = basePayload();
-      var nameValue = firstFieldValue(form, ['name', 'fullname', 'fio']);
-      var phoneValue = firstFieldValue(form, ['phone', 'tel', 'mobile']);
-      var emailValue = firstFieldValue(form, ['email', 'e-mail']);
-      var messageValue = firstFieldValue(form, ['message', 'comment', 'text']);
-
-      if (nameValue) { payload.name = nameValue; }
-      if (phoneValue) { payload.phone = phoneValue; }
-      if (emailValue) { payload.email = emailValue; }
-      if (messageValue) { payload.message = messageValue; }
+      var fields = collectFormFields(form);
+      var extracted = assignLeadFromFields(fields, payload);
+      if (!payload.name) {
+        payload.name = firstFieldValue(form, ['name', 'fullname', 'fio']);
+      }
+      if (!payload.message) {
+        payload.message = firstFieldValue(form, ['message', 'comment', 'text']);
+      }
+      console.log('Tracker extracted lead:', {
+        name: extracted.name || payload.name || null,
+        email: extracted.email || payload.email || null,
+        phone: extracted.phone || payload.phone || null
+      });
 
       sendPayload('/api/public/lead/', payload);
       sendPayload('/api/public/event/', {
@@ -192,21 +335,26 @@ def tracker_js_view(request):
     if (!data || typeof data !== 'object') {
       return null;
     }
-    var parsedPayload = basePayload();
-    var nameValue = pickFromObject(data, ['name', 'fullname', 'fio']);
-    var phoneValue = pickFromObject(data, ['phone', 'tel', 'mobile']);
-    var emailValue = pickFromObject(data, ['email', 'e-mail']);
-    var messageValue = pickFromObject(data, ['message', 'comment', 'text']);
+    var payload = basePayload();
+    var fields = collectObjectFields(data);
+    var extracted = assignLeadFromFields(fields, payload);
 
-    if (nameValue) { parsedPayload.name = nameValue; }
-    if (phoneValue) { parsedPayload.phone = phoneValue; }
-    if (emailValue) { parsedPayload.email = emailValue; }
-    if (messageValue) { parsedPayload.message = messageValue; }
+    if (!payload.name) {
+      payload.name = pickFromObject(data, ['name', 'fullname', 'fio']);
+    }
+    if (!payload.message) {
+      payload.message = pickFromObject(data, ['message', 'comment', 'text']);
+    }
 
-    if (!parsedPayload.name && !parsedPayload.phone && !parsedPayload.email && !parsedPayload.message) {
+    if (!payload.name && !payload.phone && !payload.email && !payload.message) {
       return null;
     }
-    return parsedPayload;
+    console.log('Tracker extracted lead:', {
+      name: extracted.name || payload.name || null,
+      email: extracted.email || payload.email || null,
+      phone: extracted.phone || payload.phone || null
+    });
+    return payload;
   }
 
   function tryTrackJsonLead(rawBody) {
