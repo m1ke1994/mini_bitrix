@@ -1,5 +1,6 @@
 from rest_framework import serializers
 
+from analytics_app.models import PageView
 from leads.models import Lead
 from leads.tasks import send_lead_notification_task
 from leads.utils import normalize_phone
@@ -9,6 +10,7 @@ class PublicLeadCreateSerializer(serializers.ModelSerializer):
     name = serializers.CharField(required=False, allow_blank=True, label="Name")
     phone = serializers.CharField(required=False, allow_blank=True, allow_null=True, label="Phone")
     email = serializers.EmailField(required=False, allow_null=True, allow_blank=True, label="Email")
+    session_id = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     class Meta:
         model = Lead
@@ -21,6 +23,7 @@ class PublicLeadCreateSerializer(serializers.ModelSerializer):
             "utm_source",
             "utm_medium",
             "utm_campaign",
+            "session_id",
         )
 
     def validate(self, attrs):
@@ -37,8 +40,18 @@ class PublicLeadCreateSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         client = self.context["client"]
+        session_id = (validated_data.pop("session_id", "") or "").strip()
         validated_data.setdefault("name", "")
         lead = Lead.objects.create(client=client, status=Lead.Status.NEW, **validated_data)
+        if session_id:
+            latest_page_view = (
+                PageView.objects.filter(client=client, session_id=session_id)
+                .order_by("-created_at")
+                .first()
+            )
+            if latest_page_view:
+                latest_page_view.attributed_leads += 1
+                latest_page_view.save(update_fields=["attributed_leads", "updated_at"])
         send_lead_notification_task.delay(lead.id)
         return lead
 

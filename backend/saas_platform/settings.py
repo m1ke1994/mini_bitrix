@@ -162,6 +162,7 @@ REST_FRAMEWORK = {
     "DEFAULT_THROTTLE_RATES": {
         "public_lead": os.getenv("RATE_LIMIT_PUBLIC_LEAD", "60/minute"),
         "public_event": os.getenv("RATE_LIMIT_PUBLIC_EVENT", "120/minute"),
+        "public_analytics_event": os.getenv("RATE_LIMIT_PUBLIC_ANALYTICS_EVENT", "300/minute"),
         "public_telegram_webhook": os.getenv("RATE_LIMIT_PUBLIC_TELEGRAM_WEBHOOK", "120/minute"),
     },
 }

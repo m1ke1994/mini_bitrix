@@ -47,6 +47,7 @@ const saved = ref(false);
 
 async function loadSettings() {
   error.value = "";
+  saved.value = false;
   try {
     const response = await api.get("/api/client/settings/");
     settings.value = response.data;

@@ -1,7 +1,7 @@
 :root {
   font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
   color: #0f172a;
-  background: #f1f5f9;
+  background: #edf2f7;
 }
 
 * {
@@ -10,24 +10,29 @@
 
 body {
   margin: 0;
+  background: radial-gradient(circle at top, #e2e8f0 0%, #edf2f7 45%, #f8fafc 100%);
+}
+
+a {
+  color: #0f62fe;
 }
 
 .auth-page {
   min-height: 100vh;
   display: grid;
   place-items: center;
-  background: linear-gradient(135deg, #dbeafe, #e2e8f0);
+  padding: 16px;
 }
 
 .auth-card {
-  width: 360px;
+  width: min(100%, 420px);
   background: #fff;
-  border-radius: 12px;
+  border-radius: 14px;
   padding: 24px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+  gap: 12px;
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.1);
 }
 
 .auth-card input,
@@ -36,17 +41,19 @@ body {
 .form-card textarea,
 .form-card button,
 select {
-  height: 40px;
-  border-radius: 8px;
+  min-height: 42px;
+  border-radius: 10px;
   border: 1px solid #cbd5e1;
-  padding: 0 10px;
+  padding: 0 12px;
+  font-size: 14px;
 }
 
 .auth-card button,
 .form-card button,
-.logout {
+.logout,
+.burger {
   border: none;
-  background: #1672f3;
+  background: #0f62fe;
   color: #fff;
   cursor: pointer;
 }
@@ -54,11 +61,19 @@ select {
 .shell {
   min-height: 100vh;
   display: grid;
-  grid-template-columns: 220px 1fr;
+  grid-template-columns: 260px 1fr;
+}
+
+.mobile-header {
+  display: none;
+}
+
+.mobile-overlay {
+  display: none;
 }
 
 .sidebar {
-  background: #0f172a;
+  background: linear-gradient(180deg, #0b1220 0%, #0f172a 100%);
   color: #fff;
   padding: 20px;
   display: flex;
@@ -68,6 +83,8 @@ select {
 
 .logo {
   margin: 0;
+  font-size: 22px;
+  letter-spacing: 0.3px;
 }
 
 .nav {
@@ -77,33 +94,44 @@ select {
 }
 
 .nav a {
-  color: #e2e8f0;
+  color: #cbd5e1;
   text-decoration: none;
+  border-radius: 8px;
+  padding: 8px 10px;
 }
 
 .nav a.router-link-active {
   color: #fff;
   font-weight: 700;
+  background: rgba(148, 163, 184, 0.2);
 }
 
 .logout {
   margin-top: auto;
-  height: 40px;
-  border-radius: 8px;
+  min-height: 42px;
+  border-radius: 10px;
+  font-size: 14px;
 }
 
 .content {
-  padding: 24px;
+  padding: 20px;
+  min-width: 0;
 }
 
 .page h1 {
   margin-top: 0;
+  margin-bottom: 12px;
 }
 
 .stats {
   display: grid;
-  grid-template-columns: repeat(2, minmax(160px, 260px));
-  gap: 16px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.stats.secondary {
+  margin-top: 14px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .stat-card,
@@ -111,8 +139,19 @@ select {
 .form-card {
   background: #fff;
   border-radius: 12px;
-  padding: 16px;
-  box-shadow: 0 4px 20px rgba(15, 23, 42, 0.05);
+  padding: 14px;
+  box-shadow: 0 8px 26px rgba(15, 23, 42, 0.06);
+}
+
+.stat-card h3 {
+  margin-top: 0;
+  margin-bottom: 8px;
+  font-size: 14px;
+  color: #334155;
+}
+
+.stat-card strong {
+  font-size: 24px;
 }
 
 .chart-card {
@@ -123,14 +162,27 @@ select {
   height: 280px;
 }
 
+.two-col-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
 .filters {
   display: flex;
-  gap: 8px;
+  gap: 10px;
+  flex-wrap: wrap;
   margin-bottom: 12px;
+}
+
+.table-wrap {
+  width: 100%;
+  overflow-x: auto;
 }
 
 .table {
   width: 100%;
+  min-width: 640px;
   border-collapse: collapse;
   background: #fff;
   border-radius: 12px;
@@ -142,12 +194,28 @@ select {
   border-bottom: 1px solid #e2e8f0;
   padding: 10px;
   text-align: left;
+  vertical-align: top;
+  font-size: 14px;
 }
 
 .pagination {
   display: flex;
   gap: 10px;
-  margin-top: 10px;
+  margin-top: 12px;
+}
+
+.pagination button {
+  min-height: 38px;
+  border-radius: 8px;
+  border: none;
+  background: #0f62fe;
+  color: #fff;
+  padding: 0 14px;
+}
+
+.pagination button[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .error {
@@ -159,7 +227,7 @@ select {
 }
 
 .form-card {
-  max-width: 560px;
+  width: min(100%, 720px);
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -167,8 +235,8 @@ select {
 
 .form-card textarea {
   min-height: 96px;
-  padding: 10px;
-  border-radius: 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
   border: 1px solid #cbd5e1;
   resize: vertical;
 }
@@ -179,16 +247,111 @@ select {
   gap: 8px;
 }
 
+.checkbox input {
+  width: 18px;
+  height: 18px;
+}
+
+.mobile-logo,
+.logo {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.burger {
+  min-height: 40px;
+  min-width: 40px;
+  border-radius: 10px;
+  font-size: 20px;
+}
+
+.logout.compact {
+  margin-top: 0;
+  min-height: 36px;
+  padding: 0 10px;
+}
+
+@media (max-width: 1180px) {
+  .stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .stats.secondary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 900px) {
   .shell {
     grid-template-columns: 1fr;
   }
-  .sidebar {
-    flex-direction: row;
+
+  .mobile-header {
+    display: flex;
     align-items: center;
-    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 12px 14px;
+    background: #0f172a;
+    color: #fff;
+    position: sticky;
+    top: 0;
+    z-index: 30;
   }
-  .logout {
-    margin-top: 0;
+
+  .mobile-logo {
+    margin: 0;
+    font-size: 16px;
+  }
+
+  .mobile-overlay {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.5);
+    z-index: 20;
+  }
+
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: min(80vw, 300px);
+    transform: translateX(-110%);
+    transition: transform 0.2s ease;
+    z-index: 25;
+    padding-top: 20px;
+  }
+
+  .sidebar.open {
+    transform: translateX(0);
+  }
+
+  .content {
+    padding: 14px;
+  }
+
+  .stats,
+  .stats.secondary,
+  .two-col-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .chart-wrap {
+    height: 220px;
+  }
+
+  .table {
+    min-width: 560px;
+  }
+}
+
+@media (max-width: 560px) {
+  .auth-card {
+    padding: 18px;
+  }
+  .table {
+    min-width: 500px;
   }
 }

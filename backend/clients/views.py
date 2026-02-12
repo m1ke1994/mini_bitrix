@@ -1,7 +1,8 @@
-from accounts.permissions import IsClientUser
-from clients.serializers import ClientSettingsSerializer
 from django.http import HttpResponse
 from rest_framework import generics, permissions
+
+from accounts.permissions import IsClientUser
+from clients.serializers import ClientSettingsSerializer
 
 
 class ClientSettingsView(generics.RetrieveUpdateAPIView):
@@ -23,6 +24,20 @@ def tracker_js_view(request):
     } catch (_) {}
   }
 
+  function safeStorageGet(key) {
+    try {
+      return window.localStorage.getItem(key);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function safeStorageSet(key, value) {
+    try {
+      window.localStorage.setItem(key, value);
+    } catch (_) {}
+  }
+
   function getScriptTag() {
     if (document.currentScript) {
       return document.currentScript;
@@ -34,44 +49,13 @@ def tracker_js_view(request):
     return scripts[scripts.length - 1];
   }
 
-  var scriptTag = getScriptTag();
-  var apiKey = scriptTag && scriptTag.dataset ? scriptTag.dataset.apiKey : '';
-  if (!apiKey) {
-    safeLogError('Missing data-api-key attribute.');
-    return;
-  }
-
-  var baseUrl = window.location.origin;
-  try {
-    if (scriptTag && scriptTag.src) {
-      baseUrl = new URL(scriptTag.src).origin;
-    }
-  } catch (error) {
-    safeLogError('Failed to resolve tracker base URL.', error);
-  }
-
-  function getUtms(url) {
-    var params = new URL(url).searchParams;
-    return {
-      utm_source: params.get('utm_source') || null,
-      utm_medium: params.get('utm_medium') || null,
-      utm_campaign: params.get('utm_campaign') || null
-    };
-  }
-
-  function firstFieldValue(form, aliases) {
-    for (var i = 0; i < aliases.length; i++) {
-      var selector = '[name="' + aliases[i] + '"], [name*="' + aliases[i] + '" i], #' + aliases[i];
-      var field = form.querySelector(selector);
-      if (!field || typeof field.value !== 'string') {
-        continue;
+  function createSessionId() {
+    try {
+      if (window.crypto && window.crypto.randomUUID) {
+        return window.crypto.randomUUID();
       }
-      var value = field.value.trim();
-      if (value) {
-        return value;
-      }
-    }
-    return null;
+    } catch (_) {}
+    return 'sid-' + Date.now() + '-' + Math.random().toString(16).slice(2);
   }
 
   function isEmail(value) {
@@ -97,10 +81,6 @@ def tracker_js_view(request):
     return raw;
   }
 
-  function isPhone(value) {
-    return !!normalizePhone(value);
-  }
-
   function hasPhoneHint(key) {
     var normalized = String(key || '').toLowerCase();
     return normalized.indexOf('phone') !== -1 || normalized.indexOf('tel') !== -1;
@@ -109,6 +89,17 @@ def tracker_js_view(request):
   function hasEmailHint(key) {
     var normalized = String(key || '').toLowerCase();
     return normalized.indexOf('email') !== -1 || normalized.indexOf('mail') !== -1;
+  }
+
+  function getUtms(url) {
+    var params = new URL(url).searchParams;
+    return {
+      utm_source: params.get('utm_source') || null,
+      utm_medium: params.get('utm_medium') || null,
+      utm_campaign: params.get('utm_campaign') || null,
+      utm_term: params.get('utm_term') || null,
+      utm_content: params.get('utm_content') || null
+    };
   }
 
   function collectFormFields(form) {
@@ -135,7 +126,7 @@ def tracker_js_view(request):
       if (typeof data === 'string' || typeof data === 'number') {
         var value = String(data).trim();
         if (value) {
-          fields.push({ key: path || '', value: value });
+          fields.push({ key: path || '', value: value, fieldType: '' });
         }
         return;
       }
@@ -165,55 +156,40 @@ def tracker_js_view(request):
       message: null
     };
 
-    function setNameIfMissing(value) {
-      if (!extracted.name && value) { extracted.name = value; }
-    }
-    function setEmailIfMissing(value) {
-      if (!extracted.email && value) { extracted.email = value; }
-    }
-    function setPhoneIfMissing(value) {
-      if (!extracted.phone && value) { extracted.phone = value; }
-    }
-    function setMessageIfMissing(value) {
-      if (!extracted.message && value) { extracted.message = value; }
+    function setIfMissing(field, value) {
+      if (!extracted[field] && value) {
+        extracted[field] = value;
+      }
     }
 
     for (var i = 0; i < fields.length; i++) {
       var item = fields[i];
       var key = (item.key || '').toLowerCase();
       var value = item.value;
+      var fieldType = (item.fieldType || '').toLowerCase();
       if (!value) { continue; }
 
       if (key.indexOf('name') !== -1 || key.indexOf('fullname') !== -1 || key.indexOf('fio') !== -1) {
-        setNameIfMissing(value);
+        setIfMissing('name', value);
       }
-      var fieldType = (item.fieldType || '').toLowerCase();
-
       if (key.indexOf('message') !== -1 || key.indexOf('comment') !== -1 || key.indexOf('text') !== -1) {
-        setMessageIfMissing(value);
+        setIfMissing('message', value);
       }
 
-      if (key === 'contact' || key.indexOf('contact') !== -1 || key.indexOf('user_contact') !== -1) {
+      if (fieldType === 'email' || key === 'email' || hasEmailHint(key)) {
         if (isEmail(value)) {
-          setEmailIfMissing(value);
+          setIfMissing('email', value);
+        }
+      }
+
+      if (fieldType === 'tel' || hasPhoneHint(key) || key.indexOf('contact') !== -1) {
+        if (isEmail(value) && key.indexOf('contact') !== -1) {
+          setIfMissing('email', value);
         } else {
-          var contactPhone = normalizePhone(value);
-          if (contactPhone) {
-            setPhoneIfMissing(contactPhone);
+          var normalizedPhone = normalizePhone(value);
+          if (normalizedPhone) {
+            setIfMissing('phone', normalizedPhone);
           }
-        }
-      }
-
-      if (fieldType === 'email' || key === 'email' || key === 'email_address' || hasEmailHint(key)) {
-        if (isEmail(value)) {
-          setEmailIfMissing(value);
-        }
-      }
-
-      if (fieldType === 'tel' || hasPhoneHint(key)) {
-        var normalizedPhone = normalizePhone(value);
-        if (normalizedPhone) {
-          setPhoneIfMissing(normalizedPhone);
         }
       }
     }
@@ -237,24 +213,107 @@ def tracker_js_view(request):
     if (extracted.email) { payload.email = extracted.email; }
     if (extracted.phone) { payload.phone = extracted.phone; }
     if (extracted.message) { payload.message = extracted.message; }
-
-    return extracted;
   }
 
-  function sendPayload(endpoint, payload) {
+  function getElementText(el) {
+    if (!el) { return ''; }
+    var text = (el.innerText || el.textContent || el.value || '').trim();
+    return text.slice(0, 100);
+  }
+
+  var scriptTag = getScriptTag();
+  var apiKey = scriptTag && scriptTag.dataset ? scriptTag.dataset.apiKey : '';
+  if (!apiKey) {
+    safeLogError('Missing data-api-key attribute.');
+    return;
+  }
+
+  var baseUrl = window.location.origin;
+  try {
+    if (scriptTag && scriptTag.src) {
+      baseUrl = new URL(scriptTag.src).origin;
+    }
+  } catch (error) {
+    safeLogError('Failed to resolve tracker base URL.', error);
+  }
+
+  var nativeFetch = window.fetch ? window.fetch.bind(window) : null;
+  if (!nativeFetch) {
+    safeLogError('window.fetch is not available.');
+    return;
+  }
+
+  var sessionKey = 'saas_tracker_session_id';
+  var sessionId = safeStorageGet(sessionKey);
+  if (!sessionId) {
+    sessionId = createSessionId();
+    safeStorageSet(sessionKey, sessionId);
+  }
+  var sourceKey = 'saas_tracker_session_source_' + sessionId;
+  var sessionSourceRaw = safeStorageGet(sourceKey);
+  var sessionSource = null;
+  if (sessionSourceRaw) {
+    try {
+      sessionSource = JSON.parse(sessionSourceRaw);
+    } catch (_) {
+      sessionSource = null;
+    }
+  }
+  if (!sessionSource) {
+    var initialHref = window.location.href;
+    var initialLoc = window.location;
+    sessionSource = Object.assign(
+      {
+        source_url: initialHref,
+        first_url: initialHref,
+        first_pathname: initialLoc.pathname || '/',
+        first_query_string: initialLoc.search || '',
+        referrer: document.referrer || null
+      },
+      getUtms(initialHref)
+    );
+    safeStorageSet(sourceKey, JSON.stringify(sessionSource));
+  }
+
+  var pageStartTs = Date.now();
+  var maxScrollDepth = 0;
+  var sentClickFingerprints = {};
+
+  function basePayload() {
+    var href = window.location.href;
+    var locationObj = window.location;
+    var sourceFields = sessionSource || {};
+    return Object.assign(
+      {
+        session_id: sessionId,
+        source_url: sourceFields.source_url || href,
+        page_url: href,
+        url: href,
+        pathname: locationObj.pathname || '/',
+        query_string: locationObj.search || '',
+        referrer: sourceFields.referrer || null,
+        timestamp: new Date().toISOString()
+      },
+      {
+        utm_source: sourceFields.utm_source || null,
+        utm_medium: sourceFields.utm_medium || null,
+        utm_campaign: sourceFields.utm_campaign || null,
+        utm_term: sourceFields.utm_term || null,
+        utm_content: sourceFields.utm_content || null
+      }
+    );
+  }
+
+  function requestWithFallback(endpoint, payload) {
     var url = baseUrl + endpoint + '?api_key=' + encodeURIComponent(apiKey);
     var body = JSON.stringify(payload);
-
     if (navigator.sendBeacon) {
       try {
         var blob = new Blob([body], { type: 'application/json' });
-        var beaconOk = navigator.sendBeacon(url, blob);
-        if (beaconOk) {
+        if (navigator.sendBeacon(url, blob)) {
           return;
         }
-      } catch (error) {
-        safeLogError('sendBeacon failed for ' + endpoint, error);
-      }
+      } catch (_) {}
     }
 
     nativeFetch(url, {
@@ -271,27 +330,69 @@ def tracker_js_view(request):
     });
   }
 
-  var nativeFetch = window.fetch ? window.fetch.bind(window) : null;
-  if (!nativeFetch) {
-    safeLogError('window.fetch is not available.');
-    return;
-  }
-
-  function basePayload() {
-    var url = window.location.href;
-    return Object.assign(
-      {
-        source_url: url,
-        page_url: url
-      },
-      getUtms(url)
-    );
-  }
-
-  function sendVisit() {
+  function sendPublicEvent(eventType, elementId) {
     var payload = basePayload();
-    payload.event_type = 'visit';
-    sendPayload('/api/public/event/', payload);
+    payload.event_type = eventType;
+    payload.element_id = elementId || null;
+    requestWithFallback('/api/public/event/', payload);
+  }
+
+  function sendPublicLead(payload) {
+    requestWithFallback('/api/public/lead/', payload);
+  }
+
+  function sendAnalyticsEvent(eventType, payloadOverrides) {
+    var payload = basePayload();
+    payload.event_type = eventType;
+    if (payloadOverrides && typeof payloadOverrides === 'object') {
+      var keys = Object.keys(payloadOverrides);
+      for (var i = 0; i < keys.length; i++) {
+        payload[keys[i]] = payloadOverrides[keys[i]];
+      }
+    }
+    requestWithFallback('/api/analytics/event/', payload);
+  }
+
+  function maybeSendVisitOnce() {
+    var marker = 'saas_tracker_visit_sent_' + sessionId;
+    if (safeStorageGet(marker) === '1') {
+      return;
+    }
+    sendPublicEvent('visit', null);
+    safeStorageSet(marker, '1');
+  }
+
+  function sendPageView() {
+    sendAnalyticsEvent('page_view', { max_scroll_depth: maxScrollDepth });
+  }
+
+  function firstFieldValue(form, aliases) {
+    for (var i = 0; i < aliases.length; i++) {
+      var selector = '[name="' + aliases[i] + '"], [name*="' + aliases[i] + '" i], #' + aliases[i];
+      var field = form.querySelector(selector);
+      if (!field || typeof field.value !== 'string') {
+        continue;
+      }
+      var value = field.value.trim();
+      if (value) {
+        return value;
+      }
+    }
+    return null;
+  }
+
+  function extractLeadPayloadFromForm(form) {
+    var payload = basePayload();
+    payload.session_id = sessionId;
+    var fields = collectFormFields(form);
+    assignLeadFromFields(fields, payload);
+    if (!payload.name) {
+      payload.name = firstFieldValue(form, ['name', 'fullname', 'fio']);
+    }
+    if (!payload.message) {
+      payload.message = firstFieldValue(form, ['message', 'comment', 'text']);
+    }
+    return payload;
   }
 
   function trackFormSubmit(event) {
@@ -300,58 +401,24 @@ def tracker_js_view(request):
       if (!form || form.tagName !== 'FORM') {
         return;
       }
-      var payload = basePayload();
-      var fields = collectFormFields(form);
-      assignLeadFromFields(fields, payload);
-      if (!payload.name) {
-        payload.name = firstFieldValue(form, ['name', 'fullname', 'fio']);
-      }
-      if (!payload.message) {
-        payload.message = firstFieldValue(form, ['message', 'comment', 'text']);
-      }
-
-      sendPayload('/api/public/lead/', payload);
-      sendPayload('/api/public/event/', {
-        event_type: 'form_submit',
-        page_url: payload.page_url,
-        element_id: form.id || null
-      });
+      var leadPayload = extractLeadPayloadFromForm(form);
+      sendPublicLead(leadPayload);
+      sendPublicEvent('form_submit', form.id || null);
+      sendAnalyticsEvent('lead_submit', { pathname: window.location.pathname });
     } catch (error) {
       safeLogError('Failed to process submit event.', error);
     }
   }
 
-  function normalizeString(value) {
-    if (typeof value !== 'string') {
-      return null;
-    }
-    var trimmed = value.trim();
-    return trimmed ? trimmed : null;
-  }
-
-  function pickFromObject(data, aliases) {
-    if (!data || typeof data !== 'object') {
-      return null;
-    }
-    var keys = Object.keys(data);
-    for (var i = 0; i < aliases.length; i++) {
-      var alias = aliases[i].toLowerCase();
-      for (var j = 0; j < keys.length; j++) {
-        var key = keys[j];
-        var lowKey = key.toLowerCase();
-        if (lowKey === alias || lowKey.indexOf(alias) !== -1) {
-          var picked = data[key];
-          if (typeof picked === 'number') {
-            picked = String(picked);
-          }
-          var normalized = normalizeString(picked);
-          if (normalized) {
-            return normalized;
-          }
-        }
-      }
-    }
-    return null;
+  function shouldSkipTrackedRequest(url) {
+    return (
+      typeof url === 'string' &&
+      (
+        url.indexOf('/api/public/lead/') !== -1 ||
+        url.indexOf('/api/public/event/') !== -1 ||
+        url.indexOf('/api/analytics/event/') !== -1
+      )
+    );
   }
 
   function extractLeadFromObject(data) {
@@ -359,16 +426,15 @@ def tracker_js_view(request):
       return null;
     }
     var payload = basePayload();
+    payload.session_id = sessionId;
     var fields = collectObjectFields(data);
     assignLeadFromFields(fields, payload);
-
-    if (!payload.name) {
-      payload.name = pickFromObject(data, ['name', 'fullname', 'fio']);
+    if (!payload.name && typeof data.name === 'string') {
+      payload.name = data.name.trim();
     }
-    if (!payload.message) {
-      payload.message = pickFromObject(data, ['message', 'comment', 'text']);
+    if (!payload.message && typeof data.message === 'string') {
+      payload.message = data.message.trim();
     }
-
     if (!payload.name && !payload.phone && !payload.email && !payload.message) {
       return null;
     }
@@ -385,22 +451,12 @@ def tracker_js_view(request):
       if (!leadPayload) {
         return;
       }
-      sendPayload('/api/public/lead/', leadPayload);
-      sendPayload('/api/public/event/', {
-        event_type: 'form_submit',
-        page_url: leadPayload.page_url,
-        element_id: 'fetch_json'
-      });
+      sendPublicLead(leadPayload);
+      sendPublicEvent('form_submit', 'fetch_json');
+      sendAnalyticsEvent('lead_submit', { pathname: window.location.pathname });
     } catch (error) {
       safeLogError('Failed to parse JSON fetch body.', error);
     }
-  }
-
-  function shouldSkipTrackedRequest(url) {
-    return (
-      typeof url === 'string' &&
-      (url.indexOf('/api/public/lead/') !== -1 || url.indexOf('/api/public/event/') !== -1)
-    );
   }
 
   function interceptFetch() {
@@ -417,9 +473,9 @@ def tracker_js_view(request):
               contentType = init.headers.get('Content-Type') || '';
             } else if (Array.isArray(init.headers)) {
               for (var i = 0; i < init.headers.length; i++) {
-                var headerPair = init.headers[i];
-                if (headerPair && String(headerPair[0]).toLowerCase() === 'content-type') {
-                  contentType = headerPair[1] || '';
+                var pair = init.headers[i];
+                if (pair && String(pair[0]).toLowerCase() === 'content-type') {
+                  contentType = pair[1] || '';
                   break;
                 }
               }
@@ -427,10 +483,6 @@ def tracker_js_view(request):
               contentType = init.headers['Content-Type'] || init.headers['content-type'] || '';
             }
           }
-          if (!contentType && input && input.headers && typeof input.headers.get === 'function') {
-            contentType = input.headers.get('Content-Type') || '';
-          }
-
           if (String(contentType).toLowerCase().indexOf('application/json') !== -1) {
             if (init && typeof init.body === 'string') {
               tryTrackJsonLead(init.body);
@@ -438,7 +490,7 @@ def tracker_js_view(request):
               input.clone().text().then(function(textBody) {
                 tryTrackJsonLead(textBody);
               }).catch(function(error) {
-                safeLogError('Failed to read request body from clone().', error);
+                safeLogError('Failed to read request body from fetch clone.', error);
               });
             }
           }
@@ -450,10 +502,80 @@ def tracker_js_view(request):
     };
   }
 
+  function updateScrollDepth() {
+    try {
+      var doc = document.documentElement || document.body;
+      var scrollTop = window.pageYOffset || doc.scrollTop || 0;
+      var viewportHeight = window.innerHeight || doc.clientHeight || 0;
+      var fullHeight = Math.max(
+        doc.scrollHeight || 0,
+        document.body ? document.body.scrollHeight : 0
+      );
+      if (fullHeight <= 0) {
+        return;
+      }
+      var percent = Math.floor(((scrollTop + viewportHeight) / fullHeight) * 100);
+      var milestones = [25, 50, 75, 100];
+      for (var i = milestones.length - 1; i >= 0; i--) {
+        if (percent >= milestones[i]) {
+          if (milestones[i] > maxScrollDepth) {
+            maxScrollDepth = milestones[i];
+          }
+          break;
+        }
+      }
+    } catch (_) {}
+  }
+
+  function trackClick(event) {
+    try {
+      var target = event.target;
+      if (!target) {
+        return;
+      }
+      var clickable = target.closest('button, a, input[type="submit"], [data-track]');
+      if (!clickable) {
+        return;
+      }
+
+      var elementText = getElementText(clickable);
+      var elementId = (clickable.id || '').slice(0, 255);
+      var elementClass = ((clickable.className || '') + '').trim().slice(0, 255);
+      var fingerprint = window.location.pathname + '|' + elementId + '|' + elementText;
+      if (sentClickFingerprints[fingerprint]) {
+        return;
+      }
+      sentClickFingerprints[fingerprint] = true;
+
+      sendAnalyticsEvent('click_event', {
+        pathname: window.location.pathname,
+        element_text: elementText,
+        element_id: elementId,
+        element_class: elementClass
+      });
+    } catch (error) {
+      safeLogError('Failed to process click event.', error);
+    }
+  }
+
+  function sendSessionEnd() {
+    var durationSeconds = Math.max(0, Math.round((Date.now() - pageStartTs) / 1000));
+    sendAnalyticsEvent('session_end', {
+      duration_seconds: durationSeconds,
+      max_scroll_depth: maxScrollDepth,
+      pathname: window.location.pathname
+    });
+  }
+
   try {
-    sendVisit();
+    maybeSendVisitOnce();
+    sendPageView();
     document.addEventListener('submit', trackFormSubmit, true);
+    document.addEventListener('click', trackClick, true);
+    window.addEventListener('scroll', updateScrollDepth, { passive: true });
+    window.addEventListener('beforeunload', sendSessionEnd);
     interceptFetch();
+    updateScrollDepth();
   } catch (error) {
     safeLogError('Tracker initialization failed.', error);
   }

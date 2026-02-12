@@ -9,12 +9,12 @@ import { useAuthStore } from "./stores/auth";
 
 const routes = [
   { path: "/", redirect: "/dashboard" },
-  { path: "/login", name: "login", component: LoginPage, meta: { public: true } },
-  { path: "/register", name: "register", component: RegisterPage, meta: { public: true } },
-  { path: "/dashboard", name: "dashboard", component: DashboardPage },
-  { path: "/dashboard/leads", name: "dashboard_leads", component: LeadsPage },
-  { path: "/dashboard/settings", name: "dashboard_settings", component: SettingsPage },
-  { path: "/dashboard/integration", name: "dashboard_integration", component: IntegrationPage },
+  { path: "/login", name: "login", component: LoginPage, meta: { public: true, title: "Вход" } },
+  { path: "/register", name: "register", component: RegisterPage, meta: { public: true, title: "Регистрация" } },
+  { path: "/dashboard", name: "dashboard", component: DashboardPage, meta: { title: "Панель управления" } },
+  { path: "/dashboard/leads", name: "dashboard_leads", component: LeadsPage, meta: { title: "Заявки" } },
+  { path: "/dashboard/settings", name: "dashboard_settings", component: SettingsPage, meta: { title: "Настройки" } },
+  { path: "/dashboard/integration", name: "dashboard_integration", component: IntegrationPage, meta: { title: "Интеграция" } },
 ];
 
 const router = createRouter({
@@ -31,6 +31,11 @@ router.beforeEach((to) => {
     return { name: "dashboard" };
   }
   return true;
+});
+
+router.afterEach((to) => {
+  const pageTitle = to.meta?.title ? `${to.meta.title} | TrackNode Analytics` : "TrackNode Analytics";
+  document.title = pageTitle;
 });
 
 export default router;

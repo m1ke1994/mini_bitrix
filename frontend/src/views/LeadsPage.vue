@@ -15,34 +15,39 @@
         <input v-model="dateTo" type="date" @change="loadLeads" />
       </div>
 
-      <table class="table">
-        <thead>
-          <tr>
-            <th>ID</th>
-            <th>Имя</th>
-            <th>Телефон</th>
-            <th>Email</th>
-            <th>Статус</th>
-            <th>Создано</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="lead in leads" :key="lead.id">
-            <td>{{ lead.id }}</td>
-            <td>{{ lead.name || "-" }}</td>
-            <td>{{ lead.phone || "-" }}</td>
-            <td>{{ lead.email || "-" }}</td>
-            <td>
-              <select :value="lead.status" @change="changeStatus(lead.id, $event.target.value)">
-                <option value="new">Новая</option>
-                <option value="in_progress">В работе</option>
-                <option value="closed">Закрыта</option>
-              </select>
-            </td>
-            <td>{{ lead.created_at }}</td>
-          </tr>
-        </tbody>
-      </table>
+      <div class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Имя</th>
+              <th>Телефон</th>
+              <th>Email</th>
+              <th>Статус</th>
+              <th>Создано</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="lead in leads" :key="lead.id">
+              <td>{{ lead.id }}</td>
+              <td>{{ lead.name || "-" }}</td>
+              <td>{{ lead.phone || "-" }}</td>
+              <td>{{ lead.email || "-" }}</td>
+              <td>
+                <select :value="lead.status" @change="changeStatus(lead.id, $event.target.value)">
+                  <option value="new">Новая</option>
+                  <option value="in_progress">В работе</option>
+                  <option value="closed">Закрыта</option>
+                </select>
+              </td>
+              <td>{{ lead.created_at }}</td>
+            </tr>
+            <tr v-if="!leads.length">
+              <td colspan="6">Нет данных</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
 
       <div class="pagination">
         <button :disabled="!prevPage" @click="goPage(prevPage)">Назад</button>

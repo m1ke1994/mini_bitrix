@@ -42,6 +42,7 @@ async function loadSettings() {
 
 async function copyScript() {
   copied.value = false;
+  error.value = "";
   try {
     await navigator.clipboard.writeText(settings.value.public_script_tag || "");
     copied.value = true;
