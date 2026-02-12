@@ -2,11 +2,12 @@ from rest_framework import serializers
 
 from leads.models import Lead
 from leads.tasks import send_lead_notification_task
+from leads.utils import normalize_phone
 
 
 class PublicLeadCreateSerializer(serializers.ModelSerializer):
     name = serializers.CharField(required=False, allow_blank=True, label="Name")
-    phone = serializers.CharField(required=False, allow_blank=True, label="Phone")
+    phone = serializers.CharField(required=False, allow_blank=True, allow_null=True, label="Phone")
     email = serializers.EmailField(required=False, allow_null=True, allow_blank=True, label="Email")
 
     class Meta:
@@ -22,10 +23,21 @@ class PublicLeadCreateSerializer(serializers.ModelSerializer):
             "utm_campaign",
         )
 
+    def validate(self, attrs):
+        name = (attrs.get("name") or "").strip()
+        attrs["name"] = name
+
+        raw_email = attrs.get("email")
+        if raw_email is not None:
+            email = str(raw_email).strip().lower()
+            attrs["email"] = email or None
+
+        attrs["phone"] = normalize_phone(attrs.get("phone"))
+        return attrs
+
     def create(self, validated_data):
         client = self.context["client"]
-        validated_data.setdefault("name", "Unknown")
-        validated_data.setdefault("phone", "Unknown")
+        validated_data.setdefault("name", "")
         lead = Lead.objects.create(client=client, status=Lead.Status.NEW, **validated_data)
         send_lead_notification_task.delay(lead.id)
         return lead

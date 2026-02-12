@@ -3,6 +3,7 @@ from django.utils import timezone
 
 from leads.models import Lead
 from leads.services import send_telegram_message
+from leads.utils import normalize_phone
 
 
 @shared_task
@@ -34,8 +35,8 @@ def send_lead_notification_task(lead_id: int) -> None:
         f"Имя: {name_value}",
     ]
 
-    phone_value = (lead.phone or "").strip()
-    if phone_value and phone_value.lower() != "unknown":
+    phone_value = normalize_phone(lead.phone)
+    if phone_value:
         message_lines.append(f"Телефон: {phone_value}")
 
     email_value = (lead.email or "").strip()

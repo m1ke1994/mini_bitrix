@@ -78,10 +78,37 @@ def tracker_js_view(request):
     return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(value);
   }
 
+  function isIsoDate(value) {
+    return /^\d{4}-\d{2}-\d{2}$/.test(String(value).trim());
+  }
+
+  function normalizePhone(value) {
+    var raw = String(value || '').trim();
+    if (!raw || isIsoDate(raw)) {
+      return null;
+    }
+    if (!/^\+?[0-9\s\-()]{7,20}$/.test(raw)) {
+      return null;
+    }
+    var digits = raw.replace(/\D/g, '');
+    if (digits.length < 7) {
+      return null;
+    }
+    return raw;
+  }
+
   function isPhone(value) {
-    var normalized = String(value).replace(/[^\d+]/g, '');
-    var digits = normalized.replace(/\D/g, '');
-    return digits.length >= 7;
+    return !!normalizePhone(value);
+  }
+
+  function hasPhoneHint(key) {
+    var normalized = String(key || '').toLowerCase();
+    return normalized.indexOf('phone') !== -1 || normalized.indexOf('tel') !== -1;
+  }
+
+  function hasEmailHint(key) {
+    var normalized = String(key || '').toLowerCase();
+    return normalized.indexOf('email') !== -1 || normalized.indexOf('mail') !== -1;
   }
 
   function collectFormFields(form) {
@@ -91,9 +118,10 @@ def tracker_js_view(request):
       var node = nodes[i];
       if (!node) { continue; }
       var key = (node.name || node.id || '').trim();
+      var fieldType = ((node.type || '') + '').toLowerCase();
       var rawValue = typeof node.value === 'string' ? node.value.trim() : '';
       if (!rawValue) { continue; }
-      fields.push({ key: key, value: rawValue });
+      fields.push({ key: key, value: rawValue, fieldType: fieldType });
     }
     return fields;
   }
@@ -159,6 +187,8 @@ def tracker_js_view(request):
       if (key.indexOf('name') !== -1 || key.indexOf('fullname') !== -1 || key.indexOf('fio') !== -1) {
         setNameIfMissing(value);
       }
+      var fieldType = (item.fieldType || '').toLowerCase();
+
       if (key.indexOf('message') !== -1 || key.indexOf('comment') !== -1 || key.indexOf('text') !== -1) {
         setMessageIfMissing(value);
       }
@@ -166,42 +196,40 @@ def tracker_js_view(request):
       if (key === 'contact' || key.indexOf('contact') !== -1 || key.indexOf('user_contact') !== -1) {
         if (isEmail(value)) {
           setEmailIfMissing(value);
-        } else if (isPhone(value)) {
-          setPhoneIfMissing(value);
+        } else {
+          var contactPhone = normalizePhone(value);
+          if (contactPhone) {
+            setPhoneIfMissing(contactPhone);
+          }
         }
       }
 
-      if (
-        key === 'email' ||
-        key === 'email_address' ||
-        key.indexOf('mail') !== -1
-      ) {
+      if (fieldType === 'email' || key === 'email' || key === 'email_address' || hasEmailHint(key)) {
         if (isEmail(value)) {
           setEmailIfMissing(value);
         }
       }
 
-      if (
-        key === 'phone' ||
-        key === 'phone_number' ||
-        key === 'tel' ||
-        key.indexOf('phone') !== -1 ||
-        key.indexOf('tel') !== -1
-      ) {
-        if (isPhone(value)) {
-          setPhoneIfMissing(value);
+      if (fieldType === 'tel' || hasPhoneHint(key)) {
+        var normalizedPhone = normalizePhone(value);
+        if (normalizedPhone) {
+          setPhoneIfMissing(normalizedPhone);
         }
       }
     }
 
     for (var j = 0; j < fields.length; j++) {
       var candidate = fields[j].value;
+      var candidateKey = (fields[j].key || '').toLowerCase();
       if (!candidate) { continue; }
-      if (!extracted.email && isEmail(candidate)) {
+      if (!extracted.email && (hasEmailHint(candidateKey) || candidate.indexOf('@') !== -1) && isEmail(candidate)) {
         extracted.email = candidate;
       }
-      if (!extracted.phone && isPhone(candidate)) {
-        extracted.phone = candidate;
+      if (!extracted.phone && (hasPhoneHint(candidateKey) || candidateKey.indexOf('contact') !== -1)) {
+        var fallbackPhone = normalizePhone(candidate);
+        if (fallbackPhone) {
+          extracted.phone = fallbackPhone;
+        }
       }
     }
 
@@ -274,18 +302,13 @@ def tracker_js_view(request):
       }
       var payload = basePayload();
       var fields = collectFormFields(form);
-      var extracted = assignLeadFromFields(fields, payload);
+      assignLeadFromFields(fields, payload);
       if (!payload.name) {
         payload.name = firstFieldValue(form, ['name', 'fullname', 'fio']);
       }
       if (!payload.message) {
         payload.message = firstFieldValue(form, ['message', 'comment', 'text']);
       }
-      console.log('Tracker extracted lead:', {
-        name: extracted.name || payload.name || null,
-        email: extracted.email || payload.email || null,
-        phone: extracted.phone || payload.phone || null
-      });
 
       sendPayload('/api/public/lead/', payload);
       sendPayload('/api/public/event/', {
@@ -337,7 +360,7 @@ def tracker_js_view(request):
     }
     var payload = basePayload();
     var fields = collectObjectFields(data);
-    var extracted = assignLeadFromFields(fields, payload);
+    assignLeadFromFields(fields, payload);
 
     if (!payload.name) {
       payload.name = pickFromObject(data, ['name', 'fullname', 'fio']);
@@ -349,11 +372,6 @@ def tracker_js_view(request):
     if (!payload.name && !payload.phone && !payload.email && !payload.message) {
       return null;
     }
-    console.log('Tracker extracted lead:', {
-      name: extracted.name || payload.name || null,
-      email: extracted.email || payload.email || null,
-      phone: extracted.phone || payload.phone || null
-    });
     return payload;
   }
 
@@ -367,7 +385,6 @@ def tracker_js_view(request):
       if (!leadPayload) {
         return;
       }
-      console.log('Tracker intercepted lead:', leadPayload);
       sendPayload('/api/public/lead/', leadPayload);
       sendPayload('/api/public/event/', {
         event_type: 'form_submit',

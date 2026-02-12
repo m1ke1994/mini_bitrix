@@ -42,6 +42,7 @@
               <th>ID</th>
               <th>Имя</th>
               <th>Телефон</th>
+              <th>Email</th>
               <th>Статус</th>
               <th>Создано</th>
             </tr>
@@ -49,8 +50,9 @@
           <tbody>
             <tr v-for="lead in summary.latest_leads || []" :key="lead.id">
               <td>{{ lead.id }}</td>
-              <td>{{ lead.name }}</td>
-              <td>{{ lead.phone }}</td>
+              <td>{{ lead.name || "-" }}</td>
+              <td>{{ lead.phone || "-" }}</td>
+              <td>{{ lead.email || "-" }}</td>
               <td>{{ lead.status }}</td>
               <td>{{ lead.created_at }}</td>
             </tr>

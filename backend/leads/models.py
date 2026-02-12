@@ -10,8 +10,8 @@ class Lead(models.Model):
         CLOSED = "closed", "Закрыта"
 
     client = models.ForeignKey(Client, on_delete=models.CASCADE, related_name="leads", verbose_name="Клиент")
-    name = models.CharField(max_length=255, verbose_name="Имя")
-    phone = models.CharField(max_length=50, verbose_name="Телефон")
+    name = models.CharField(max_length=255, blank=True, default="", verbose_name="Имя")
+    phone = models.CharField(max_length=50, blank=True, null=True, verbose_name="Телефон")
     email = models.EmailField(blank=True, null=True, verbose_name="Email")
     message = models.TextField(blank=True, null=True, verbose_name="Сообщение")
     source_url = models.URLField(max_length=1000, blank=True, null=True, verbose_name="URL страницы")
@@ -30,4 +30,4 @@ class Lead(models.Model):
         ]
 
     def __str__(self):
-        return f"{self.name} ({self.phone})"
+        return f"{self.name or 'Без имени'} ({self.phone or 'без телефона'})"

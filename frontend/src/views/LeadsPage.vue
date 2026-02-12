@@ -21,6 +21,7 @@
             <th>ID</th>
             <th>Имя</th>
             <th>Телефон</th>
+            <th>Email</th>
             <th>Статус</th>
             <th>Создано</th>
           </tr>
@@ -28,8 +29,9 @@
         <tbody>
           <tr v-for="lead in leads" :key="lead.id">
             <td>{{ lead.id }}</td>
-            <td>{{ lead.name }}</td>
-            <td>{{ lead.phone }}</td>
+            <td>{{ lead.name || "-" }}</td>
+            <td>{{ lead.phone || "-" }}</td>
+            <td>{{ lead.email || "-" }}</td>
             <td>
               <select :value="lead.status" @change="changeStatus(lead.id, $event.target.value)">
                 <option value="new">Новая</option>
