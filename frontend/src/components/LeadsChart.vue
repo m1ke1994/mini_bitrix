@@ -72,20 +72,6 @@ const hasAnyData = computed(() => {
   return [...props.visits, ...props.forms, ...props.leads].some((point) => Number(point.count || 0) > 0);
 });
 
-function gradientFactory(colorStart, colorEnd) {
-  return (context) => {
-    const chart = context.chart;
-    const { ctx, chartArea } = chart;
-    if (!chartArea) {
-      return colorStart;
-    }
-    const gradient = ctx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
-    gradient.addColorStop(0, colorStart);
-    gradient.addColorStop(1, colorEnd);
-    return gradient;
-  };
-}
-
 const chartData = computed(() => {
   return {
     labels: labels.value,
@@ -93,10 +79,10 @@ const chartData = computed(() => {
       {
         label: "Визиты",
         data: labels.value.map((day) => Number(visitMap.value[day] || 0)),
-        borderColor: "#2563eb",
-        backgroundColor: gradientFactory("rgba(37, 99, 235, 0.25)", "rgba(37, 99, 235, 0.02)"),
+        borderColor: "#0d6efd",
+        backgroundColor: "rgba(13, 110, 253, 0.12)",
         fill: true,
-        tension: 0.35,
+        tension: 0.25,
         borderWidth: 2,
         pointRadius: 2,
         pointHoverRadius: 5,
@@ -104,10 +90,10 @@ const chartData = computed(() => {
       {
         label: "Формы",
         data: labels.value.map((day) => Number(formMap.value[day] || 0)),
-        borderColor: "#f59e0b",
-        backgroundColor: gradientFactory("rgba(245, 158, 11, 0.22)", "rgba(245, 158, 11, 0.02)"),
+        borderColor: "#6c757d",
+        backgroundColor: "rgba(108, 117, 125, 0.1)",
         fill: true,
-        tension: 0.35,
+        tension: 0.25,
         borderWidth: 2,
         pointRadius: 2,
         pointHoverRadius: 5,
@@ -115,10 +101,10 @@ const chartData = computed(() => {
       {
         label: "Заявки",
         data: labels.value.map((day) => Number(leadMap.value[day] || 0)),
-        borderColor: "#16a34a",
-        backgroundColor: gradientFactory("rgba(22, 163, 74, 0.2)", "rgba(22, 163, 74, 0.02)"),
+        borderColor: "#198754",
+        backgroundColor: "rgba(25, 135, 84, 0.1)",
         fill: true,
-        tension: 0.35,
+        tension: 0.25,
         borderWidth: 2,
         pointRadius: 2,
         pointHoverRadius: 5,
@@ -144,7 +130,7 @@ const options = computed(() => {
         },
       },
       tooltip: {
-        backgroundColor: "#0f172a",
+        backgroundColor: "#2c3e50",
         padding: 10,
         callbacks: {
           label(context) {
@@ -171,7 +157,7 @@ const options = computed(() => {
           stepSize: undefined,
         },
         grid: {
-          color: "rgba(148, 163, 184, 0.22)",
+          color: "rgba(221, 221, 221, 1)",
         },
       },
     },
@@ -190,9 +176,9 @@ const options = computed(() => {
   min-height: 220px;
   display: grid;
   place-items: center;
-  color: #64748b;
+  color: #6b7280;
   font-size: 14px;
-  border: 1px dashed #cbd5e1;
-  border-radius: 10px;
+  border: 1px dashed #dddddd;
+  border-radius: 4px;
 }
 </style>

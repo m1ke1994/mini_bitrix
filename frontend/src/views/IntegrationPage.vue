@@ -1,26 +1,23 @@
-<template>
-  <AppShell>
-    <section class="page">
-      <h1>Интеграция</h1>
-      <p v-if="error" class="error">{{ error }}</p>
-      <p v-if="copied" class="success">Скрипт скопирован</p>
+﻿<template>
+  <section class="page">
+    <h1>Интеграция</h1>
+    <p v-if="error" class="error">{{ error }}</p>
+    <p v-if="copied" class="success">Скрипт скопирован</p>
 
-      <div class="form-card">
-        <label>URL трекера</label>
-        <input type="text" :value="settings.tracker_script_url" readonly />
+    <div class="form-card">
+      <label>URL трекера</label>
+      <input type="text" :value="settings.tracker_script_url" readonly />
 
-        <label>Скрипт подключения</label>
-        <textarea :value="settings.public_script_tag" rows="4" readonly />
+      <label>Скрипт подключения</label>
+      <textarea :value="settings.public_script_tag" rows="4" readonly />
 
-        <button @click="copyScript">Скопировать</button>
-      </div>
-    </section>
-  </AppShell>
+      <button @click="copyScript">Скопировать</button>
+    </div>
+  </section>
 </template>
 
 <script setup>
 import { onMounted, ref } from "vue";
-import AppShell from "../components/AppShell.vue";
 import api from "../services/api";
 
 const settings = ref({

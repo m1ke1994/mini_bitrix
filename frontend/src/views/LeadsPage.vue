@@ -1,65 +1,62 @@
-<template>
-  <AppShell>
-    <section class="page">
-      <h1>Заявки</h1>
-      <p v-if="error" class="error">{{ error }}</p>
+﻿<template>
+  <section class="page">
+    <h1>Заявки</h1>
+    <p v-if="error" class="error">{{ error }}</p>
 
-      <div class="filters">
-        <select v-model="statusFilter" @change="loadLeads">
-          <option value="">Все статусы</option>
-          <option value="new">Новая</option>
-          <option value="in_progress">В работе</option>
-          <option value="closed">Закрыта</option>
-        </select>
-        <input v-model="dateFrom" type="date" @change="loadLeads" />
-        <input v-model="dateTo" type="date" @change="loadLeads" />
-      </div>
+    <div class="filters">
+      <select v-model="statusFilter" @change="loadLeads">
+        <option value="">Все статусы</option>
+        <option value="new">Новая</option>
+        <option value="in_progress">В работе</option>
+        <option value="closed">Закрыта</option>
+      </select>
+      <input v-model="dateFrom" type="date" @change="loadLeads" />
+      <input v-model="dateTo" type="date" @change="loadLeads" />
+    </div>
 
-      <div class="table-wrap">
-        <table class="table">
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>Имя</th>
-              <th>Телефон</th>
-              <th>Email</th>
-              <th>Статус</th>
-              <th>Создано</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="lead in leads" :key="lead.id">
-              <td>{{ lead.id }}</td>
-              <td>{{ lead.name || "-" }}</td>
-              <td>{{ lead.phone || "-" }}</td>
-              <td>{{ lead.email || "-" }}</td>
-              <td>
-                <select :value="lead.status" @change="changeStatus(lead.id, $event.target.value)">
-                  <option value="new">Новая</option>
-                  <option value="in_progress">В работе</option>
-                  <option value="closed">Закрыта</option>
-                </select>
-              </td>
-              <td>{{ lead.created_at }}</td>
-            </tr>
-            <tr v-if="!leads.length">
-              <td colspan="6">Нет данных</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+    <div class="table-wrap">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Имя</th>
+            <th>Телефон</th>
+            <th>Email</th>
+            <th>Статус</th>
+            <th>Создано</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="lead in leads" :key="lead.id">
+            <td>{{ lead.id }}</td>
+            <td>{{ lead.name || "-" }}</td>
+            <td>{{ lead.phone || "-" }}</td>
+            <td>{{ lead.email || "-" }}</td>
+            <td>
+              <select :value="lead.status" @change="changeStatus(lead.id, $event.target.value)">
+                <option value="new">Новая</option>
+                <option value="in_progress">В работе</option>
+                <option value="closed">Закрыта</option>
+              </select>
+            </td>
+            <td>{{ lead.created_at }}</td>
+          </tr>
+          <tr v-if="!leads.length">
+            <td colspan="6">Нет данных</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
 
-      <div class="pagination">
-        <button :disabled="!prevPage" @click="goPage(prevPage)">Назад</button>
-        <button :disabled="!nextPage" @click="goPage(nextPage)">Вперед</button>
-      </div>
-    </section>
-  </AppShell>
+    <div class="pagination">
+      <button :disabled="!prevPage" @click="goPage(prevPage)">Назад</button>
+      <button :disabled="!nextPage" @click="goPage(nextPage)">Вперед</button>
+    </div>
+  </section>
 </template>
 
 <script setup>
 import { onMounted, ref } from "vue";
-import AppShell from "../components/AppShell.vue";
 import api from "../services/api";
 
 const leads = ref([]);

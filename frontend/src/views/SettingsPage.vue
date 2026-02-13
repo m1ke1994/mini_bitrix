@@ -1,38 +1,35 @@
-<template>
-  <AppShell>
-    <section class="page">
-      <h1>Настройки</h1>
-      <p v-if="error" class="error">{{ error }}</p>
-      <p v-if="saved" class="success">Сохранено</p>
+﻿<template>
+  <section class="page">
+    <h1>Настройки</h1>
+    <p v-if="error" class="error">{{ error }}</p>
+    <p v-if="saved" class="success">Сохранено</p>
 
-      <div class="form-card">
-        <label>API ключ</label>
-        <input type="text" :value="settings.api_key" readonly />
+    <div class="form-card">
+      <label>API ключ</label>
+      <input type="text" :value="settings.api_key" readonly />
 
-        <label>Статус Telegram</label>
-        <input type="text" :value="settings.telegram_status === 'connected' ? 'Подключен' : 'Не подключен'" readonly />
+      <label>Статус Telegram</label>
+      <input type="text" :value="settings.telegram_status === 'connected' ? 'Подключен' : 'Не подключен'" readonly />
 
-        <label>Telegram Chat ID</label>
-        <input type="text" :value="settings.telegram_chat_id || '-'" readonly />
+      <label>Telegram Chat ID</label>
+      <input type="text" :value="settings.telegram_chat_id || '-'" readonly />
 
-        <a v-if="settings.telegram_connect_url" :href="settings.telegram_connect_url" target="_blank" rel="noopener">
-          <button type="button">Подключить Telegram</button>
-        </a>
+      <a v-if="settings.telegram_connect_url" :href="settings.telegram_connect_url" target="_blank" rel="noopener">
+        <button type="button">Подключить Telegram</button>
+      </a>
 
-        <label class="checkbox">
-          <input v-model="settings.send_to_telegram" type="checkbox" />
-          <span>Отправлять уведомления о заявках в Telegram</span>
-        </label>
+      <label class="checkbox">
+        <input v-model="settings.send_to_telegram" type="checkbox" />
+        <span>Отправлять уведомления о заявках в Telegram</span>
+      </label>
 
-        <button @click="save">Сохранить</button>
-      </div>
-    </section>
-  </AppShell>
+      <button @click="save">Сохранить</button>
+    </div>
+  </section>
 </template>
 
 <script setup>
 import { onMounted, ref } from "vue";
-import AppShell from "../components/AppShell.vue";
 import api from "../services/api";
 
 const settings = ref({
