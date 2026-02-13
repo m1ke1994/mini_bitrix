@@ -28,6 +28,9 @@
         <router-link to="/integration" @click="isMenuOpen = false">Интеграция</router-link>
         <router-link to="/settings" @click="isMenuOpen = false">Настройки</router-link>
       </nav>
+      <div class="nav-secondary">
+        <router-link to="/instructions" @click="isMenuOpen = false">Инструкция по подключению</router-link>
+      </div>
       <button class="logout" @click="logout">Выйти</button>
     </aside>
 

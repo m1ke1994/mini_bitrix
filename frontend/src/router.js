@@ -6,6 +6,7 @@ import DashboardSources from "./views/DashboardSources.vue";
 import DashboardClicks from "./views/DashboardClicks.vue";
 import DashboardPagesConversion from "./views/DashboardPagesConversion.vue";
 import IntegrationPage from "./views/IntegrationPage.vue";
+import InstructionsPage from "./views/InstructionsPage.vue";
 import LoginPage from "./views/LoginPage.vue";
 import LeadsPage from "./views/LeadsPage.vue";
 import RegisterPage from "./views/RegisterPage.vue";
@@ -30,6 +31,7 @@ const routes = [
   { path: "/leads", name: "leads", component: LeadsPage, meta: { title: "Заявки" } },
   { path: "/settings", name: "settings", component: SettingsPage, meta: { title: "Настройки" } },
   { path: "/integration", name: "integration", component: IntegrationPage, meta: { title: "Интеграция" } },
+  { path: "/instructions", name: "instructions", component: InstructionsPage, meta: { title: "Инструкция по подключению" } },
   { path: "/dashboard/leads", redirect: "/leads" },
   { path: "/dashboard/settings", redirect: "/settings" },
   { path: "/dashboard/integration", redirect: "/integration" },
