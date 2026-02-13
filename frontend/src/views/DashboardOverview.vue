@@ -47,7 +47,7 @@
               <td>{{ lead.phone || "-" }}</td>
               <td>{{ lead.email || "-" }}</td>
               <td>{{ lead.status }}</td>
-              <td>{{ lead.created_at }}</td>
+              <td>{{ formatDateTime(lead.created_at) }}</td>
             </tr>
             <tr v-if="!sortedLeads.length">
               <td colspan="6">Нет данных</td>
@@ -77,6 +77,19 @@ const sortedLeads = computed(() => {
 
 function toggleDateSort() {
   dateSortAsc.value = !dateSortAsc.value;
+}
+
+function formatDateTime(value) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleString("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 onMounted(loadSummary);
