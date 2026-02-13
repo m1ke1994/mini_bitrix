@@ -1,5 +1,10 @@
 import { createRouter, createWebHistory } from "vue-router";
-import DashboardPage from "./views/DashboardPage.vue";
+import DashboardLayout from "./views/DashboardLayout.vue";
+import DashboardOverview from "./views/DashboardOverview.vue";
+import DashboardDynamics from "./views/DashboardDynamics.vue";
+import DashboardSources from "./views/DashboardSources.vue";
+import DashboardClicks from "./views/DashboardClicks.vue";
+import DashboardPagesConversion from "./views/DashboardPagesConversion.vue";
 import IntegrationPage from "./views/IntegrationPage.vue";
 import LoginPage from "./views/LoginPage.vue";
 import LeadsPage from "./views/LeadsPage.vue";
@@ -11,10 +16,23 @@ const routes = [
   { path: "/", redirect: "/dashboard" },
   { path: "/login", name: "login", component: LoginPage, meta: { public: true, title: "Вход" } },
   { path: "/register", name: "register", component: RegisterPage, meta: { public: true, title: "Регистрация" } },
-  { path: "/dashboard", name: "dashboard", component: DashboardPage, meta: { title: "Панель управления" } },
-  { path: "/dashboard/leads", name: "dashboard_leads", component: LeadsPage, meta: { title: "Заявки" } },
-  { path: "/dashboard/settings", name: "dashboard_settings", component: SettingsPage, meta: { title: "Настройки" } },
-  { path: "/dashboard/integration", name: "dashboard_integration", component: IntegrationPage, meta: { title: "Интеграция" } },
+  {
+    path: "/dashboard",
+    component: DashboardLayout,
+    children: [
+      { path: "", name: "dashboard_overview", component: DashboardOverview, meta: { title: "Панель управления — Обзор" } },
+      { path: "dynamics", name: "dashboard_dynamics", component: DashboardDynamics, meta: { title: "Панель управления — Динамика по дням" } },
+      { path: "sources", name: "dashboard_sources", component: DashboardSources, meta: { title: "Панель управления — Топ источников" } },
+      { path: "clicks", name: "dashboard_clicks", component: DashboardClicks, meta: { title: "Панель управления — Топ кликов" } },
+      { path: "pages-conversion", name: "dashboard_pages_conversion", component: DashboardPagesConversion, meta: { title: "Панель управления — Конверсия по страницам" } },
+    ],
+  },
+  { path: "/leads", name: "leads", component: LeadsPage, meta: { title: "Заявки" } },
+  { path: "/settings", name: "settings", component: SettingsPage, meta: { title: "Настройки" } },
+  { path: "/integration", name: "integration", component: IntegrationPage, meta: { title: "Интеграция" } },
+  { path: "/dashboard/leads", redirect: "/leads" },
+  { path: "/dashboard/settings", redirect: "/settings" },
+  { path: "/dashboard/integration", redirect: "/integration" },
 ];
 
 const router = createRouter({
@@ -28,7 +46,7 @@ router.beforeEach((to) => {
     return { name: "login" };
   }
   if (to.meta.public && auth.isAuthenticated) {
-    return { name: "dashboard" };
+    return { name: "dashboard_overview" };
   }
   return true;
 });

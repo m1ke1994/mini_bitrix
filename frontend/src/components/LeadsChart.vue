@@ -1,22 +1,25 @@
 <template>
-  <Line :data="chartData" :options="options" />
+  <div class="trend-chart">
+    <Line v-if="hasAnyData" :data="chartData" :options="options" />
+    <div v-else class="empty-state">Нет данных для построения графика</div>
+  </div>
 </template>
 
 <script setup>
 import {
   CategoryScale,
   Chart as ChartJS,
+  Filler,
   Legend,
   LineElement,
   LinearScale,
   PointElement,
-  Title,
   Tooltip,
 } from "chart.js";
 import { computed } from "vue";
 import { Line } from "vue-chartjs";
 
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend);
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend, Filler);
 
 const props = defineProps({
   visits: {
@@ -40,48 +43,156 @@ function toCountMap(points) {
   }, {});
 }
 
+function lastNDates(days) {
+  const result = [];
+  const now = new Date();
+  for (let i = days - 1; i >= 0; i -= 1) {
+    const d = new Date(now);
+    d.setDate(now.getDate() - i);
+    result.push(d.toISOString().slice(0, 10));
+  }
+  return result;
+}
+
 const labels = computed(() => {
   const days = new Set();
-  [...props.visits, ...props.forms, ...props.leads].forEach((point) => days.add(String(point.day)));
-  return Array.from(days).sort();
+  [...props.visits, ...props.forms, ...props.leads].forEach((point) => days.add(String(point.day).slice(0, 10)));
+  const sorted = Array.from(days).sort();
+  if (!sorted.length) {
+    return lastNDates(14);
+  }
+  return sorted;
 });
 
-const chartData = computed(() => {
-  const visitMap = toCountMap(props.visits);
-  const formMap = toCountMap(props.forms);
-  const leadMap = toCountMap(props.leads);
+const visitMap = computed(() => toCountMap(props.visits));
+const formMap = computed(() => toCountMap(props.forms));
+const leadMap = computed(() => toCountMap(props.leads));
 
+const hasAnyData = computed(() => {
+  return [...props.visits, ...props.forms, ...props.leads].some((point) => Number(point.count || 0) > 0);
+});
+
+function gradientFactory(colorStart, colorEnd) {
+  return (context) => {
+    const chart = context.chart;
+    const { ctx, chartArea } = chart;
+    if (!chartArea) {
+      return colorStart;
+    }
+    const gradient = ctx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+    gradient.addColorStop(0, colorStart);
+    gradient.addColorStop(1, colorEnd);
+    return gradient;
+  };
+}
+
+const chartData = computed(() => {
   return {
     labels: labels.value,
     datasets: [
       {
         label: "Визиты",
-        data: labels.value.map((day) => visitMap[day] || 0),
-        borderColor: "#1672f3",
-        backgroundColor: "rgba(22, 114, 243, 0.2)",
-        tension: 0.3,
+        data: labels.value.map((day) => Number(visitMap.value[day] || 0)),
+        borderColor: "#2563eb",
+        backgroundColor: gradientFactory("rgba(37, 99, 235, 0.25)", "rgba(37, 99, 235, 0.02)"),
+        fill: true,
+        tension: 0.35,
+        borderWidth: 2,
+        pointRadius: 2,
+        pointHoverRadius: 5,
       },
       {
         label: "Формы",
-        data: labels.value.map((day) => formMap[day] || 0),
-        borderColor: "#f39c12",
-        backgroundColor: "rgba(243, 156, 18, 0.2)",
-        tension: 0.3,
+        data: labels.value.map((day) => Number(formMap.value[day] || 0)),
+        borderColor: "#f59e0b",
+        backgroundColor: gradientFactory("rgba(245, 158, 11, 0.22)", "rgba(245, 158, 11, 0.02)"),
+        fill: true,
+        tension: 0.35,
+        borderWidth: 2,
+        pointRadius: 2,
+        pointHoverRadius: 5,
       },
       {
         label: "Заявки",
-        data: labels.value.map((day) => leadMap[day] || 0),
-        borderColor: "#2e8b57",
-        backgroundColor: "rgba(46, 139, 87, 0.2)",
-        tension: 0.3,
+        data: labels.value.map((day) => Number(leadMap.value[day] || 0)),
+        borderColor: "#16a34a",
+        backgroundColor: gradientFactory("rgba(22, 163, 74, 0.2)", "rgba(22, 163, 74, 0.02)"),
+        fill: true,
+        tension: 0.35,
+        borderWidth: 2,
+        pointRadius: 2,
+        pointHoverRadius: 5,
       },
     ],
   };
 });
 
-const options = {
-  responsive: true,
-  maintainAspectRatio: false,
-  plugins: { legend: { display: true } },
-};
+const options = computed(() => {
+  return {
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: {
+      mode: "index",
+      intersect: false,
+    },
+    plugins: {
+      legend: {
+        position: "top",
+        labels: {
+          usePointStyle: true,
+          boxWidth: 8,
+        },
+      },
+      tooltip: {
+        backgroundColor: "#0f172a",
+        padding: 10,
+        callbacks: {
+          label(context) {
+            return `${context.dataset.label}: ${context.parsed.y}`;
+          },
+        },
+      },
+    },
+    scales: {
+      x: {
+        grid: {
+          display: false,
+        },
+        ticks: {
+          maxRotation: 0,
+          autoSkip: true,
+        },
+      },
+      y: {
+        beginAtZero: true,
+        grace: "8%",
+        ticks: {
+          precision: 0,
+          stepSize: undefined,
+        },
+        grid: {
+          color: "rgba(148, 163, 184, 0.22)",
+        },
+      },
+    },
+  };
+});
 </script>
+
+<style scoped>
+.trend-chart {
+  height: 100%;
+  min-height: 220px;
+}
+
+.empty-state {
+  height: 100%;
+  min-height: 220px;
+  display: grid;
+  place-items: center;
+  color: #64748b;
+  font-size: 14px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 10px;
+}
+</style>

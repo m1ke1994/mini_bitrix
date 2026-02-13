@@ -108,6 +108,9 @@ class AnalyticsSummaryView(APIView):
         page_view_qs = PageView.objects.filter(client=client, created_at__date__gte=from_date)
         avg_time_on_site = page_view_qs.aggregate(v=Avg("duration_seconds"))["v"] or 0
         avg_scroll_depth = page_view_qs.aggregate(v=Avg("max_scroll_depth"))["v"] or 0
+        total_sessions = page_view_qs.values("session_id").distinct().count()
+        total_page_views = page_view_qs.count()
+        avg_page_views_per_session = (total_page_views / total_sessions) if total_sessions else 0
         avg_session_duration = (
             page_view_qs.values("session_id")
             .annotate(total_duration=Sum("duration_seconds"))
@@ -115,20 +118,33 @@ class AnalyticsSummaryView(APIView):
             or 0
         )
 
-        source_counter = {}
-        for item in page_view_qs.values("utm_source", "referrer"):
-            source = (item.get("utm_source") or "").strip()
+        source_stats = {}
+        for item in page_view_qs.values("utm_source", "referrer", "attributed_leads"):
+            source = (item.get("utm_source") or "").strip().lower()
             if not source:
                 referrer = (item.get("referrer") or "").strip()
                 if referrer:
-                    source = urlparse(referrer).netloc or "referral"
+                    source = (urlparse(referrer).netloc or "referral").lower()
                 else:
                     source = "direct"
-            source_counter[source] = source_counter.get(source, 0) + 1
-        formatted_sources = [
-            {"source": source, "count": count}
-            for source, count in sorted(source_counter.items(), key=lambda x: x[1], reverse=True)[:5]
-        ]
+            if source not in source_stats:
+                source_stats[source] = {"source": source, "visits": 0, "leads": 0}
+            source_stats[source]["visits"] += 1
+            source_stats[source]["leads"] += int(item.get("attributed_leads") or 0)
+        source_performance = []
+        for stats_item in source_stats.values():
+            visits = stats_item["visits"]
+            leads = stats_item["leads"]
+            source_performance.append(
+                {
+                    "source": stats_item["source"],
+                    "visits": visits,
+                    "leads": leads,
+                    "conversion_pct": round((leads / visits) * 100, 2) if visits else 0,
+                }
+            )
+        source_performance.sort(key=lambda item: item["visits"], reverse=True)
+        formatted_sources = [{"source": item["source"], "count": item["visits"]} for item in source_performance[:5]]
 
         conversion_by_pages_qs = (
             page_view_qs.values("pathname")
@@ -136,7 +152,7 @@ class AnalyticsSummaryView(APIView):
                 visits=Count("id"),
                 leads=Sum("attributed_leads"),
             )
-            .order_by("-visits")[:20]
+            .order_by("-leads", "-visits")[:20]
         )
         conversion_by_pages = []
         for item in conversion_by_pages_qs:
@@ -158,7 +174,12 @@ class AnalyticsSummaryView(APIView):
             .annotate(count=Count("id"))
             .order_by("-count")[:10]
         )
-        top_clicks = list(top_clicks_qs)
+        total_clicks = ClickEvent.objects.filter(client=client, created_at__date__gte=from_date).count()
+        top_clicks = []
+        for item in top_clicks_qs:
+            row = dict(item)
+            row["percent_of_total"] = round((row["count"] / total_clicks) * 100, 2) if total_clicks else 0
+            top_clicks.append(row)
 
         return Response(
             {
@@ -173,8 +194,12 @@ class AnalyticsSummaryView(APIView):
                 "avg_time_on_site": round(float(avg_time_on_site), 2),
                 "avg_session_duration": round(float(avg_session_duration), 2),
                 "avg_scroll_depth": round(float(avg_scroll_depth), 2),
+                "total_sessions": total_sessions,
+                "avg_page_views_per_session": round(float(avg_page_views_per_session), 2),
                 "top_sources": formatted_sources,
+                "source_performance": source_performance,
                 "conversion_by_pages": conversion_by_pages,
                 "top_clicks": top_clicks,
+                "total_clicks": total_clicks,
             }
         )
