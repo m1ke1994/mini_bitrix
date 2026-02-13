@@ -33,7 +33,7 @@ INSTALLED_APPS = [
     "rest_framework",
     "rest_framework_simplejwt",
     "django_filters",
-    "accounts.apps.AccountsConfig",
+    "accounts",
     "clients",
     "leads",
     "analytics_app",
@@ -119,11 +119,6 @@ STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 DEFAULT_CHARSET = "utf-8"
-
-AUTHENTICATION_BACKENDS = [
-    "accounts.auth_backends.EmailOrUsernameBackend",
-    "django.contrib.auth.backends.ModelBackend",
-]
 
 # ================= CORS =================
 

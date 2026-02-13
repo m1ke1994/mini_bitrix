@@ -1,7 +1,9 @@
-from clients.models import Client
 import logging
+
 from rest_framework import permissions
 from rest_framework.exceptions import AuthenticationFailed
+
+from clients.models import Client
 
 logger = logging.getLogger(__name__)
 
@@ -36,5 +38,14 @@ class HasValidApiKey(permissions.BasePermission):
                 Client.objects.count(),
             )
             raise AuthenticationFailed("Недействительный API-ключ или клиент отключен.") from exc
+
+        api_key_masked = (api_key[:6] + "***") if isinstance(api_key, str) and len(api_key) >= 6 else "***"
+        logger.info(
+            "Public API auth success: client_id=%s owner_id=%s api_key=%s path=%s",
+            client.id,
+            client.owner_id,
+            api_key_masked,
+            request.path,
+        )
         request.client = client
         return True

@@ -38,7 +38,40 @@ class PublicEventCreateView(CreateAPIView):
         except Exception:
             logger.exception("Failed to create public event")
             return Response({"detail": "Internal server error."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        if event.event_type == Event.EventType.VISIT:
+            logger.info(
+                "Visit event stored: client_id=%s event_id=%s page_url=%s",
+                request.client.id,
+                event.id,
+                event.page_url,
+            )
         return Response({"id": event.id}, status=status.HTTP_201_CREATED)
+
+
+class PublicVisitTrackView(APIView):
+    permission_classes = [HasValidApiKey]
+    throttle_scope = "public_event"
+
+    def post(self, request, *args, **kwargs):
+        payload = {
+            "event_type": Event.EventType.VISIT,
+            "page_url": request.data.get("page_url"),
+            "element_id": request.data.get("element_id"),
+        }
+        serializer = PublicEventCreateSerializer(data=payload, context={"client": request.client})
+        serializer.is_valid(raise_exception=True)
+        try:
+            event = serializer.save()
+        except Exception:
+            logger.exception("Failed to create visit event")
+            return Response({"detail": "Internal server error."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        logger.info(
+            "Visit track endpoint stored event: client_id=%s event_id=%s page_url=%s",
+            request.client.id,
+            event.id,
+            event.page_url,
+        )
+        return Response({"id": event.id, "event_type": event.event_type}, status=status.HTTP_200_OK)
 
 
 class PublicAnalyticsEventCreateView(CreateAPIView):
@@ -67,29 +100,34 @@ class AnalyticsSummaryView(APIView):
 
     def get(self, request):
         client = request.client
-        from_date = timezone.now().date() - timedelta(days=13)
+        from_dt = timezone.now() - timedelta(days=13)
 
-        visit_count = Event.objects.filter(client=client, event_type=Event.EventType.VISIT).count()
-        form_submit_count = Event.objects.filter(client=client, event_type=Event.EventType.FORM_SUBMIT).count()
+        # Exclude technical fetch-interceptor marker to avoid double counting
+        # a single real form submission as two "form_submit" events.
+        form_submit_count = (
+            Event.objects.filter(client=client, event_type=Event.EventType.FORM_SUBMIT)
+            .exclude(element_id="fetch_json")
+            .count()
+        )
         leads_count = Lead.objects.filter(client=client).count()
-        conversion = (form_submit_count / visit_count) if visit_count else 0
 
         visits_by_day = (
             Event.objects.filter(
                 client=client,
                 event_type=Event.EventType.VISIT,
-                created_at__date__gte=from_date,
+                created_at__gte=from_dt,
             )
             .annotate(day=TruncDate("created_at"))
             .values("day")
             .annotate(count=Count("id"))
             .order_by("day")
         )
+        visits_by_day_list = list(visits_by_day)
         forms_by_day = (
             Event.objects.filter(
                 client=client,
                 event_type=Event.EventType.FORM_SUBMIT,
-                created_at__date__gte=from_date,
+                created_at__gte=from_dt,
             )
             .annotate(day=TruncDate("created_at"))
             .values("day")
@@ -97,7 +135,7 @@ class AnalyticsSummaryView(APIView):
             .order_by("day")
         )
         leads_by_day = (
-            Lead.objects.filter(client=client, created_at__date__gte=from_date)
+            Lead.objects.filter(client=client, created_at__gte=from_dt)
             .annotate(day=TruncDate("created_at"))
             .values("day")
             .annotate(count=Count("id"))
@@ -105,7 +143,10 @@ class AnalyticsSummaryView(APIView):
         )
         latest_leads = Lead.objects.filter(client=client).order_by("-created_at")[:10]
 
-        page_view_qs = PageView.objects.filter(client=client, created_at__date__gte=from_date)
+        page_view_qs = PageView.objects.filter(client=client, created_at__gte=from_dt)
+        # Keep "Overview -> Visits" consistent with "Top sources" data source/filtering.
+        visit_count = page_view_qs.count()
+        conversion = (form_submit_count / visit_count) if visit_count else 0
         avg_time_on_site = page_view_qs.aggregate(v=Avg("duration_seconds"))["v"] or 0
         avg_scroll_depth = page_view_qs.aggregate(v=Avg("max_scroll_depth"))["v"] or 0
         total_sessions = page_view_qs.values("session_id").distinct().count()
@@ -169,17 +210,26 @@ class AnalyticsSummaryView(APIView):
             )
 
         top_clicks_qs = (
-            ClickEvent.objects.filter(client=client, created_at__date__gte=from_date)
+            ClickEvent.objects.filter(client=client, created_at__gte=from_dt)
             .values("page_pathname", "element_text", "element_id", "element_class")
             .annotate(count=Count("id"))
             .order_by("-count")[:10]
         )
-        total_clicks = ClickEvent.objects.filter(client=client, created_at__date__gte=from_date).count()
+        total_clicks = ClickEvent.objects.filter(client=client, created_at__gte=from_dt).count()
         top_clicks = []
         for item in top_clicks_qs:
             row = dict(item)
             row["percent_of_total"] = round((row["count"] / total_clicks) * 100, 2) if total_clicks else 0
             top_clicks.append(row)
+
+        logger.info(
+            "Analytics summary: client_id=%s visits_total=%s forms_total=%s leads_total=%s visit_days=%s",
+            client.id,
+            visit_count,
+            form_submit_count,
+            leads_count,
+            len(visits_by_day_list),
+        )
 
         return Response(
             {
@@ -187,7 +237,7 @@ class AnalyticsSummaryView(APIView):
                 "form_submit_count": form_submit_count,
                 "leads_count": leads_count,
                 "conversion": round(conversion, 4),
-                "visits_by_day": list(visits_by_day),
+                "visits_by_day": visits_by_day_list,
                 "forms_by_day": list(forms_by_day),
                 "leads_by_day": list(leads_by_day),
                 "latest_leads": LeadSerializer(latest_leads, many=True).data,

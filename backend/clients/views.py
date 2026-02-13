@@ -337,6 +337,12 @@ def tracker_js_view(request):
     requestWithFallback('/api/public/event/', payload);
   }
 
+  function sendVisitEvent() {
+    var payload = basePayload();
+    payload.element_id = null;
+    requestWithFallback('/api/track/visit/', payload);
+  }
+
   function sendPublicLead(payload) {
     requestWithFallback('/api/public/lead/', payload);
   }
@@ -351,15 +357,6 @@ def tracker_js_view(request):
       }
     }
     requestWithFallback('/api/analytics/event/', payload);
-  }
-
-  function maybeSendVisitOnce() {
-    var marker = 'saas_tracker_visit_sent_' + sessionId;
-    if (safeStorageGet(marker) === '1') {
-      return;
-    }
-    sendPublicEvent('visit', null);
-    safeStorageSet(marker, '1');
   }
 
   function sendPageView() {
@@ -568,7 +565,7 @@ def tracker_js_view(request):
   }
 
   try {
-    maybeSendVisitOnce();
+    sendVisitEvent();
     sendPageView();
     document.addEventListener('submit', trackFormSubmit, true);
     document.addEventListener('click', trackClick, true);

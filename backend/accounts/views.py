@@ -66,7 +66,7 @@ class LoginView(APIView):
             logger.warning("Login validation failed: %s", validation_errors)
             return Response(_format_errors(validation_errors), status=status.HTTP_400_BAD_REQUEST)
 
-        user = authenticate(request=request, email=email, password=password)
+        user = authenticate(request=request, username=email, password=password)
         if user is None:
             logger.warning("Login failed: invalid credentials for email=%s", email)
             return Response(
