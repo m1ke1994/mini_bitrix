@@ -1,23 +1,27 @@
-<template>
+﻿<template>
   <section class="dashboard-section">
-    <p v-if="error" class="error">{{ error }}</p>
+    <p v-if="error || overviewError" class="error">{{ error || overviewError }}</p>
 
     <div class="stats">
       <article class="stat-card">
         <h3>Визиты</h3>
-        <strong>{{ summary.visit_count }}</strong>
+        <strong>{{ overview.visits_total }}</strong>
+      </article>
+      <article class="stat-card">
+        <h3>Уникальные</h3>
+        <strong>{{ overview.visitors_unique }}</strong>
       </article>
       <article class="stat-card">
         <h3>Заявки</h3>
-        <strong>{{ summary.leads_count }}</strong>
+        <strong>{{ overview.leads_total }}</strong>
       </article>
       <article class="stat-card">
         <h3>Формы</h3>
-        <strong>{{ summary.form_submit_count }}</strong>
+        <strong>{{ overview.forms_total }}</strong>
       </article>
       <article class="stat-card">
         <h3>Конверсия</h3>
-        <strong>{{ (summary.conversion * 100).toFixed(2) }}%</strong>
+        <strong>{{ (overview.conversion * 100).toFixed(2) }}%</strong>
       </article>
     </div>
 
@@ -25,7 +29,7 @@
       <div class="card-head">
         <h2>Последние 10 заявок</h2>
         <button class="sort-btn" type="button" @click="toggleDateSort">
-          Сортировка: {{ dateSortAsc ? "старые → новые" : "новые → старые" }}
+          Сортировка: {{ dateSortAsc ? "старые -> новые" : "новые -> старые" }}
         </button>
       </div>
       <div class="table-wrap sticky-head">
@@ -61,8 +65,10 @@
 
 <script setup>
 import { computed, onMounted, ref } from "vue";
+import { useAnalyticsOverview } from "../composables/useAnalyticsOverview";
 import { useAnalyticsSummary } from "../composables/useAnalyticsSummary";
 
+const { overview, error: overviewError, loadOverview } = useAnalyticsOverview();
 const { summary, error, loadSummary } = useAnalyticsSummary();
 const dateSortAsc = ref(false);
 
@@ -92,5 +98,7 @@ function formatDateTime(value) {
   });
 }
 
-onMounted(loadSummary);
+onMounted(async () => {
+  await Promise.all([loadOverview(), loadSummary()]);
+});
 </script>

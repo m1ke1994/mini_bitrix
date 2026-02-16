@@ -18,563 +18,320 @@ def tracker_js_view(request):
 (function () {
   'use strict';
 
-  function safeLogError(message, error) {
+  function safeConsole(method, args) {
     try {
-      console.error('[SaaS Tracker] ' + message, error || '');
+      if (window.console && typeof window.console[method] === 'function') {
+        window.console[method].apply(window.console, args);
+      }
     } catch (_) {}
   }
 
-  function safeStorageGet(key) {
+  function logError(message, err) {
+    safeConsole('error', ['[SaaS Tracker] ' + message, err || '']);
+  }
+
+  function logDebug() {
+    if (!debug) {
+      return;
+    }
+    var args = Array.prototype.slice.call(arguments);
+    args.unshift('[SaaS Tracker]');
+    safeConsole('log', args);
+  }
+
+  function logWarn() {
+    var args = Array.prototype.slice.call(arguments);
+    args.unshift('[SaaS Tracker]');
+    safeConsole('warn', args);
+  }
+
+  function asBool(value) {
     try {
-      return window.localStorage.getItem(key);
+      return String(value).toLowerCase() === 'true' || String(value) === '1';
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function nowIso() {
+    return new Date().toISOString();
+  }
+
+  function safeGet(storage, key) {
+    try {
+      return storage.getItem(key);
     } catch (_) {
       return null;
     }
   }
 
-  function safeStorageSet(key, value) {
+  function safeSet(storage, key, value) {
     try {
-      window.localStorage.setItem(key, value);
+      storage.setItem(key, value);
     } catch (_) {}
   }
 
-  function getScriptTag() {
+  function getScript() {
     if (document.currentScript) {
       return document.currentScript;
     }
     var scripts = document.getElementsByTagName('script');
-    if (!scripts || !scripts.length) {
-      return null;
-    }
-    return scripts[scripts.length - 1];
+    return scripts && scripts.length ? scripts[scripts.length - 1] : null;
   }
 
   function createSessionId() {
     try {
-      if (window.crypto && window.crypto.randomUUID) {
+      if (window.crypto && typeof window.crypto.randomUUID === 'function') {
         return window.crypto.randomUUID();
       }
     } catch (_) {}
     return 'sid-' + Date.now() + '-' + Math.random().toString(16).slice(2);
   }
 
-  function isEmail(value) {
-    return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(value);
-  }
-
-  function isIsoDate(value) {
-    return /^\d{4}-\d{2}-\d{2}$/.test(String(value).trim());
-  }
-
-  function normalizePhone(value) {
-    var raw = String(value || '').trim();
-    if (!raw || isIsoDate(raw)) {
-      return null;
+  function getBaseUrl(scriptTag) {
+    try {
+      if (scriptTag && scriptTag.src) {
+        return new URL(scriptTag.src).origin;
+      }
+    } catch (err) {
+      logError('Cannot parse script src.', err);
     }
-    if (!/^\+?[0-9\s\-()]{7,20}$/.test(raw)) {
-      return null;
-    }
-    var digits = raw.replace(/\D/g, '');
-    if (digits.length < 7) {
-      return null;
-    }
-    return raw;
+    return window.location.origin;
   }
 
-  function hasPhoneHint(key) {
-    var normalized = String(key || '').toLowerCase();
-    return normalized.indexOf('phone') !== -1 || normalized.indexOf('tel') !== -1;
-  }
-
-  function hasEmailHint(key) {
-    var normalized = String(key || '').toLowerCase();
-    return normalized.indexOf('email') !== -1 || normalized.indexOf('mail') !== -1;
-  }
-
-  function getUtms(url) {
-    var params = new URL(url).searchParams;
-    return {
-      utm_source: params.get('utm_source') || null,
-      utm_medium: params.get('utm_medium') || null,
-      utm_campaign: params.get('utm_campaign') || null,
-      utm_term: params.get('utm_term') || null,
-      utm_content: params.get('utm_content') || null
-    };
-  }
-
-  function collectFormFields(form) {
-    var fields = [];
-    var nodes = form.querySelectorAll('input, textarea, select');
-    for (var i = 0; i < nodes.length; i++) {
-      var node = nodes[i];
-      if (!node) { continue; }
-      var key = (node.name || node.id || '').trim();
-      var fieldType = ((node.type || '') + '').toLowerCase();
-      var rawValue = typeof node.value === 'string' ? node.value.trim() : '';
-      if (!rawValue) { continue; }
-      fields.push({ key: key, value: rawValue, fieldType: fieldType });
-    }
-    return fields;
-  }
-
-  function collectObjectFields(payload) {
-    var fields = [];
-    function walk(data, path) {
-      if (data === null || data === undefined) {
-        return;
-      }
-      if (typeof data === 'string' || typeof data === 'number') {
-        var value = String(data).trim();
-        if (value) {
-          fields.push({ key: path || '', value: value, fieldType: '' });
-        }
-        return;
-      }
-      if (Array.isArray(data)) {
-        for (var i = 0; i < data.length; i++) {
-          walk(data[i], path);
-        }
-        return;
-      }
-      if (typeof data === 'object') {
-        var keys = Object.keys(data);
-        for (var j = 0; j < keys.length; j++) {
-          var key = keys[j];
-          walk(data[key], key);
-        }
-      }
-    }
-    walk(payload, '');
-    return fields;
-  }
-
-  function assignLeadFromFields(fields, payload) {
-    var extracted = {
-      name: null,
-      email: null,
-      phone: null,
-      message: null
-    };
-
-    function setIfMissing(field, value) {
-      if (!extracted[field] && value) {
-        extracted[field] = value;
-      }
-    }
-
-    for (var i = 0; i < fields.length; i++) {
-      var item = fields[i];
-      var key = (item.key || '').toLowerCase();
-      var value = item.value;
-      var fieldType = (item.fieldType || '').toLowerCase();
-      if (!value) { continue; }
-
-      if (key.indexOf('name') !== -1 || key.indexOf('fullname') !== -1 || key.indexOf('fio') !== -1) {
-        setIfMissing('name', value);
-      }
-      if (key.indexOf('message') !== -1 || key.indexOf('comment') !== -1 || key.indexOf('text') !== -1) {
-        setIfMissing('message', value);
-      }
-
-      if (fieldType === 'email' || key === 'email' || hasEmailHint(key)) {
-        if (isEmail(value)) {
-          setIfMissing('email', value);
-        }
-      }
-
-      if (fieldType === 'tel' || hasPhoneHint(key) || key.indexOf('contact') !== -1) {
-        if (isEmail(value) && key.indexOf('contact') !== -1) {
-          setIfMissing('email', value);
-        } else {
-          var normalizedPhone = normalizePhone(value);
-          if (normalizedPhone) {
-            setIfMissing('phone', normalizedPhone);
-          }
-        }
-      }
-    }
-
-    for (var j = 0; j < fields.length; j++) {
-      var candidate = fields[j].value;
-      var candidateKey = (fields[j].key || '').toLowerCase();
-      if (!candidate) { continue; }
-      if (!extracted.email && (hasEmailHint(candidateKey) || candidate.indexOf('@') !== -1) && isEmail(candidate)) {
-        extracted.email = candidate;
-      }
-      if (!extracted.phone && (hasPhoneHint(candidateKey) || candidateKey.indexOf('contact') !== -1)) {
-        var fallbackPhone = normalizePhone(candidate);
-        if (fallbackPhone) {
-          extracted.phone = fallbackPhone;
-        }
-      }
-    }
-
-    if (extracted.name) { payload.name = extracted.name; }
-    if (extracted.email) { payload.email = extracted.email; }
-    if (extracted.phone) { payload.phone = extracted.phone; }
-    if (extracted.message) { payload.message = extracted.message; }
-  }
-
-  function getElementText(el) {
-    if (!el) { return ''; }
-    var text = (el.innerText || el.textContent || el.value || '').trim();
-    return text.slice(0, 100);
-  }
-
-  var scriptTag = getScriptTag();
-  var apiKey = scriptTag && scriptTag.dataset ? scriptTag.dataset.apiKey : '';
-  if (!apiKey) {
-    safeLogError('Missing data-api-key attribute.');
-    return;
-  }
-
-  var baseUrl = window.location.origin;
+  var scriptTag = getScript();
+  var token = scriptTag && scriptTag.dataset ? (scriptTag.dataset.token || scriptTag.dataset.apiKey || '') : '';
+  var debug = false;
   try {
-    if (scriptTag && scriptTag.src) {
-      baseUrl = new URL(scriptTag.src).origin;
-    }
-  } catch (error) {
-    safeLogError('Failed to resolve tracker base URL.', error);
+    debug = (
+      (scriptTag && scriptTag.dataset && asBool(scriptTag.dataset.debug)) ||
+      asBool(safeGet(window.localStorage, 'saas_tracker_debug')) ||
+      window.location.hostname === 'localhost' ||
+      window.location.hostname === '127.0.0.1'
+    );
+  } catch (_) {
+    debug = false;
   }
 
-  var nativeFetch = window.fetch ? window.fetch.bind(window) : null;
-  if (!nativeFetch) {
-    safeLogError('window.fetch is not available.');
+  logDebug('init start');
+
+  if (!token) {
+    logError('Missing tracker token. Use data-token or data-api-key.');
     return;
   }
 
+  var baseUrl = getBaseUrl(scriptTag);
+  var visitorKey = 'saas_tracker_visitor_id';
   var sessionKey = 'saas_tracker_session_id';
-  var sessionId = safeStorageGet(sessionKey);
+  var startKey = 'saas_tracker_started_at';
+
+  var visitorId = safeGet(window.localStorage, visitorKey);
+  if (!visitorId) {
+    visitorId = createSessionId();
+    safeSet(window.localStorage, visitorKey, visitorId);
+  }
+
+  var sessionId = safeGet(window.sessionStorage, sessionKey);
   if (!sessionId) {
     sessionId = createSessionId();
-    safeStorageSet(sessionKey, sessionId);
+    safeSet(window.sessionStorage, sessionKey, sessionId);
   }
-  var sourceKey = 'saas_tracker_session_source_' + sessionId;
-  var sessionSourceRaw = safeStorageGet(sourceKey);
-  var sessionSource = null;
-  if (sessionSourceRaw) {
-    try {
-      sessionSource = JSON.parse(sessionSourceRaw);
-    } catch (_) {
-      sessionSource = null;
-    }
+  logDebug('visitor/session ready', visitorId, sessionId);
+
+  var startedAt = safeGet(window.sessionStorage, startKey);
+  if (!startedAt) {
+    startedAt = nowIso();
+    safeSet(window.sessionStorage, startKey, startedAt);
   }
-  if (!sessionSource) {
-    var initialHref = window.location.href;
-    var initialLoc = window.location;
-    sessionSource = Object.assign(
-      {
-        source_url: initialHref,
-        first_url: initialHref,
-        first_pathname: initialLoc.pathname || '/',
-        first_query_string: initialLoc.search || '',
-        referrer: document.referrer || null
-      },
-      getUtms(initialHref)
-    );
-    safeStorageSet(sourceKey, JSON.stringify(sessionSource));
-  }
+  logDebug('visit started_at', startedAt);
 
-  var pageStartTs = Date.now();
-  var maxScrollDepth = 0;
-  var sentClickFingerprints = {};
+  var sentPageviewFingerprint = '';
 
-  function basePayload() {
-    var href = window.location.href;
-    var locationObj = window.location;
-    var sourceFields = sessionSource || {};
-    return Object.assign(
-      {
-        session_id: sessionId,
-        source_url: sourceFields.source_url || href,
-        page_url: href,
-        url: href,
-        pathname: locationObj.pathname || '/',
-        query_string: locationObj.search || '',
-        referrer: sourceFields.referrer || null,
-        timestamp: new Date().toISOString()
-      },
-      {
-        utm_source: sourceFields.utm_source || null,
-        utm_medium: sourceFields.utm_medium || null,
-        utm_campaign: sourceFields.utm_campaign || null,
-        utm_term: sourceFields.utm_term || null,
-        utm_content: sourceFields.utm_content || null
-      }
-    );
-  }
-
-  function requestWithFallback(endpoint, payload) {
-    var url = baseUrl + endpoint + '?api_key=' + encodeURIComponent(apiKey);
-    var body = JSON.stringify(payload);
-    if (navigator.sendBeacon) {
-      try {
-        var blob = new Blob([body], { type: 'application/json' });
-        if (navigator.sendBeacon(url, blob)) {
-          return;
-        }
-      } catch (_) {}
-    }
-
-    nativeFetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-API-KEY': apiKey
-      },
-      body: body,
-      keepalive: true,
-      credentials: 'omit'
-    }).catch(function (error) {
-      safeLogError('Request failed for ' + endpoint, error);
-    });
-  }
-
-  function sendPublicEvent(eventType, elementId) {
-    var payload = basePayload();
-    payload.event_type = eventType;
-    payload.element_id = elementId || null;
-    requestWithFallback('/api/public/event/', payload);
-  }
-
-  function sendVisitEvent() {
-    var payload = basePayload();
-    payload.element_id = null;
-    requestWithFallback('/api/track/visit/', payload);
-  }
-
-  function sendPublicLead(payload) {
-    requestWithFallback('/api/public/lead/', payload);
-  }
-
-  function sendAnalyticsEvent(eventType, payloadOverrides) {
-    var payload = basePayload();
-    payload.event_type = eventType;
-    if (payloadOverrides && typeof payloadOverrides === 'object') {
-      var keys = Object.keys(payloadOverrides);
+  function buildPayload(extra) {
+    var payload = {
+      token: token,
+      visitor_id: visitorId,
+      session_id: sessionId,
+      timestamp: nowIso()
+    };
+    if (extra && typeof extra === 'object') {
+      var keys = Object.keys(extra);
       for (var i = 0; i < keys.length; i++) {
-        payload[keys[i]] = payloadOverrides[keys[i]];
+        payload[keys[i]] = extra[keys[i]];
       }
-    }
-    requestWithFallback('/api/analytics/event/', payload);
-  }
-
-  function sendPageView() {
-    sendAnalyticsEvent('page_view', { max_scroll_depth: maxScrollDepth });
-  }
-
-  function firstFieldValue(form, aliases) {
-    for (var i = 0; i < aliases.length; i++) {
-      var selector = '[name="' + aliases[i] + '"], [name*="' + aliases[i] + '" i], #' + aliases[i];
-      var field = form.querySelector(selector);
-      if (!field || typeof field.value !== 'string') {
-        continue;
-      }
-      var value = field.value.trim();
-      if (value) {
-        return value;
-      }
-    }
-    return null;
-  }
-
-  function extractLeadPayloadFromForm(form) {
-    var payload = basePayload();
-    payload.session_id = sessionId;
-    var fields = collectFormFields(form);
-    assignLeadFromFields(fields, payload);
-    if (!payload.name) {
-      payload.name = firstFieldValue(form, ['name', 'fullname', 'fio']);
-    }
-    if (!payload.message) {
-      payload.message = firstFieldValue(form, ['message', 'comment', 'text']);
     }
     return payload;
   }
 
-  function trackFormSubmit(event) {
+  function postWithRetry(endpoint, payload, opts) {
+    var maxAttempts = (opts && opts.maxAttempts) || 3;
+    var attempt = 0;
+    var url = baseUrl + endpoint;
+
+    function runAttempt() {
+      attempt += 1;
+      logDebug('sending', endpoint, 'attempt', attempt, payload);
+      return fetch(url, {
+        method: 'POST',
+        mode: 'cors',
+        credentials: 'omit',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload),
+        keepalive: true
+      }).then(function (response) {
+        if (!response.ok) {
+          throw new Error('HTTP ' + response.status);
+        }
+        logDebug('success', endpoint, 'status', response.status);
+        return response;
+      }).catch(function (err) {
+        logWarn('request failed', endpoint, 'attempt', attempt, err && err.message ? err.message : err);
+        if (attempt >= maxAttempts) {
+          logError('request permanently failed: ' + endpoint, err);
+          return null;
+        }
+        return new Promise(function (resolve) {
+          setTimeout(resolve, 250 * attempt);
+        }).then(runAttempt);
+      });
+    }
+
+    try {
+      return runAttempt();
+    } catch (err) {
+      logError('Request init failed: ' + endpoint, err);
+      return Promise.resolve();
+    }
+  }
+
+  function trackVisitStart() {
+    return postWithRetry('/api/track/visit-start/', buildPayload({
+      type: 'visit',
+      started_at: startedAt,
+      referrer: document.referrer || ''
+    }));
+  }
+
+  function trackPageView() {
+    var fingerprint = window.location.pathname + window.location.search + '|' + (document.title || '');
+    if (fingerprint === sentPageviewFingerprint) {
+      logDebug('skip duplicate pageview', fingerprint);
+      return Promise.resolve();
+    }
+    sentPageviewFingerprint = fingerprint;
+    return postWithRetry('/api/track/pageview/', buildPayload({
+      url: window.location.href,
+      title: document.title || '',
+      timestamp: nowIso()
+    }));
+  }
+
+  function trackEvent(type, payload) {
+    return postWithRetry('/api/track/event/', buildPayload({
+      type: type,
+      payload: payload || {},
+      timestamp: nowIso()
+    }));
+  }
+
+  function trackVisitEnd() {
+    try {
+      var endedAt = nowIso();
+      var duration = 0;
+      try {
+        duration = Math.max(0, Math.round((Date.now() - new Date(startedAt).getTime()) / 1000));
+      } catch (_) {
+        duration = 0;
+      }
+      var payload = buildPayload({
+        ended_at: endedAt,
+        duration: duration
+      });
+      var data = JSON.stringify(payload);
+      if (navigator.sendBeacon) {
+        var blob = new Blob([data], { type: 'application/json' });
+        var ok = navigator.sendBeacon(baseUrl + '/api/track/visit-end/', blob);
+        logDebug('sendBeacon visit-end', ok);
+        if (ok) {
+          return;
+        }
+      }
+      postWithRetry('/api/track/visit-end/', payload, { maxAttempts: 2 });
+    } catch (err) {
+      logError('visit-end failed', err);
+    }
+  }
+
+  function onClick(event) {
+    try {
+      var node = event.target && event.target.closest ? event.target.closest('button, a, [role="button"], [data-track]') : null;
+      if (!node) {
+        return;
+      }
+      trackEvent('click', {
+        tag: node.tagName || '',
+        id: node.id || '',
+        text: ((node.innerText || node.textContent || '') + '').trim().slice(0, 120),
+        path: window.location.pathname
+      });
+    } catch (err) {
+      logError('click tracking failed', err);
+    }
+  }
+
+  function onSubmit(event) {
     try {
       var form = event.target;
       if (!form || form.tagName !== 'FORM') {
         return;
       }
-      var leadPayload = extractLeadPayloadFromForm(form);
-      sendPublicLead(leadPayload);
-      sendPublicEvent('form_submit', form.id || null);
-      sendAnalyticsEvent('lead_submit', { pathname: window.location.pathname });
-    } catch (error) {
-      safeLogError('Failed to process submit event.', error);
-    }
-  }
-
-  function shouldSkipTrackedRequest(url) {
-    return (
-      typeof url === 'string' &&
-      (
-        url.indexOf('/api/public/lead/') !== -1 ||
-        url.indexOf('/api/public/event/') !== -1 ||
-        url.indexOf('/api/analytics/event/') !== -1
-      )
-    );
-  }
-
-  function extractLeadFromObject(data) {
-    if (!data || typeof data !== 'object') {
-      return null;
-    }
-    var payload = basePayload();
-    payload.session_id = sessionId;
-    var fields = collectObjectFields(data);
-    assignLeadFromFields(fields, payload);
-    if (!payload.name && typeof data.name === 'string') {
-      payload.name = data.name.trim();
-    }
-    if (!payload.message && typeof data.message === 'string') {
-      payload.message = data.message.trim();
-    }
-    if (!payload.name && !payload.phone && !payload.email && !payload.message) {
-      return null;
-    }
-    return payload;
-  }
-
-  function tryTrackJsonLead(rawBody) {
-    if (typeof rawBody !== 'string' || !rawBody.trim()) {
-      return;
-    }
-    try {
-      var parsed = JSON.parse(rawBody);
-      var leadPayload = extractLeadFromObject(parsed);
-      if (!leadPayload) {
-        return;
-      }
-      sendPublicLead(leadPayload);
-      sendPublicEvent('form_submit', 'fetch_json');
-      sendAnalyticsEvent('lead_submit', { pathname: window.location.pathname });
-    } catch (error) {
-      safeLogError('Failed to parse JSON fetch body.', error);
-    }
-  }
-
-  function interceptFetch() {
-    window.fetch = function(input, init) {
-      try {
-        var method = (init && init.method) || (input && input.method) || 'GET';
-        var upperMethod = String(method).toUpperCase();
-        var url = typeof input === 'string' ? input : (input && input.url ? input.url : '');
-
-        if (upperMethod === 'POST' && !shouldSkipTrackedRequest(url)) {
-          var contentType = '';
-          if (init && init.headers) {
-            if (typeof init.headers.get === 'function') {
-              contentType = init.headers.get('Content-Type') || '';
-            } else if (Array.isArray(init.headers)) {
-              for (var i = 0; i < init.headers.length; i++) {
-                var pair = init.headers[i];
-                if (pair && String(pair[0]).toLowerCase() === 'content-type') {
-                  contentType = pair[1] || '';
-                  break;
-                }
-              }
-            } else {
-              contentType = init.headers['Content-Type'] || init.headers['content-type'] || '';
-            }
-          }
-          if (String(contentType).toLowerCase().indexOf('application/json') !== -1) {
-            if (init && typeof init.body === 'string') {
-              tryTrackJsonLead(init.body);
-            } else if (input && typeof input.clone === 'function') {
-              input.clone().text().then(function(textBody) {
-                tryTrackJsonLead(textBody);
-              }).catch(function(error) {
-                safeLogError('Failed to read request body from fetch clone.', error);
-              });
-            }
-          }
-        }
-      } catch (error) {
-        safeLogError('Fetch interception failed.', error);
-      }
-      return nativeFetch(input, init);
-    };
-  }
-
-  function updateScrollDepth() {
-    try {
-      var doc = document.documentElement || document.body;
-      var scrollTop = window.pageYOffset || doc.scrollTop || 0;
-      var viewportHeight = window.innerHeight || doc.clientHeight || 0;
-      var fullHeight = Math.max(
-        doc.scrollHeight || 0,
-        document.body ? document.body.scrollHeight : 0
-      );
-      if (fullHeight <= 0) {
-        return;
-      }
-      var percent = Math.floor(((scrollTop + viewportHeight) / fullHeight) * 100);
-      var milestones = [25, 50, 75, 100];
-      for (var i = milestones.length - 1; i >= 0; i--) {
-        if (percent >= milestones[i]) {
-          if (milestones[i] > maxScrollDepth) {
-            maxScrollDepth = milestones[i];
-          }
-          break;
-        }
-      }
-    } catch (_) {}
-  }
-
-  function trackClick(event) {
-    try {
-      var target = event.target;
-      if (!target) {
-        return;
-      }
-      var clickable = target.closest('button, a, input[type="submit"], [data-track]');
-      if (!clickable) {
-        return;
-      }
-
-      var elementText = getElementText(clickable);
-      var elementId = (clickable.id || '').slice(0, 255);
-      var elementClass = ((clickable.className || '') + '').trim().slice(0, 255);
-      var fingerprint = window.location.pathname + '|' + elementId + '|' + elementText;
-      if (sentClickFingerprints[fingerprint]) {
-        return;
-      }
-      sentClickFingerprints[fingerprint] = true;
-
-      sendAnalyticsEvent('click_event', {
-        pathname: window.location.pathname,
-        element_text: elementText,
-        element_id: elementId,
-        element_class: elementClass
+      trackEvent('form_submit', {
+        id: form.id || '',
+        action: form.action || '',
+        method: (form.method || 'GET').toUpperCase(),
+        path: window.location.pathname
       });
-    } catch (error) {
-      safeLogError('Failed to process click event.', error);
+    } catch (err) {
+      logError('submit tracking failed', err);
     }
   }
 
-  function sendSessionEnd() {
-    var durationSeconds = Math.max(0, Math.round((Date.now() - pageStartTs) / 1000));
-    sendAnalyticsEvent('session_end', {
-      duration_seconds: durationSeconds,
-      max_scroll_depth: maxScrollDepth,
-      pathname: window.location.pathname
-    });
+  function wrapHistory() {
+    try {
+      var originalPush = history.pushState;
+      var originalReplace = history.replaceState;
+      history.pushState = function () {
+        var result = originalPush.apply(this, arguments);
+        setTimeout(trackPageView, 0);
+        return result;
+      };
+      history.replaceState = function () {
+        var result = originalReplace.apply(this, arguments);
+        setTimeout(trackPageView, 0);
+        return result;
+      };
+      window.addEventListener('popstate', function () {
+        trackPageView();
+      });
+    } catch (err) {
+      logError('history tracking failed', err);
+    }
   }
 
   try {
-    sendVisitEvent();
-    sendPageView();
-    document.addEventListener('submit', trackFormSubmit, true);
-    document.addEventListener('click', trackClick, true);
-    window.addEventListener('scroll', updateScrollDepth, { passive: true });
-    window.addEventListener('beforeunload', sendSessionEnd);
-    interceptFetch();
-    updateScrollDepth();
-  } catch (error) {
-    safeLogError('Tracker initialization failed.', error);
+    logDebug('init handlers');
+    trackVisitStart();
+    trackPageView();
+    document.addEventListener('click', onClick, true);
+    document.addEventListener('submit', onSubmit, true);
+    window.addEventListener('beforeunload', trackVisitEnd);
+    window.addEventListener('pagehide', trackVisitEnd);
+    wrapHistory();
+    logDebug('init complete');
+  } catch (err) {
+    logError('tracker init failed', err);
   }
 })();
 """

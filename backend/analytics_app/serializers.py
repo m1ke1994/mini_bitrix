@@ -1,4 +1,4 @@
-from rest_framework import serializers
+﻿from rest_framework import serializers
 
 from analytics_app.models import ClickEvent, Event, PageView
 
@@ -8,10 +8,20 @@ class PublicEventCreateSerializer(serializers.ModelSerializer):
     utm_source = serializers.CharField(required=False, allow_null=True, allow_blank=True, write_only=True)
     utm_medium = serializers.CharField(required=False, allow_null=True, allow_blank=True, write_only=True)
     utm_campaign = serializers.CharField(required=False, allow_null=True, allow_blank=True, write_only=True)
+    visitor_id = serializers.CharField(required=False, allow_blank=True, max_length=64)
 
     class Meta:
         model = Event
-        fields = ("event_type", "element_id", "page_url", "source_url", "utm_source", "utm_medium", "utm_campaign")
+        fields = (
+            "event_type",
+            "element_id",
+            "page_url",
+            "source_url",
+            "utm_source",
+            "utm_medium",
+            "utm_campaign",
+            "visitor_id",
+        )
 
     def create(self, validated_data):
         client = self.context["client"]
@@ -31,6 +41,7 @@ class PublicAnalyticsEventSerializer(serializers.Serializer):
     event_type = serializers.ChoiceField(
         choices=(EVENT_PAGE_VIEW, EVENT_SESSION_END, EVENT_CLICK, EVENT_LEAD_SUBMIT)
     )
+    visitor_id = serializers.CharField(max_length=64, required=False, allow_blank=True)
     session_id = serializers.CharField(max_length=64)
     timestamp = serializers.DateTimeField(required=False)
 
@@ -71,11 +82,13 @@ class PublicAnalyticsEventSerializer(serializers.Serializer):
         client = self.context["client"]
         event_type = validated_data["event_type"]
         session_id = validated_data["session_id"]
+        visitor_id = (validated_data.get("visitor_id") or "").strip()
 
         if event_type == self.EVENT_PAGE_VIEW:
             pathname = (validated_data.get("pathname") or "").strip() or "/"
             page_view = PageView.objects.create(
                 client=client,
+                visitor_id=visitor_id,
                 session_id=session_id,
                 url=validated_data.get("url") or "",
                 pathname=pathname,
@@ -103,6 +116,9 @@ class PublicAnalyticsEventSerializer(serializers.Serializer):
             if duration_seconds is not None and duration_seconds > latest.duration_seconds:
                 latest.duration_seconds = duration_seconds
                 update_fields.append("duration_seconds")
+            if visitor_id and latest.visitor_id != visitor_id:
+                latest.visitor_id = visitor_id
+                update_fields.append("visitor_id")
             if update_fields:
                 latest.save(update_fields=update_fields + ["updated_at"])
             return {"kind": "session_end", "id": latest.id}
@@ -114,6 +130,7 @@ class PublicAnalyticsEventSerializer(serializers.Serializer):
                 pathname = latest.pathname if latest else "/"
             click = ClickEvent.objects.create(
                 client=client,
+                visitor_id=visitor_id,
                 session_id=session_id,
                 page_pathname=pathname,
                 element_text=(validated_data.get("element_text") or "")[:100],

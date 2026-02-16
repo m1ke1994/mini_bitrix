@@ -2,7 +2,6 @@ import os
 from datetime import timedelta
 from pathlib import Path
 
-from corsheaders.defaults import default_headers
 from dotenv import load_dotenv
 from django.utils.translation import gettext_lazy as _
 
@@ -37,14 +36,18 @@ INSTALLED_APPS = [
     "clients",
     "leads",
     "analytics_app",
+    "tracker",
     "telegram_logs",
+    "reports",
 ]
 
 # ================= MIDDLEWARE =================
 
 MIDDLEWARE = [
-    "corsheaders.middleware.CorsMiddleware",  # ВАЖНО — первым
+    "corsheaders.middleware.CorsMiddleware",
+    "saas_platform.middleware.TrackerCorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
+
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.locale.LocaleMiddleware",
@@ -115,6 +118,7 @@ DATETIME_FORMAT = "d.m.Y H:i"
 
 STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
+STATICFILES_DIRS = [BASE_DIR / "static"]
 STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
@@ -122,7 +126,7 @@ DEFAULT_CHARSET = "utf-8"
 
 # ================= CORS =================
 
-CORS_ALLOW_ALL_ORIGINS = False
+CORS_ALLOW_ALL_ORIGINS = True
 
 CORS_ALLOWED_ORIGINS = [
     origin.strip()
@@ -133,9 +137,9 @@ CORS_ALLOWED_ORIGINS = [
     if origin.strip()
 ]
 
-CORS_ALLOW_CREDENTIALS = True
-CORS_ALLOW_HEADERS = list(default_headers) + ["x-api-key"]
-CORS_ALLOW_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
+CORS_ALLOW_CREDENTIALS = False
+CORS_ALLOW_HEADERS = ["*"]
+CORS_ALLOW_METHODS = ["GET", "POST", "OPTIONS"]
 
 # ================= DRF =================
 
@@ -193,6 +197,26 @@ CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_TIMEZONE = TIME_ZONE
+CELERY_BEAT_SCHEDULE = {
+    "send_daily_reports_every_5_minutes": {
+        "task": "reports.tasks.send_daily_reports_task",
+        "schedule": 300.0,
+    }
+}
+
+# ================= EMAIL =================
+
+EMAIL_BACKEND = os.getenv("EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend")
+EMAIL_HOST = os.getenv("EMAIL_HOST", "")
+EMAIL_PORT = int(os.getenv("EMAIL_PORT", "587"))
+EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
+EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "true").lower() == "true"
+DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "TrackNode <noreply@tracknode.local>")
+
+# ================= REPORTS =================
+
+REPORTS_STORAGE_DIR = BASE_DIR / "reports_storage"
 
 # ================= LOGGING =================
 
@@ -213,8 +237,9 @@ LOGGING = {
         "analytics_app": {"handlers": ["console"], "level": os.getenv("LOG_LEVEL", "INFO"), "propagate": False},
         "leads": {"handlers": ["console"], "level": os.getenv("LOG_LEVEL", "INFO"), "propagate": False},
         "clients": {"handlers": ["console"], "level": os.getenv("LOG_LEVEL", "INFO"), "propagate": False},
+        "tracker": {"handlers": ["console"], "level": os.getenv("LOG_LEVEL", "INFO"), "propagate": False},
         "telegram_logs": {"handlers": ["console"], "level": os.getenv("LOG_LEVEL", "INFO"), "propagate": False},
+        "reports": {"handlers": ["console"], "level": os.getenv("LOG_LEVEL", "INFO"), "propagate": False},
     },
 }
 
-import saas_platform.cors  # noqa: E402,F401

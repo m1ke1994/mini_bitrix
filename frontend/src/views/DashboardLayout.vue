@@ -4,6 +4,7 @@
     <nav class="dashboard-subnav">
       <router-link to="/dashboard" exact-active-class="active">Обзор</router-link>
       <router-link to="/dashboard/dynamics" class="sub-item">Динамика по дням</router-link>
+      <router-link to="/dashboard/unique" class="sub-item">Уникальные пользователи</router-link>
       <router-link to="/dashboard/sources" class="sub-item">Топ источников</router-link>
       <router-link to="/dashboard/clicks" class="sub-item">Топ кликов</router-link>
       <router-link to="/dashboard/pages-conversion" class="sub-item">Конверсия по страницам</router-link>

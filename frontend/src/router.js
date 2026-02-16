@@ -6,11 +6,13 @@ import DashboardDynamics from "./views/DashboardDynamics.vue";
 import DashboardSources from "./views/DashboardSources.vue";
 import DashboardClicks from "./views/DashboardClicks.vue";
 import DashboardPagesConversion from "./views/DashboardPagesConversion.vue";
+import DashboardUniqueVisitors from "./views/DashboardUniqueVisitors.vue";
 import IntegrationPage from "./views/IntegrationPage.vue";
 import InstructionsPage from "./views/InstructionsPage.vue";
 import LoginPage from "./views/LoginPage.vue";
 import LeadsPage from "./views/LeadsPage.vue";
 import RegisterPage from "./views/RegisterPage.vue";
+import ReportsPage from "./views/ReportsPage.vue";
 import SettingsPage from "./views/SettingsPage.vue";
 import { useAuthStore } from "./stores/auth";
 
@@ -40,6 +42,12 @@ const routes = [
             meta: { title: "Панель управления - Топ источников" },
           },
           {
+            path: "unique",
+            name: "dashboard_unique",
+            component: DashboardUniqueVisitors,
+            meta: { title: "Панель управления - Уникальные пользователи" },
+          },
+          {
             path: "clicks",
             name: "dashboard_clicks",
             component: DashboardClicks,
@@ -56,6 +64,7 @@ const routes = [
       { path: "leads", name: "leads", component: LeadsPage, meta: { title: "Заявки" } },
       { path: "settings", name: "settings", component: SettingsPage, meta: { title: "Настройки" } },
       { path: "integration", name: "integration", component: IntegrationPage, meta: { title: "Интеграции" } },
+      { path: "reports", name: "reports", component: ReportsPage, meta: { title: "Отчёт PDF" } },
       { path: "instructions", name: "instructions", component: InstructionsPage, meta: { title: "Инструкция по подключению" } },
     ],
   },

@@ -86,6 +86,26 @@ services:
     networks:
       - saas_net
 
+  beat:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    env_file:
+      - .env
+    command: celery -A saas_platform beat -l info
+    volumes:
+      - ./backend:/app
+    depends_on:
+      web:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - saas_net
+
   telegram_poller:
     build:
       context: .

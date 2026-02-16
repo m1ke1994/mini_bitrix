@@ -3,10 +3,12 @@ import api from "../services/api";
 
 const summary = ref({
   visit_count: 0,
+  visitors_unique: 0,
   form_submit_count: 0,
   leads_count: 0,
   conversion: 0,
   visits_by_day: [],
+  unique_by_day: [],
   forms_by_day: [],
   leads_by_day: [],
   latest_leads: [],
@@ -29,6 +31,7 @@ async function loadSummary() {
   error.value = "";
   try {
     const response = await api.get("/api/analytics/summary/");
+    console.log("[analytics] /api/analytics/summary response", response.data);
     summary.value = {
       ...summary.value,
       ...response.data,
@@ -38,7 +41,8 @@ async function loadSummary() {
       top_clicks: response.data.top_clicks || [],
       latest_leads: response.data.latest_leads || [],
     };
-  } catch (_) {
+  } catch (err) {
+    console.log("[analytics] /api/analytics/summary error", err?.response?.data || err);
     error.value = "Ошибка загрузки аналитики.";
   } finally {
     loading.value = false;
