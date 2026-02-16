@@ -1,9 +1,14 @@
+import logging
+
 from django.http import HttpResponse
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 
 from accounts.permissions import IsClientUser
 from clients.serializers import ClientSettingsSerializer
+from reports.models import ReportSettings
+
+logger = logging.getLogger(__name__)
 
 
 class ClientSettingsView(generics.RetrieveUpdateAPIView):
@@ -13,12 +18,76 @@ class ClientSettingsView(generics.RetrieveUpdateAPIView):
     def get_object(self):
         return self.request.client
 
-    def post(self, request, *args, **kwargs):
+    def _sanitize_payload(self, request) -> dict:
+        raw_data = request.data if isinstance(request.data, dict) else {}
+        # Hard whitelist for settings writes: ignore everything else.
+        allowed_fields = {"send_to_telegram", "daily_pdf_enabled"}
+        sanitized = {key: raw_data[key] for key in raw_data.keys() if key in allowed_fields}
+        dropped = sorted(set(raw_data.keys()) - allowed_fields)
+        if dropped:
+            logger.info("Settings payload dropped read-only/unknown fields: %s", dropped)
+        return sanitized
+
+    def _build_response_data(self, instance, *, include_daily: bool = True) -> dict:
+        data = dict(self.get_serializer(instance).data)
+        if include_daily:
+            report_settings, _ = ReportSettings.objects.get_or_create(client=instance)
+            data["daily_pdf_enabled"] = report_settings.daily_pdf_enabled
+        return data
+
+    def _update_from_payload(self, request, *, partial: bool) -> Response:
+        logger.info("=== SETTINGS REQUEST START ===")
+        logger.info("METHOD: %s", request.method)
+        logger.info("DATA: %s", request.data)
         instance = self.get_object()
-        serializer = self.get_serializer(instance, data=request.data, partial=True)
-        serializer.is_valid(raise_exception=True)
-        self.perform_update(serializer)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        try:
+            payload = self._sanitize_payload(request)
+
+            client_updates = {}
+            if "send_to_telegram" in payload:
+                client_updates["send_to_telegram"] = payload["send_to_telegram"]
+
+            if "daily_pdf_enabled" in payload:
+                report_settings, _ = ReportSettings.objects.get_or_create(client=instance)
+                report_settings.daily_pdf_enabled = bool(payload["daily_pdf_enabled"])
+                report_settings.save(update_fields=["daily_pdf_enabled", "updated_at"])
+
+            if not client_updates and "daily_pdf_enabled" not in payload:
+                response_data = self._build_response_data(instance)
+                logger.info("=== SETTINGS RESPONSE OK ===")
+                logger.info("Settings response status about to return: %s", status.HTTP_200_OK)
+                return Response(response_data, status=status.HTTP_200_OK)
+
+            serializer = self.get_serializer(instance, data=client_updates, partial=partial)
+            if not serializer.is_valid():
+                logger.error("SETTINGS VALIDATION ERROR: %s", serializer.errors)
+                response_data = self._build_response_data(instance)
+                response_data["validation_errors"] = serializer.errors
+                logger.info("=== SETTINGS RESPONSE OK ===")
+                logger.info("Settings response status about to return: %s", status.HTTP_200_OK)
+                return Response(response_data, status=status.HTTP_200_OK)
+
+            self.perform_update(serializer)
+            response_data = self._build_response_data(instance)
+            logger.info("=== SETTINGS RESPONSE OK ===")
+            logger.info("Settings response status about to return: %s", status.HTTP_200_OK)
+            return Response(response_data, status=status.HTTP_200_OK)
+        except Exception:
+            logger.exception("SETTINGS UNHANDLED ERROR")
+            response_data = self._build_response_data(instance)
+            response_data["settings_fallback"] = True
+            logger.info("=== SETTINGS RESPONSE OK ===")
+            logger.info("Settings response status about to return: %s", status.HTTP_200_OK)
+            return Response(response_data, status=status.HTTP_200_OK)
+
+    def patch(self, request, *args, **kwargs):
+        return self._update_from_payload(request, partial=True)
+
+    def put(self, request, *args, **kwargs):
+        return self._update_from_payload(request, partial=False)
+
+    def post(self, request, *args, **kwargs):
+        return self._update_from_payload(request, partial=True)
 
 
 def tracker_js_view(request):
