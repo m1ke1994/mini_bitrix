@@ -79,7 +79,7 @@ const chartData = computed(() => {
       {
         label: "Визиты",
         data: labels.value.map((day) => Number(visitMap.value[day] || 0)),
-        borderColor: "#0d6efd",
+        borderColor: "#2ba8d8",
         backgroundColor: "rgba(13, 110, 253, 0.12)",
         fill: true,
         tension: 0.25,

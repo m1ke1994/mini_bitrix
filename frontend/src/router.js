@@ -9,16 +9,14 @@ import DashboardPagesConversion from "./views/DashboardPagesConversion.vue";
 import DashboardUniqueVisitors from "./views/DashboardUniqueVisitors.vue";
 import IntegrationPage from "./views/IntegrationPage.vue";
 import InstructionsPage from "./views/InstructionsPage.vue";
-import LoginPage from "./views/LoginPage.vue";
+import AuthPage from "./views/AuthPage.vue";
 import LeadsPage from "./views/LeadsPage.vue";
-import RegisterPage from "./views/RegisterPage.vue";
 import ReportsPage from "./views/ReportsPage.vue";
 import SettingsPage from "./views/SettingsPage.vue";
 import { useAuthStore } from "./stores/auth";
 
 const routes = [
-  { path: "/login", name: "login", component: LoginPage, meta: { public: true, title: "Вход" } },
-  { path: "/register", name: "register", component: RegisterPage, meta: { public: true, title: "Регистрация" } },
+  { path: "/auth", name: "auth", component: AuthPage, meta: { public: true, title: "Авторизация" } },
   {
     path: "/",
     component: MainLayout,
@@ -82,7 +80,7 @@ const router = createRouter({
 router.beforeEach((to) => {
   const auth = useAuthStore();
   if (!to.meta.public && !auth.isAuthenticated) {
-    return { name: "login" };
+    return { name: "auth" };
   }
   if (to.meta.public && auth.isAuthenticated) {
     return { name: "dashboard_overview" };

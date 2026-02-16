@@ -7,8 +7,6 @@ from django.conf import settings
 from django.core.management.base import BaseCommand
 
 from clients.models import Client
-from reports.models import ReportSettings
-from reports.services import connect_telegram_by_code, disconnect_telegram
 from telegram_logs.models import TelegramUpdateLog
 from telegram_logs.services import extract_message, save_telegram_update
 
@@ -71,48 +69,6 @@ class Command(BaseCommand):
             client.telegram_chat_id,
         )
         self._send_message(token, chat_id, "Telegram подключен.")
-
-    def _handle_link_command(self, token: str, text: str | None, chat_id: int | None, username: str | None) -> None:
-        if not text or chat_id is None:
-            return
-        normalized = text.strip()
-        if not normalized.lower().startswith("/link"):
-            return
-
-        parts = normalized.split(maxsplit=1)
-        if len(parts) < 2:
-            self._send_message(token, chat_id, "Использование: /link CODE")
-            return
-
-        code = parts[1].strip().upper()
-        settings_obj, error = connect_telegram_by_code(code=code, chat_id=str(chat_id), username=username)
-        if not settings_obj:
-            self._send_message(token, chat_id, f"Не удалось привязать Telegram: {error}")
-            return
-
-        self._send_message(token, chat_id, "Telegram успешно подключен. Отчёты будут приходить сюда.")
-        logger.info(
-            "reports.telegram linked via bot: client_id=%s user_id=%s chat_id=%s username=%s",
-            settings_obj.client_id,
-            settings_obj.user_id,
-            chat_id,
-            username,
-        )
-
-    def _handle_unlink_command(self, token: str, text: str | None, chat_id: int | None) -> None:
-        if not text or chat_id is None:
-            return
-        if not text.strip().lower().startswith("/unlink"):
-            return
-
-        settings_obj = ReportSettings.objects.filter(telegram_chat_id=str(chat_id), telegram_is_connected=True).first()
-        if not settings_obj:
-            self._send_message(token, chat_id, "Этот Telegram не был привязан к отчётам.")
-            return
-
-        disconnect_telegram(settings_obj)
-        self._send_message(token, chat_id, "Telegram отвязан. Отправка отчётов остановлена.")
-        logger.info("reports.telegram unlinked via bot: client_id=%s user_id=%s chat_id=%s", settings_obj.client_id, settings_obj.user_id, chat_id)
 
     def handle(self, *args, **options):
         token = settings.TELEGRAM_BOT_TOKEN
@@ -192,11 +148,8 @@ class Command(BaseCommand):
                             logger.info("Duplicate update ignored update_id=%s", update_id)
 
                         chat_id = chat.get("id")
-                        username = sender.get("username")
                         self._handle_start_command(token, text, chat_id)
                         self._handle_legacy_start_key(token, text, chat_id)
-                        self._handle_link_command(token, text, chat_id, username)
-                        self._handle_unlink_command(token, text, chat_id)
                     except Exception:
                         logger.exception("Failed to process update_id=%s", update_id)
                     finally:

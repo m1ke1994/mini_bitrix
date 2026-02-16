@@ -74,6 +74,6 @@ const mainNavItems = [
 async function logout() {
   await auth.logout();
   isMenuOpen.value = false;
-  router.push("/login");
+  router.push("/auth");
 }
 </script>

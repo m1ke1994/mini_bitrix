@@ -2,6 +2,7 @@ import os
 from datetime import timedelta
 from pathlib import Path
 
+from celery.schedules import crontab
 from dotenv import load_dotenv
 from django.utils.translation import gettext_lazy as _
 
@@ -196,11 +197,11 @@ CELERY_RESULT_BACKEND = os.getenv("REDIS_URL", "redis://redis:6379/1")
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
-CELERY_TIMEZONE = TIME_ZONE
+CELERY_TIMEZONE = "Europe/Moscow"
 CELERY_BEAT_SCHEDULE = {
-    "send_daily_reports_every_5_minutes": {
-        "task": "reports.tasks.send_daily_reports_task",
-        "schedule": 300.0,
+    "send_daily_pdf_at_20_msk": {
+        "task": "reports.tasks.send_daily_pdf.send_daily_pdf_task",
+        "schedule": crontab(hour=20, minute=0),
     }
 }
 

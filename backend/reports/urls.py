@@ -1,17 +1,8 @@
-﻿from django.urls import path
+from django.urls import path
 
-from reports.views import (
-    ReportGenerateView,
-    ReportLatestLogView,
-    ReportSettingsView,
-    ReportTelegramConnectStartView,
-    ReportTelegramDisconnectView,
-)
+from reports.views import ReportSendNowView, ReportToggleDailyView
 
 urlpatterns = [
-    path("settings/", ReportSettingsView.as_view(), name="report_settings"),
-    path("logs/latest/", ReportLatestLogView.as_view(), name="report_latest_log"),
-    path("telegram/connect/", ReportTelegramConnectStartView.as_view(), name="report_telegram_connect"),
-    path("telegram/disconnect/", ReportTelegramDisconnectView.as_view(), name="report_telegram_disconnect"),
-    path("generate/", ReportGenerateView.as_view(), name="report_generate"),
+    path("send-now/", ReportSendNowView.as_view(), name="report_send_now"),
+    path("toggle-daily/", ReportToggleDailyView.as_view(), name="report_toggle_daily"),
 ]
