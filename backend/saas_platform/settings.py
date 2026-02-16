@@ -3,6 +3,7 @@ from datetime import timedelta
 from pathlib import Path
 
 from celery.schedules import crontab
+from corsheaders.defaults import default_headers
 from dotenv import load_dotenv
 from django.utils.translation import gettext_lazy as _
 
@@ -129,18 +130,19 @@ DEFAULT_CHARSET = "utf-8"
 
 CORS_ALLOW_ALL_ORIGINS = True
 
-CORS_ALLOWED_ORIGINS = [
-    origin.strip()
-    for origin in os.getenv(
-        "CORS_ALLOWED_ORIGINS",
-        "http://localhost:9003,http://127.0.0.1,http://localhost"
-    ).split(",")
-    if origin.strip()
+CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_HEADERS = list(default_headers) + [
+    "authorization",
+    "content-type",
 ]
-
-CORS_ALLOW_CREDENTIALS = False
-CORS_ALLOW_HEADERS = ["*"]
-CORS_ALLOW_METHODS = ["GET", "POST", "OPTIONS"]
+CORS_ALLOW_METHODS = [
+    "GET",
+    "POST",
+    "PUT",
+    "PATCH",
+    "DELETE",
+    "OPTIONS",
+]
 
 # ================= DRF =================
 
