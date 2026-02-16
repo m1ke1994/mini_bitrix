@@ -29,7 +29,7 @@
           >
             <h1>Вход</h1>
             <input v-model="loginForm.email" type="email" placeholder="Email" required />
-            <input v-model="loginForm.password" type="password" placeholder="Пароль" required />
+            <input v-model="loginForm.password" type="password" minlength="8" placeholder="Пароль" required />
             <button type="submit" :disabled="isLoading">
               {{ isLoading ? "Загрузка..." : "Войти" }}
             </button>
@@ -85,11 +85,37 @@ function toggleMode() {
   error.value = "";
 }
 
+function validateLoginForm() {
+  const email = String(loginForm.email || "").trim();
+  const password = String(loginForm.password || "");
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+  if (!email) {
+    return "Введите email.";
+  }
+  if (!emailRegex.test(email)) {
+    return "Введите корректный email.";
+  }
+  if (!password) {
+    return "Введите пароль.";
+  }
+  if (password.length < 8) {
+    return "Пароль должен содержать минимум 8 символов.";
+  }
+  return "";
+}
+
 async function handleLogin() {
+  const validationError = validateLoginForm();
+  if (validationError) {
+    error.value = validationError;
+    return;
+  }
+
   isLoading.value = true;
   error.value = "";
   try {
-    await auth.login(loginForm.email, loginForm.password);
+    await auth.login(String(loginForm.email).trim(), loginForm.password);
     router.push("/dashboard");
   } catch (_) {
     error.value = auth.error || "Ошибка входа.";

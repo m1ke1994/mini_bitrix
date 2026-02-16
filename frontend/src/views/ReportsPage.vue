@@ -6,9 +6,16 @@
     </p>
 
     <div class="form-card reports-card">
-      <button type="button" :disabled="loadingNow || loadingToggle" @click="handleSendNow">
-        {{ loadingNow ? "Формирование..." : "Сформировать и отправить сейчас" }}
+      <button type="button" :disabled="loadingNow || loadingToggle || isSendCooldownActive" @click="handleSendNow">
+        {{
+          loadingNow
+            ? "Формирование..."
+            : isSendCooldownActive
+              ? "Доступно раз в 5 часов"
+              : "Сформировать и отправить сейчас"
+        }}
       </button>
+      <p v-if="isSendCooldownActive" class="muted">Следующая отправка: {{ cooldownUntilText }}</p>
 
       <button type="button" :disabled="loadingNow || loadingToggle" @click="handleToggleDaily">
         {{
@@ -27,7 +34,7 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { getDailyPdfStatus, sendPdfNow, toggleDailyPdf } from "../services/reports";
 
 const dailyEnabled = ref(false);
@@ -36,12 +43,32 @@ const loadingToggle = ref(false);
 const error = ref("");
 const success = ref("");
 
+const SEND_COOLDOWN_MS = 5 * 60 * 60 * 1000;
+const SEND_COOLDOWN_KEY = "reports_send_now_cooldown_until";
+const cooldownUntil = ref(0);
+
+const isSendCooldownActive = computed(() => Date.now() < cooldownUntil.value);
+const cooldownUntilText = computed(() => {
+  if (!cooldownUntil.value) {
+    return "-";
+  }
+  return new Date(cooldownUntil.value).toLocaleString();
+});
+
 async function handleSendNow() {
+  if (isSendCooldownActive.value) {
+    error.value = `Отправка доступна раз в 5 часов. Следующая попытка: ${cooldownUntilText.value}.`;
+    success.value = "";
+    return;
+  }
+
   loadingNow.value = true;
   error.value = "";
   success.value = "";
   try {
     await sendPdfNow();
+    cooldownUntil.value = Date.now() + SEND_COOLDOWN_MS;
+    localStorage.setItem(SEND_COOLDOWN_KEY, String(cooldownUntil.value));
     success.value = "PDF отчет сформирован и отправлен в Telegram.";
   } catch (err) {
     error.value = err?.response?.data?.detail || "Не удалось сформировать и отправить PDF отчет.";
@@ -69,6 +96,9 @@ async function handleToggleDaily() {
 }
 
 onMounted(async () => {
+  const storedCooldownUntil = Number(localStorage.getItem(SEND_COOLDOWN_KEY) || 0);
+  cooldownUntil.value = Number.isFinite(storedCooldownUntil) ? storedCooldownUntil : 0;
+
   try {
     const response = await getDailyPdfStatus();
     dailyEnabled.value = !!response.daily_pdf_enabled;

@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from django.utils import timezone
 from rest_framework import permissions, status
 from rest_framework.response import Response
@@ -15,13 +17,27 @@ class ReportSendNowView(APIView):
 
     def post(self, request):
         client = request.client
+        settings_obj, _ = ReportSettings.objects.get_or_create(client=client)
+
+        now = timezone.now()
+        cooldown = timedelta(hours=5)
+        if settings_obj.last_manual_sent_at and now < settings_obj.last_manual_sent_at + cooldown:
+            available_at = timezone.localtime(settings_obj.last_manual_sent_at + cooldown).strftime("%d.%m.%Y %H:%M")
+            return Response(
+                {
+                    "ok": False,
+                    "detail": f"Отправка доступна раз в 5 часов. Следующая попытка после {available_at}.",
+                },
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+
         pdf_bytes, filename = build_pdf_for_client(client=client, user=request.user)
         send_pdf_to_client_telegram(client=client, filename=filename, pdf_bytes=pdf_bytes)
 
-        settings_obj, _ = ReportSettings.objects.get_or_create(client=client)
-        settings_obj.last_sent_at = timezone.now()
+        settings_obj.last_manual_sent_at = now
+        settings_obj.last_sent_at = now
         settings_obj.last_error = ""
-        settings_obj.save(update_fields=["last_sent_at", "last_error", "updated_at"])
+        settings_obj.save(update_fields=["last_manual_sent_at", "last_sent_at", "last_error", "updated_at"])
         return Response({"ok": True, "detail": "PDF отправлен в Telegram."}, status=status.HTTP_200_OK)
 
 
