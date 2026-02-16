@@ -19,19 +19,22 @@ export const useAuthStore = defineStore("auth", {
     accessToken: localStorage.getItem("accessToken") || "",
     refreshToken: localStorage.getItem("refreshToken") || "",
     userEmail: localStorage.getItem("userEmail") || "",
+    clientId: localStorage.getItem("clientId") || "",
     error: "",
   }),
   getters: {
     isAuthenticated: (state) => Boolean(state.accessToken),
   },
   actions: {
-    applyAuth(access, refresh, email) {
+    applyAuth(access, refresh, email, clientId = "") {
       this.accessToken = access || "";
       this.refreshToken = refresh || "";
       this.userEmail = email || "";
+      this.clientId = clientId ? String(clientId) : "";
       localStorage.setItem("accessToken", this.accessToken);
       localStorage.setItem("refreshToken", this.refreshToken);
       localStorage.setItem("userEmail", this.userEmail);
+      localStorage.setItem("clientId", this.clientId);
     },
     async register(email, password, companyName) {
       this.error = "";
@@ -42,7 +45,7 @@ export const useAuthStore = defineStore("auth", {
           password,
         });
         const tokens = response.data?.tokens || {};
-        this.applyAuth(tokens.access, tokens.refresh, email);
+        this.applyAuth(tokens.access, tokens.refresh, email, response.data?.user?.client_id || "");
       } catch (error) {
         this.error = extractErrorMessage(error, "Ошибка регистрации.");
         throw error;
@@ -52,7 +55,7 @@ export const useAuthStore = defineStore("auth", {
       this.error = "";
       try {
         const response = await api.post("/api/auth/login/", { email, password });
-        this.applyAuth(response.data.access, response.data.refresh, email);
+        this.applyAuth(response.data.access, response.data.refresh, email, response.data?.client_id || "");
       } catch (error) {
         this.error = extractErrorMessage(error, "Ошибка входа.");
         throw error;
@@ -69,9 +72,11 @@ export const useAuthStore = defineStore("auth", {
         this.accessToken = "";
         this.refreshToken = "";
         this.userEmail = "";
+        this.clientId = "";
         localStorage.removeItem("accessToken");
         localStorage.removeItem("refreshToken");
         localStorage.removeItem("userEmail");
+        localStorage.removeItem("clientId");
       }
     },
   },

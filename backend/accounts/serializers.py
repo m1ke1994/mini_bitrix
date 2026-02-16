@@ -1,8 +1,12 @@
+from datetime import timedelta
+
 from django.contrib.auth import get_user_model
+from django.utils import timezone
 from rest_framework import serializers
 
 from accounts.models import ClientUser
 from clients.models import Client
+from subscriptions.models import Subscription
 
 User = get_user_model()
 
@@ -52,6 +56,15 @@ class RegisterSerializer(serializers.Serializer):
             client=client,
             email=email,
             is_active=True,
+        )
+        Subscription.objects.get_or_create(
+            client=client,
+            defaults={
+                "status": Subscription.Status.ACTIVE,
+                "paid_until": timezone.now() + timedelta(days=3),
+                "is_trial": True,
+                "auto_renew": False,
+            },
         )
         return user, client, client_user
 

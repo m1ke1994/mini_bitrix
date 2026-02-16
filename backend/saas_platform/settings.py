@@ -41,6 +41,7 @@ INSTALLED_APPS = [
     "tracker",
     "telegram_logs",
     "reports",
+    "subscriptions",
 ]
 
 # ================= MIDDLEWARE =================
@@ -191,6 +192,14 @@ TELEGRAM_POLLING_TIMEOUT = int(os.getenv("TELEGRAM_POLLING_TIMEOUT", "30"))
 TELEGRAM_POLLING_RETRY_DELAY = float(os.getenv("TELEGRAM_POLLING_RETRY_DELAY", "2"))
 TELEGRAM_POLLING_DELETE_WEBHOOK = os.getenv("TELEGRAM_POLLING_DELETE_WEBHOOK", "true").lower() == "true"
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
+FRONTEND_URL = os.getenv("FRONTEND_URL", "").rstrip("/")
+
+# ================= PAYMENTS =================
+
+YOOKASSA_SHOP_ID = os.getenv("YOOKASSA_SHOP_ID", "")
+YOOKASSA_SECRET_KEY = os.getenv("YOOKASSA_SECRET_KEY", "")
+PAYMENT_RETURN_URL = os.getenv("PAYMENT_RETURN_URL", "")
+PAYMENT_CHECKOUT_URL = os.getenv("PAYMENT_CHECKOUT_URL", "")
 
 # ================= CELERY =================
 
@@ -204,7 +213,11 @@ CELERY_BEAT_SCHEDULE = {
     "send_daily_pdf_at_20_msk": {
         "task": "reports.tasks.send_daily_pdf.send_daily_pdf_task",
         "schedule": crontab(hour=20, minute=0),
-    }
+    },
+    "notify_auto_renew_subscriptions_daily": {
+        "task": "subscriptions.tasks.notify_auto_renew_subscriptions_task",
+        "schedule": crontab(hour=12, minute=0),
+    },
 }
 
 # ================= EMAIL =================

@@ -17,6 +17,7 @@ from analytics_app.services.metrics import default_period_days, get_metrics, per
 from analytics_app.services.report_builder import build_full_report
 from clients.permissions import HasValidApiKey
 from tracker.models import Visit
+from subscriptions.permissions import HasActiveSubscription
 
 logger = logging.getLogger(__name__)
 
@@ -176,7 +177,7 @@ class PublicAnalyticsEventCreateView(CreateAPIView):
 
 
 class AnalyticsSummaryView(APIView):
-    permission_classes = [permissions.IsAuthenticated, IsClientUser]
+    permission_classes = [permissions.IsAuthenticated, IsClientUser, HasActiveSubscription]
 
     def get(self, request):
         client = request.client
@@ -196,7 +197,7 @@ class AnalyticsSummaryView(APIView):
 
 
 class AnalyticsOverviewView(APIView):
-    permission_classes = [permissions.IsAuthenticated, IsClientUser]
+    permission_classes = [permissions.IsAuthenticated, IsClientUser, HasActiveSubscription]
 
     def get(self, request):
         client = request.client
@@ -221,7 +222,7 @@ class AnalyticsOverviewView(APIView):
 
 
 class AnalyticsUniqueDailyView(APIView):
-    permission_classes = [permissions.IsAuthenticated, IsClientUser]
+    permission_classes = [permissions.IsAuthenticated, IsClientUser, HasActiveSubscription]
 
     def get(self, request):
         client = request.client
@@ -268,7 +269,7 @@ class AnalyticsUniqueDailyView(APIView):
 
 
 class AnalyticsDevicesView(APIView):
-    permission_classes = [permissions.IsAuthenticated, IsClientUser]
+    permission_classes = [permissions.IsAuthenticated, IsClientUser, HasActiveSubscription]
 
     def get(self, request):
         client = request.client

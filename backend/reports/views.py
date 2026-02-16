@@ -10,10 +10,11 @@ from reports.models import ReportSettings
 from reports.serializers import DailyToggleSerializer
 from reports.services.pdf_generator import build_pdf_for_client
 from reports.services.telegram_sender import send_pdf_to_client_telegram
+from subscriptions.permissions import HasActiveSubscription
 
 
 class ReportSendNowView(APIView):
-    permission_classes = [permissions.IsAuthenticated, IsClientUser]
+    permission_classes = [permissions.IsAuthenticated, IsClientUser, HasActiveSubscription]
 
     def post(self, request):
         client = request.client
@@ -42,7 +43,7 @@ class ReportSendNowView(APIView):
 
 
 class ReportToggleDailyView(APIView):
-    permission_classes = [permissions.IsAuthenticated, IsClientUser]
+    permission_classes = [permissions.IsAuthenticated, IsClientUser, HasActiveSubscription]
 
     def get(self, request):
         settings_obj, _ = ReportSettings.objects.get_or_create(client=request.client)

@@ -40,6 +40,7 @@ urlpatterns = [
     path("api/analytics/unique-daily/", AnalyticsUniqueDailyView.as_view(), name="analytics_unique_daily"),
     path("api/analytics/summary/", AnalyticsSummaryView.as_view(), name="analytics_summary"),
     path("api/reports/", include("reports.urls")),
+    path("api/subscription/", include("subscriptions.urls")),
     path("api/settings/", ClientSettingsView.as_view(), name="settings"),
     path("api/client/settings/", ClientSettingsView.as_view(), name="client_settings"),
     path("api/", include(router.urls)),

@@ -10,6 +10,7 @@ from accounts.permissions import IsClientUser
 from clients.permissions import HasValidApiKey
 from leads.models import Lead
 from leads.serializers import LeadSerializer, LeadStatusSerializer, PublicLeadCreateSerializer
+from subscriptions.permissions import HasActiveSubscription
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +38,7 @@ class PublicLeadCreateView(CreateAPIView):
 
 class LeadViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     serializer_class = LeadSerializer
-    permission_classes = [permissions.IsAuthenticated, IsClientUser]
+    permission_classes = [permissions.IsAuthenticated, IsClientUser, HasActiveSubscription]
     ordering_fields = ("created_at",)
 
     def get_queryset(self):
