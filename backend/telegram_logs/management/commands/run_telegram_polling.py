@@ -31,31 +31,28 @@ class Command(BaseCommand):
             logger.exception("Failed to send Telegram message to chat_id=%s", chat_id)
 
     def _handle_start_command(self, token: str, text: str | None, chat_id: int | None) -> None:
-        if not text or not text.strip().lower().startswith("/start"):
+        if not text:
             return
         if chat_id is None:
             return
 
-        self._send_message(
-            token,
-            chat_id,
-            "Привет! Для подключения отчётов откройте кабинет TrackNode и нажмите 'Подключить Telegram'. "
-            "Затем отправьте сюда команду /link CODE.",
-        )
-
-    def _handle_legacy_start_key(self, token: str, text: str | None, chat_id: int | None) -> None:
-        if not text or chat_id is None:
-            return
         normalized = text.strip()
-        if not normalized.lower().startswith("/start "):
-            return
-        parts = normalized.split(maxsplit=1)
-        if len(parts) < 2:
+        if not normalized:
             return
 
-        candidate = parts[1].strip()
-        client = Client.objects.filter(api_key=candidate, is_active=True).first()
+        command = normalized.split(maxsplit=1)[0].lower()
+        if not command.startswith("/start"):
+            return
+
+        parts = normalized.split(maxsplit=1)
+        if len(parts) < 2 or not parts[1].strip():
+            self._send_message(token, chat_id, "Используйте кнопку подключения из кабинета TrackNode.")
+            return
+
+        api_key = parts[1].strip()
+        client = Client.objects.filter(api_key=api_key, is_active=True).first()
         if client is None:
+            self._send_message(token, chat_id, "Ошибка подключения. Неверная ссылка.")
             return
 
         previous_chat_id = client.telegram_chat_id
@@ -63,12 +60,12 @@ class Command(BaseCommand):
         client.send_to_telegram = True
         client.save(update_fields=["telegram_chat_id", "send_to_telegram"])
         logger.info(
-            "legacy telegram binding success. client_id=%s old_chat_id=%s new_chat_id=%s",
+            "telegram binding success. client_id=%s old_chat_id=%s new_chat_id=%s",
             client.id,
             previous_chat_id,
             client.telegram_chat_id,
         )
-        self._send_message(token, chat_id, "Telegram подключен.")
+        self._send_message(token, chat_id, "Telegram подключён к вашему кабинету TrackNode.")
 
     def handle(self, *args, **options):
         token = settings.TELEGRAM_BOT_TOKEN
@@ -149,7 +146,6 @@ class Command(BaseCommand):
 
                         chat_id = chat.get("id")
                         self._handle_start_command(token, text, chat_id)
-                        self._handle_legacy_start_key(token, text, chat_id)
                     except Exception:
                         logger.exception("Failed to process update_id=%s", update_id)
                     finally:

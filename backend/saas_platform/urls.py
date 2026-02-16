@@ -4,6 +4,7 @@ from rest_framework_simplejwt.views import TokenRefreshView
 
 from accounts.views import LoginView, LogoutView, RegisterView
 from analytics_app.views import (
+    AnalyticsDevicesView,
     AnalyticsOverviewView,
     AnalyticsSummaryView,
     AnalyticsUniqueDailyView,
@@ -35,9 +36,11 @@ urlpatterns = [
     path("api/analytics/event/", PublicAnalyticsEventCreateView.as_view(), name="analytics_event"),
     path("api/public/telegram/webhook/", TelegramWebhookView.as_view(), name="telegram_webhook"),
     path("api/analytics/overview/", AnalyticsOverviewView.as_view(), name="analytics_overview"),
+    path("api/analytics/devices/", AnalyticsDevicesView.as_view(), name="analytics_devices"),
     path("api/analytics/unique-daily/", AnalyticsUniqueDailyView.as_view(), name="analytics_unique_daily"),
     path("api/analytics/summary/", AnalyticsSummaryView.as_view(), name="analytics_summary"),
     path("api/reports/", include("reports.urls")),
+    path("api/settings/", ClientSettingsView.as_view(), name="settings"),
     path("api/client/settings/", ClientSettingsView.as_view(), name="client_settings"),
     path("api/", include(router.urls)),
 ]

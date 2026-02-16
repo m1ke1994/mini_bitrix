@@ -12,8 +12,21 @@ class SiteAdmin(admin.ModelAdmin):
 
 @admin.register(Visit)
 class VisitAdmin(admin.ModelAdmin):
-    list_display = ("id", "site", "visitor_id", "session_id", "ip", "started_at", "ended_at", "duration")
-    search_fields = ("visitor_id", "session_id", "ip", "site__domain")
+    list_display = (
+        "id",
+        "site",
+        "visitor_id",
+        "session_id",
+        "ip_address",
+        "device_type",
+        "os",
+        "browser_family",
+        "is_ios_browser",
+        "started_at",
+        "ended_at",
+        "duration",
+    )
+    search_fields = ("visitor_id", "session_id", "ip_address", "site__domain", "os", "browser", "browser_family")
     list_filter = ("site",)
 
 

@@ -65,6 +65,7 @@ const mainNavItems = [
   { to: "/dashboard/unique", label: "Уникальные пользователи" },
   { to: "/dashboard/clicks", label: "Топ кликов" },
   { to: "/dashboard/pages-conversion", label: "Конверсия по страницам" },
+  { to: "/dashboard/devices", label: "Устройства" },
   { to: "/reports", label: "Отчёт PDF" },
   { to: "/leads", label: "Заявки" },
   { to: "/integration", label: "Интеграции" },

@@ -1,8 +1,7 @@
-﻿import logging
-from datetime import datetime, time, timedelta
-from urllib.parse import urlparse
+import logging
+from datetime import datetime
 
-from django.db.models import Avg, Count, Q, Sum
+from django.db.models import Count, Q
 from django.db.models.functions import TruncDate
 from django.utils import timezone
 from rest_framework import permissions, status
@@ -11,20 +10,19 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.permissions import IsClientUser
-from analytics_app.models import ClickEvent, Event, PageView
+from analytics_app.models import Event
 from analytics_app.serializers import PublicAnalyticsEventSerializer, PublicEventCreateSerializer
+from analytics_app.services.device_stats import get_device_distribution
+from analytics_app.services.metrics import default_period_days, get_metrics, period_bounds
+from analytics_app.services.report_builder import build_full_report
 from clients.permissions import HasValidApiKey
-from leads.models import Lead
-from leads.serializers import LeadSerializer
+from tracker.models import Visit
 
 logger = logging.getLogger(__name__)
 
 
 def _default_period_days(days=14):
-    now = timezone.localtime()
-    date_to = now.date()
-    date_from = date_to - timedelta(days=days - 1)
-    return date_from, date_to
+    return default_period_days(days=days)
 
 
 def _parse_date(value, fallback):
@@ -42,151 +40,52 @@ def _period_range(request, days=14):
     date_to = _parse_date(request.query_params.get("date_to"), default_to)
     if date_from > date_to:
         date_from, date_to = date_to, date_from
-    tz = timezone.get_current_timezone()
-    from_dt = timezone.make_aware(datetime.combine(date_from, time.min), tz)
-    to_dt = timezone.make_aware(datetime.combine(date_to, time.max), tz)
+    from_dt, to_dt = period_bounds(date_from, date_to, timezone.get_current_timezone())
     return date_from, date_to, from_dt, to_dt
 
 
 def _build_summary_payload(client, from_dt, to_dt):
-    page_view_qs = PageView.objects.filter(client=client, created_at__gte=from_dt, created_at__lte=to_dt)
-    event_qs = Event.objects.filter(client=client, created_at__gte=from_dt, created_at__lte=to_dt)
-    leads_qs = Lead.objects.filter(client=client, created_at__gte=from_dt, created_at__lte=to_dt)
+    report = build_full_report(client=client, date_from=from_dt.date(), date_to=to_dt.date())
+    summary = report["summary"]
+    daily_stats = report["daily_stats"]
 
-    form_submit_count = event_qs.filter(event_type=Event.EventType.FORM_SUBMIT).exclude(element_id="fetch_json").count()
-    leads_count = leads_qs.count()
-    visit_count = page_view_qs.count()
+    visits_by_day = [{"day": row["day"], "count": row["visits"]} for row in daily_stats]
+    unique_by_day = [{"day": row["day"], "count": row["unique_users"]} for row in daily_stats]
+    forms_by_day = [{"day": row["day"], "count": row["forms"]} for row in daily_stats]
+    leads_by_day = [{"day": row["day"], "count": row["leads"]} for row in daily_stats]
 
-    unique_filter = Q(visitor_id__isnull=False) & ~Q(visitor_id="")
-    visitors_unique = page_view_qs.filter(unique_filter).values("visitor_id").distinct().count()
-
-    visits_by_day_list = list(
-        event_qs.filter(event_type=Event.EventType.VISIT)
-        .annotate(day=TruncDate("created_at"))
-        .values("day")
-        .annotate(count=Count("id"))
-        .order_by("day")
-    )
-    forms_by_day = list(
-        event_qs.filter(event_type=Event.EventType.FORM_SUBMIT)
-        .annotate(day=TruncDate("created_at"))
-        .values("day")
-        .annotate(count=Count("id"))
-        .order_by("day")
-    )
-    leads_by_day = list(
-        leads_qs.annotate(day=TruncDate("created_at"))
-        .values("day")
-        .annotate(count=Count("id"))
-        .order_by("day")
-    )
-    unique_by_day = list(
-        page_view_qs.filter(unique_filter)
-        .annotate(day=TruncDate("created_at"))
-        .values("day")
-        .annotate(count=Count("visitor_id", distinct=True))
-        .order_by("day")
-    )
-
-    latest_leads = Lead.objects.filter(client=client).order_by("-created_at")[:10]
-    conversion = (leads_count / visit_count) if visit_count else 0
-    avg_time_on_site = page_view_qs.aggregate(v=Avg("duration_seconds"))["v"] or 0
-    avg_scroll_depth = page_view_qs.aggregate(v=Avg("max_scroll_depth"))["v"] or 0
-    total_sessions = page_view_qs.values("session_id").distinct().count()
-    total_page_views = page_view_qs.count()
-    avg_page_views_per_session = (total_page_views / total_sessions) if total_sessions else 0
-    avg_session_duration = (
-        page_view_qs.values("session_id")
-        .annotate(total_duration=Sum("duration_seconds"))
-        .aggregate(v=Avg("total_duration"))["v"]
-        or 0
-    )
-
-    source_stats = {}
-    for item in page_view_qs.values("utm_source", "referrer", "attributed_leads"):
-        source = (item.get("utm_source") or "").strip().lower()
-        if not source:
-            referrer = (item.get("referrer") or "").strip()
-            if referrer:
-                source = (urlparse(referrer).netloc or "referral").lower()
-            else:
-                source = "direct"
-        if source not in source_stats:
-            source_stats[source] = {"source": source, "visits": 0, "leads": 0}
-        source_stats[source]["visits"] += 1
-        source_stats[source]["leads"] += int(item.get("attributed_leads") or 0)
-
-    source_performance = []
-    for stats_item in source_stats.values():
-        visits = stats_item["visits"]
-        leads = stats_item["leads"]
-        source_performance.append(
-            {
-                "source": stats_item["source"],
-                "visits": visits,
-                "leads": leads,
-                "conversion_pct": round((leads / visits) * 100, 2) if visits else 0,
-            }
-        )
-    source_performance.sort(key=lambda item: item["visits"], reverse=True)
-    formatted_sources = [{"source": item["source"], "count": item["visits"]} for item in source_performance[:5]]
-
-    conversion_by_pages_qs = (
-        page_view_qs.values("pathname")
-        .annotate(
-            visits=Count("id"),
-            leads=Sum("attributed_leads"),
-        )
-        .order_by("-leads", "-visits")[:20]
-    )
-    conversion_by_pages = []
-    for item in conversion_by_pages_qs:
-        visits = item["visits"] or 0
-        leads = item["leads"] or 0
-        conversion_pct = round((leads / visits) * 100, 2) if visits else 0
-        conversion_by_pages.append(
-            {
-                "pathname": item["pathname"] or "/",
-                "visits": visits,
-                "leads": leads,
-                "conversion_pct": conversion_pct,
-            }
-        )
-
-    top_clicks_qs = (
-        ClickEvent.objects.filter(client=client, created_at__gte=from_dt, created_at__lte=to_dt)
-        .values("page_pathname", "element_text", "element_id", "element_class")
-        .annotate(count=Count("id"))
-        .order_by("-count")[:10]
-    )
-    total_clicks = ClickEvent.objects.filter(client=client, created_at__gte=from_dt, created_at__lte=to_dt).count()
-    top_clicks = []
-    for item in top_clicks_qs:
-        row = dict(item)
-        row["percent_of_total"] = round((row["count"] / total_clicks) * 100, 2) if total_clicks else 0
-        top_clicks.append(row)
+    source_performance = [
+        {
+            "source": row["source"],
+            "visits": row["visits"],
+            "leads": row["leads"],
+            "conversion_pct": row["conversion_pct"],
+        }
+        for row in report["sources"]
+    ]
+    top_sources = [{"source": row["source"], "count": row["visits"]} for row in report["sources"][:5]]
 
     return {
-        "visit_count": visit_count,
-        "visitors_unique": visitors_unique,
-        "form_submit_count": form_submit_count,
-        "leads_count": leads_count,
-        "conversion": round(conversion, 4),
-        "visits_by_day": visits_by_day_list,
+        "visit_count": summary["visits"],
+        "visitors_unique": summary["unique_users"],
+        "form_submit_count": summary["forms"],
+        "leads_count": summary["leads"],
+        "conversion": summary["conversion"],
+        "visits_by_day": visits_by_day,
         "unique_by_day": unique_by_day,
         "forms_by_day": forms_by_day,
         "leads_by_day": leads_by_day,
-        "latest_leads": LeadSerializer(latest_leads, many=True).data,
-        "avg_time_on_site": round(float(avg_time_on_site), 2),
-        "avg_session_duration": round(float(avg_session_duration), 2),
-        "avg_scroll_depth": round(float(avg_scroll_depth), 2),
-        "total_sessions": total_sessions,
-        "avg_page_views_per_session": round(float(avg_page_views_per_session), 2),
-        "top_sources": formatted_sources,
+        "latest_leads": report["leads"][:10],
+        "avg_time_on_site": 0,
+        "avg_session_duration": 0,
+        "avg_scroll_depth": 0,
+        "total_sessions": 0,
+        "avg_page_views_per_session": 0,
+        "top_sources": top_sources,
         "source_performance": source_performance,
-        "conversion_by_pages": conversion_by_pages,
-        "top_clicks": top_clicks,
-        "total_clicks": total_clicks,
+        "conversion_by_pages": report["page_conversion"],
+        "top_clicks": report["top_clicks"][:10],
+        "total_clicks": sum(item["count"] for item in report["top_clicks"]),
     }
 
 
@@ -301,15 +200,15 @@ class AnalyticsOverviewView(APIView):
 
     def get(self, request):
         client = request.client
-        date_from, date_to, from_dt, to_dt = _period_range(request, days=14)
-        payload = _build_summary_payload(client=client, from_dt=from_dt, to_dt=to_dt)
+        date_from, date_to, _, _ = _period_range(request, days=14)
+        metrics = get_metrics(client, date_from, date_to)
         response = {
             "period": {"date_from": date_from, "date_to": date_to},
-            "visits_total": payload["visit_count"],
-            "visitors_unique": payload["visitors_unique"],
-            "forms_total": payload["form_submit_count"],
-            "leads_total": payload["leads_count"],
-            "conversion": payload["conversion"],
+            "visits_total": metrics["visits"],
+            "visitors_unique": metrics["unique_users"],
+            "forms_total": metrics["forms"],
+            "leads_total": metrics["leads"],
+            "conversion": metrics["conversion"],
         }
         logger.info(
             "analytics.overview: client_id=%s from=%s to=%s payload=%s",
@@ -328,21 +227,29 @@ class AnalyticsUniqueDailyView(APIView):
         client = request.client
         date_from, date_to, from_dt, to_dt = _period_range(request, days=14)
         unique_filter = Q(visitor_id__isnull=False) & ~Q(visitor_id="")
-        rows = list(
-            PageView.objects.filter(client=client, created_at__gte=from_dt, created_at__lte=to_dt)
-            .filter(unique_filter)
-            .annotate(day=TruncDate("created_at"))
+        visits_qs = Visit.objects.filter(site__token=client.api_key, started_at__gte=from_dt, started_at__lte=to_dt)
+        rows_with_id = list(
+            visits_qs.filter(unique_filter)
+            .annotate(day=TruncDate("started_at"))
             .values("day")
             .annotate(count=Count("visitor_id", distinct=True))
             .order_by("day")
         )
-        total_unique = (
-            PageView.objects.filter(client=client, created_at__gte=from_dt, created_at__lte=to_dt)
-            .filter(unique_filter)
-            .values("visitor_id")
-            .distinct()
-            .count()
+        rows_without_id = list(
+            visits_qs.exclude(unique_filter)
+            .annotate(day=TruncDate("started_at"))
+            .values("day")
+            .annotate(count=Count("session_id", distinct=True))
+            .order_by("day")
         )
+        merged_rows = {}
+        for row in rows_with_id + rows_without_id:
+            day = row.get("day")
+            merged_rows[day] = merged_rows.get(day, 0) + int(row.get("count") or 0)
+        rows = [{"day": day, "count": count} for day, count in sorted(merged_rows.items())]
+
+        metrics = get_metrics(client, date_from, date_to)
+        total_unique = metrics["unique_users"]
         logger.info(
             "analytics.unique_daily: client_id=%s from=%s to=%s total_unique=%s days=%s",
             client.id,
@@ -358,3 +265,26 @@ class AnalyticsUniqueDailyView(APIView):
                 "daily": rows,
             }
         )
+
+
+class AnalyticsDevicesView(APIView):
+    permission_classes = [permissions.IsAuthenticated, IsClientUser]
+
+    def get(self, request):
+        client = request.client
+        date_from, date_to, _, _ = _period_range(request, days=14)
+        payload = get_device_distribution(client=client, date_from=date_from, date_to=date_to)
+        response = {
+            "period": {"date_from": date_from, "date_to": date_to},
+            "devices": payload["devices"],
+            "browsers": payload["browsers"],
+            "os": payload["os"],
+        }
+        logger.info(
+            "analytics.devices: client_id=%s from=%s to=%s payload=%s",
+            client.id,
+            date_from,
+            date_to,
+            response,
+        )
+        return Response(response)

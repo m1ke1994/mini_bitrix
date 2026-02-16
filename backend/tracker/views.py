@@ -6,6 +6,7 @@ from rest_framework import permissions, status
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from user_agents import parse as parse_user_agent
 
 from analytics_app.models import ClickEvent as AnalyticsClickEvent
 from analytics_app.models import Event as AnalyticsEvent
@@ -25,6 +26,39 @@ logger = logging.getLogger(__name__)
 def _client_ip(request):
     forwarded = (request.META.get("HTTP_X_FORWARDED_FOR") or "").split(",")[0].strip()
     return forwarded or request.META.get("REMOTE_ADDR")
+
+
+def _extract_visit_context(request):
+    user_agent_string = request.META.get("HTTP_USER_AGENT", "") or ""
+    ip = _client_ip(request)
+    try:
+        ua = parse_user_agent(user_agent_string)
+        if ua.is_mobile:
+            device_type = "mobile"
+        elif ua.is_tablet:
+            device_type = "tablet"
+        else:
+            device_type = "desktop"
+        os_family = ua.os.family or None
+        browser_name = ua.browser.family or None
+        browser_family = ua.browser.family or None
+        is_ios_browser = (ua.os.family or "") == "iOS"
+    except Exception:
+        device_type = None
+        os_family = None
+        browser_name = None
+        browser_family = None
+        is_ios_browser = False
+
+    return {
+        "ip_address": ip,
+        "user_agent": user_agent_string,
+        "device_type": device_type,
+        "os": os_family,
+        "browser": browser_name,
+        "browser_family": browser_family,
+        "is_ios_browser": is_ios_browser,
+    }
 
 
 def _site_by_token(token: str):
@@ -84,6 +118,7 @@ class TrackBaseAPIView(APIView):
         return site
 
     def get_or_create_visit(self, site, session_id, request, started_at=None, referrer="", visitor_id=""):
+        context = _extract_visit_context(request)
         visit = (
             Visit.objects.filter(site=site, session_id=session_id)
             .order_by("-started_at")
@@ -97,6 +132,13 @@ class TrackBaseAPIView(APIView):
             if referrer and not visit.referrer:
                 visit.referrer = referrer
                 updates.append("referrer")
+            for field_name, field_value in context.items():
+                if field_value is None:
+                    continue
+                current = getattr(visit, field_name)
+                if current != field_value:
+                    setattr(visit, field_name, field_value)
+                    updates.append(field_name)
             if updates:
                 visit.save(update_fields=updates)
             return visit
@@ -104,8 +146,13 @@ class TrackBaseAPIView(APIView):
             site=site,
             visitor_id=visitor_id or "",
             session_id=session_id,
-            ip=_client_ip(request),
-            user_agent=request.META.get("HTTP_USER_AGENT", ""),
+            ip_address=context["ip_address"],
+            user_agent=context["user_agent"],
+            device_type=context["device_type"],
+            os=context["os"],
+            browser=context["browser"],
+            browser_family=context["browser_family"],
+            is_ios_browser=context["is_ios_browser"],
             referrer=referrer or "",
             started_at=started_at or timezone.now(),
         )

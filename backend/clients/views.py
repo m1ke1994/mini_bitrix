@@ -1,5 +1,6 @@
 from django.http import HttpResponse
-from rest_framework import generics, permissions
+from rest_framework import generics, permissions, status
+from rest_framework.response import Response
 
 from accounts.permissions import IsClientUser
 from clients.serializers import ClientSettingsSerializer
@@ -11,6 +12,13 @@ class ClientSettingsView(generics.RetrieveUpdateAPIView):
 
     def get_object(self):
         return self.request.client
+
+    def post(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 def tracker_js_view(request):
@@ -79,7 +87,7 @@ def tracker_js_view(request):
     return scripts && scripts.length ? scripts[scripts.length - 1] : null;
   }
 
-  function createSessionId() {
+  function createUuid() {
     try {
       if (window.crypto && typeof window.crypto.randomUUID === 'function') {
         return window.crypto.randomUUID();
@@ -127,13 +135,13 @@ def tracker_js_view(request):
 
   var visitorId = safeGet(window.localStorage, visitorKey);
   if (!visitorId) {
-    visitorId = createSessionId();
+    visitorId = createUuid();
     safeSet(window.localStorage, visitorKey, visitorId);
   }
 
   var sessionId = safeGet(window.sessionStorage, sessionKey);
   if (!sessionId) {
-    sessionId = createSessionId();
+    sessionId = createUuid();
     safeSet(window.sessionStorage, sessionKey, sessionId);
   }
   logDebug('visitor/session ready', visitorId, sessionId);

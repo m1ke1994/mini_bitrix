@@ -21,7 +21,7 @@
       </article>
       <article class="stat-card">
         <h3>Конверсия</h3>
-        <strong>{{ (overview.conversion * 100).toFixed(2) }}%</strong>
+        <strong>{{ Number(overview.conversion || 0).toFixed(2) }}%</strong>
       </article>
     </div>
 

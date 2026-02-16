@@ -7,6 +7,7 @@ import DashboardSources from "./views/DashboardSources.vue";
 import DashboardClicks from "./views/DashboardClicks.vue";
 import DashboardPagesConversion from "./views/DashboardPagesConversion.vue";
 import DashboardUniqueVisitors from "./views/DashboardUniqueVisitors.vue";
+import DashboardDevices from "./views/DashboardDevices.vue";
 import IntegrationPage from "./views/IntegrationPage.vue";
 import InstructionsPage from "./views/InstructionsPage.vue";
 import AuthPage from "./views/AuthPage.vue";
@@ -56,6 +57,12 @@ const routes = [
             name: "dashboard_pages_conversion",
             component: DashboardPagesConversion,
             meta: { title: "Панель управления - Конверсия по страницам" },
+          },
+          {
+            path: "devices",
+            name: "dashboard_devices",
+            component: DashboardDevices,
+            meta: { title: "Панель управления - Устройства" },
           },
         ],
       },
