@@ -16,20 +16,31 @@ from analytics_app.services.metrics import default_period_days
 from analytics_app.services.report_builder import build_full_report
 
 FONT_NAME = "TrackNodeUnicode"
-FONT_PATH = Path(settings.BASE_DIR) / "static" / "fonts" / "Arial.ttf"
+FONT_CANDIDATE_PATHS = [
+    Path(settings.BASE_DIR) / "static" / "fonts" / "Arial.ttf",
+    Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
+]
 
 
 def _ensure_font_registered():
     try:
         pdfmetrics.getFont(FONT_NAME)
     except KeyError:
-        pdfmetrics.registerFont(TTFont(FONT_NAME, str(FONT_PATH)))
+        for font_path in FONT_CANDIDATE_PATHS:
+            if font_path.exists():
+                pdfmetrics.registerFont(TTFont(FONT_NAME, str(font_path)))
+                return
+        raise FileNotFoundError(
+            "Unicode font not found for PDF generation. "
+            "Expected one of: "
+            + ", ".join(str(path) for path in FONT_CANDIDATE_PATHS)
+        )
 
 
 def _render_table(elements, title, headers, rows, widths, rows_per_page=28):
     elements.append(Paragraph(title, _styles()["h2"]))
     if not rows:
-        rows = [["No data"] + ["-"] * (len(headers) - 1)]
+        rows = [["Нет данных"] + ["-"] * (len(headers) - 1)]
 
     start = 0
     while start < len(rows):
@@ -53,7 +64,7 @@ def _render_table(elements, title, headers, rows, widths, rows_per_page=28):
         start += rows_per_page
         if start < len(rows):
             elements.append(PageBreak())
-            elements.append(Paragraph(f"{title} (continued)", _styles()["h2"]))
+            elements.append(Paragraph(f"{title} (продолжение)", _styles()["h2"]))
     elements.append(Spacer(1, 8))
 
 
@@ -68,9 +79,9 @@ def _styles():
 
 def _top_name_and_count(rows):
     if not rows:
-        return "No data", 0
+        return "Нет данных", 0
     top = max(rows, key=lambda row: int(row.get("count") or 0))
-    return top.get("name") or "No data", int(top.get("count") or 0)
+    return top.get("name") or "Нет данных", int(top.get("count") or 0)
 
 
 def build_pdf_for_client(*, client, user):
@@ -88,30 +99,31 @@ def build_pdf_for_client(*, client, user):
         rightMargin=16 * mm,
         topMargin=14 * mm,
         bottomMargin=12 * mm,
-        title="TrackNode Analytics - Full Performance Report",
+        title="TrackNode Analytics - Полный отчёт по эффективности",
     )
 
     styles = _styles()
     elements = [
-        Paragraph("TrackNode Analytics - Full Performance Report", styles["title"]),
-        Paragraph(f"Client: {client.name}. Owner: {getattr(user, 'email', '-')}", styles["body"]),
+        Paragraph("TrackNode Analytics - Полный отчёт по эффективности", styles["title"]),
+        Paragraph(f"Клиент: {client.name}. Владелец: {getattr(user, 'email', '-')}", styles["body"]),
         Paragraph(
-            f"Period: {report['period']['date_from']:%d.%m.%Y} - {report['period']['date_to']:%d.%m.%Y}",
+            f"Период: {report['period']['date_from']:%d.%m.%Y} - {report['period']['date_to']:%d.%m.%Y}",
             styles["body"],
         ),
+        Paragraph(f"Сформировано: {timezone.localtime(timezone.now()):%d.%m.%Y %H:%M}", styles["body"]),
         Spacer(1, 8),
     ]
 
     _render_table(
         elements,
-        "Section 1. Key Metrics",
-        ["Metric", "Value"],
+        "Раздел 1. Ключевые метрики",
+        ["Метрика", "Значение"],
         [
-            ["Visits", str(summary["visits"])],
-            ["Unique Users", str(summary["unique_users"])],
-            ["Form Submits", str(summary["forms"])],
-            ["Leads", str(summary["leads"])],
-            ["Conversion", f"{summary['conversion']:.2f}%"],
+            ["Визиты", str(summary["visits"])],
+            ["Уникальные пользователи", str(summary["unique_users"])],
+            ["Отправки форм", str(summary["forms"])],
+            ["Заявки", str(summary["leads"])],
+            ["Конверсия", f"{summary['conversion']:.2f}%"],
         ],
         widths=[95 * mm, 70 * mm],
         rows_per_page=30,
@@ -122,12 +134,12 @@ def build_pdf_for_client(*, client, user):
     top_browser_name, top_browser_count = _top_name_and_count(report["devices_distribution"]["browsers"])
     _render_table(
         elements,
-        "Device Snapshot (First Page)",
-        ["Category", "Top", "Count"],
+        "Сводка по устройствам (первая страница)",
+        ["Категория", "Топ", "Количество"],
         [
-            ["Device", top_device_name, str(top_device_count)],
-            ["OS", top_os_name, str(top_os_count)],
-            ["Browser", top_browser_name, str(top_browser_count)],
+            ["Устройство", top_device_name, str(top_device_count)],
+            ["Операционная система", top_os_name, str(top_os_count)],
+            ["Браузер", top_browser_name, str(top_browser_count)],
         ],
         widths=[45 * mm, 85 * mm, 35 * mm],
         rows_per_page=30,
@@ -146,8 +158,8 @@ def build_pdf_for_client(*, client, user):
     ]
     _render_table(
         elements,
-        "Section 2. Daily Dynamics",
-        ["Date", "Visits", "Unique", "Forms", "Leads", "Conversion"],
+        "Раздел 2. Динамика по дням",
+        ["Дата", "Визиты", "Уникальные", "Формы", "Заявки", "Конверсия"],
         daily_rows,
         widths=[30 * mm, 24 * mm, 28 * mm, 24 * mm, 24 * mm, 30 * mm],
         rows_per_page=24,
@@ -164,8 +176,8 @@ def build_pdf_for_client(*, client, user):
     ]
     _render_table(
         elements,
-        "Section 3. Conversion by Pages",
-        ["Page", "Visits", "Leads", "Conversion %"],
+        "Раздел 3. Конверсия по страницам",
+        ["Страница", "Визиты", "Заявки", "Конверсия %"],
         page_rows,
         widths=[95 * mm, 22 * mm, 22 * mm, 26 * mm],
         rows_per_page=24,
@@ -177,8 +189,8 @@ def build_pdf_for_client(*, client, user):
         click_rows.append([row["page_pathname"], element[:50], str(row["count"]), f"{row['percent_of_total']:.2f}%"])
     _render_table(
         elements,
-        "Section 4. Top Clicks",
-        ["Page", "Element", "Clicks", "% of All Clicks"],
+        "Раздел 4. Топ кликов",
+        ["Страница", "Элемент", "Клики", "% от всех кликов"],
         click_rows,
         widths=[68 * mm, 58 * mm, 18 * mm, 21 * mm],
         rows_per_page=24,
@@ -187,8 +199,8 @@ def build_pdf_for_client(*, client, user):
     source_rows = [[row["source"], str(row["visits"]), f"{row['percent_of_total']:.2f}%"] for row in report["sources"]]
     _render_table(
         elements,
-        "Section 5. Top Sources",
-        ["Source", "Visits", "% of Total"],
+        "Раздел 5. Топ источников",
+        ["Источник", "Визиты", "% от общего"],
         source_rows,
         widths=[105 * mm, 30 * mm, 30 * mm],
         rows_per_page=28,
@@ -197,8 +209,8 @@ def build_pdf_for_client(*, client, user):
     devices_rows = [[row["name"], str(row["count"]), f"{row['percent']:.2f}%"] for row in report["devices_distribution"]["devices"]]
     _render_table(
         elements,
-        "Section 6. Device Distribution - Device Type",
-        ["Device Type", "Count", "%"],
+        "Раздел 6. Распределение устройств - Тип устройства",
+        ["Тип устройства", "Количество", "%"],
         devices_rows,
         widths=[95 * mm, 35 * mm, 35 * mm],
         rows_per_page=28,
@@ -207,8 +219,8 @@ def build_pdf_for_client(*, client, user):
     os_rows = [[row["name"], str(row["count"]), f"{row['percent']:.2f}%"] for row in report["devices_distribution"]["os"]]
     _render_table(
         elements,
-        "Section 6. Device Distribution - OS",
-        ["OS", "Count", "%"],
+        "Раздел 6. Распределение устройств - Операционная система",
+        ["Операционная система", "Количество", "%"],
         os_rows,
         widths=[95 * mm, 35 * mm, 35 * mm],
         rows_per_page=28,
@@ -217,8 +229,8 @@ def build_pdf_for_client(*, client, user):
     browser_rows = [[row["name"], str(row["count"]), f"{row['percent']:.2f}%"] for row in report["devices_distribution"]["browsers"]]
     _render_table(
         elements,
-        "Section 6. Device Distribution - Browser",
-        ["Browser", "Count", "%"],
+        "Раздел 6. Распределение устройств - Браузер",
+        ["Браузер", "Количество", "%"],
         browser_rows,
         widths=[95 * mm, 35 * mm, 35 * mm],
         rows_per_page=28,
@@ -238,8 +250,8 @@ def build_pdf_for_client(*, client, user):
     ]
     _render_table(
         elements,
-        "Section 7. Latest Leads",
-        ["ID", "Name", "Phone", "Email", "Date"],
+        "Раздел 7. Последние заявки",
+        ["ID", "Имя", "Телефон", "Email", "Дата"],
         leads_rows,
         widths=[12 * mm, 38 * mm, 32 * mm, 48 * mm, 35 * mm],
         rows_per_page=22,
