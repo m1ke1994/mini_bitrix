@@ -8,6 +8,12 @@
     <div class="guide-actions">
       <router-link class="guide-action-btn" to="/integration">Открыть Интеграции</router-link>
       <router-link class="guide-action-btn secondary" to="/settings">Открыть Настройки</router-link>
+      <button type="button" class="guide-action-btn secondary" @click="openAdminTelegram">
+        Связаться с администратором
+      </button>
+      <button type="button" class="guide-action-btn" :disabled="payRedirectLoading" @click="goToTelegramPayment">
+        {{ payRedirectLoading ? "Переход..." : "Оплатить сейчас" }}
+      </button>
     </div>
 
     <article class="guide-section">
@@ -47,6 +53,32 @@
 </template>
 
 <script setup>
+import { ref } from "vue";
+import { TELEGRAM_ADMIN_URL, redirectToTelegramPayment } from "../services/telegram";
+
+const payRedirectLoading = ref(false);
+
+function openAdminTelegram() {
+  window.open(TELEGRAM_ADMIN_URL, "_blank");
+}
+
+async function goToTelegramPayment() {
+  if (payRedirectLoading.value) return;
+
+  payRedirectLoading.value = true;
+  try {
+    await redirectToTelegramPayment();
+  } catch (e) {
+    if (e?.message === "PAYMENT_CLIENT_ID_MISSING") {
+      alert("Не удалось определить client_id для оплаты. Обновите страницу и попробуйте снова.");
+    } else {
+      alert("Не удалось получить статус подписки. Попробуйте снова.");
+    }
+  } finally {
+    payRedirectLoading.value = false;
+  }
+}
+
 const analyticsSteps = [
   { number: 1, text: "Откройте раздел «Интеграции» в левом меню." },
   { number: 2, text: "Скопируйте готовую строку подключения." },

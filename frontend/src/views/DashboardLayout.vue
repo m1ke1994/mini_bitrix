@@ -20,6 +20,11 @@
       <h1>Панель управления</h1>
       <div v-if="trialActive" class="trial-banner">
         🎁 Демо-доступ активен. Осталось: {{ trialDaysLeft }} дн.
+        <div>
+          <button type="button" class="pay-btn" :disabled="payRedirectLoading" @click="goToTelegramPayment">
+            {{ payRedirectLoading ? "Переход..." : "Оплатить сейчас" }}
+          </button>
+        </div>
       </div>
       <nav class="dashboard-subnav">
         <router-link to="/dashboard" exact-active-class="active">Обзор</router-link>
@@ -40,9 +45,8 @@
 <script setup>
 import { computed, onMounted, ref } from "vue";
 import { getSubscriptionStatus } from "../services/subscription";
+import { redirectToTelegramPayment } from "../services/telegram";
 import { useAuthStore } from "../stores/auth";
-
-const TELEGRAM_BOT_USERNAME = "TrackNode_bot";
 
 const loading = ref(true);
 const status = ref("expired");
@@ -88,17 +92,13 @@ async function goToTelegramPayment() {
 
   payRedirectLoading.value = true;
   try {
-    const statusResponse = await getSubscriptionStatus();
-    const apiClientId = statusResponse?.client_id;
-    if (!apiClientId) {
-      alert("Не удалось определить client_id для оплаты. Обновите страницу и попробуйте снова.");
-      return;
-    }
-
-    clientId.value = Number(apiClientId);
-    window.location.href = `https://t.me/${TELEGRAM_BOT_USERNAME}?start=pay_${clientId.value}`;
+    clientId.value = await redirectToTelegramPayment();
   } catch (e) {
-    alert("Не удалось получить статус подписки. Попробуйте снова.");
+    if (e?.message === "PAYMENT_CLIENT_ID_MISSING") {
+      alert("Не удалось определить client_id для оплаты. Обновите страницу и попробуйте снова.");
+    } else {
+      alert("Не удалось получить статус подписки. Попробуйте снова.");
+    }
   } finally {
     payRedirectLoading.value = false;
   }
