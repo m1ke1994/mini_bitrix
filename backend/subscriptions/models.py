@@ -95,3 +95,20 @@ class SubscriptionPayment(models.Model):
             f"payment client={self.client_id} plan={self.plan_id} "
             f"yookassa_id={self.yookassa_payment_id} status={self.status}"
         )
+
+
+class SubscriptionSettings(models.Model):
+    demo_enabled = models.BooleanField(default=True, verbose_name="Демо-доступ включен")
+    demo_days = models.PositiveIntegerField(default=3, verbose_name="Длительность демо (дней)")
+
+    class Meta:
+        verbose_name = "Настройки подписки"
+        verbose_name_plural = "Настройки подписки"
+
+    def __str__(self) -> str:
+        return "Настройки подписки"
+
+    @classmethod
+    def get_solo(cls) -> "SubscriptionSettings":
+        obj, _ = cls.objects.get_or_create(id=1, defaults={"demo_enabled": True, "demo_days": 3})
+        return obj

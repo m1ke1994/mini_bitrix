@@ -6,7 +6,7 @@ from rest_framework import serializers
 
 from accounts.models import ClientUser
 from clients.models import Client
-from subscriptions.models import Subscription
+from subscriptions.models import Subscription, SubscriptionSettings
 
 User = get_user_model()
 
@@ -57,12 +57,14 @@ class RegisterSerializer(serializers.Serializer):
             email=email,
             is_active=True,
         )
+        subscription_settings = SubscriptionSettings.get_solo()
+        trial_enabled = subscription_settings.demo_enabled
         Subscription.objects.get_or_create(
             client=client,
             defaults={
-                "status": Subscription.Status.ACTIVE,
-                "paid_until": timezone.now() + timedelta(days=3),
-                "is_trial": True,
+                "status": Subscription.Status.ACTIVE if trial_enabled else Subscription.Status.EXPIRED,
+                "paid_until": timezone.now() + timedelta(days=subscription_settings.demo_days) if trial_enabled else None,
+                "is_trial": trial_enabled,
                 "auto_renew": False,
             },
         )

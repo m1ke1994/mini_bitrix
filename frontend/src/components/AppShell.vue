@@ -30,6 +30,9 @@
         <router-link to="/instructions" active-class="" exact-active-class="router-link-active" @click="isMenuOpen = false">
           Инструкции по подключению
         </router-link>
+        <a href="https://t.me/M1ke994" target="_blank" rel="noopener noreferrer" @click="isMenuOpen = false">
+          Telegram
+        </a>
       </div>
 
       <button class="logout" @click="logout">Выйти</button>

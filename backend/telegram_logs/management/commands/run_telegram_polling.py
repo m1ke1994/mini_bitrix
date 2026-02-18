@@ -1,9 +1,11 @@
 import json
 import logging
 import time
+import uuid
 
 import requests
 from django.conf import settings
+from django.core.cache import cache
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
@@ -25,6 +27,76 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("--offset", type=int, default=None, help="Start polling from this update_id offset.")
+
+    def _log_webhook_info(self, token: str) -> dict:
+        endpoint = f"https://api.telegram.org/bot{token}/getWebhookInfo"
+        try:
+            response = requests.get(endpoint, timeout=15)
+            response.raise_for_status()
+            payload = response.json() if response.content else {}
+            result = payload.get("result") if isinstance(payload, dict) else {}
+            webhook_url = result.get("url") if isinstance(result, dict) else ""
+            logger.info(
+                "Telegram getWebhookInfo: ok=%s url=%r pending_update_count=%s last_error_date=%s last_error_message=%r",
+                payload.get("ok") if isinstance(payload, dict) else None,
+                webhook_url,
+                result.get("pending_update_count") if isinstance(result, dict) else None,
+                result.get("last_error_date") if isinstance(result, dict) else None,
+                result.get("last_error_message") if isinstance(result, dict) else None,
+            )
+            return result if isinstance(result, dict) else {}
+        except requests.RequestException:
+            logger.exception("Failed to get Telegram webhook info before polling start.")
+            return {}
+
+    def _find_client_for_pay_payload(self, lookup_value: str) -> Client | None:
+        if not lookup_value:
+            return None
+
+        if lookup_value.isdigit():
+            client_id = int(lookup_value)
+            qs = Client.objects.filter(id=client_id, is_active=True)
+            logger.info(
+                "Client lookup by id+is_active for pay payload: client_id=%s count=%s ids=%s",
+                client_id,
+                qs.count(),
+                list(qs.values_list("id", flat=True)[:5]),
+            )
+            client = qs.first()
+            if client is None:
+                inactive_qs = Client.objects.filter(id=client_id)
+                logger.info(
+                    "Client lookup by id without active filter for pay payload: client_id=%s count=%s states=%s",
+                    client_id,
+                    inactive_qs.count(),
+                    list(inactive_qs.values_list("id", "is_active")[:5]),
+                )
+            return client
+
+        qs_api_key = Client.objects.filter(api_key=lookup_value, is_active=True)
+        logger.info(
+            "Client lookup by api_key+is_active for pay payload: key_prefix=%s count=%s ids=%s",
+            lookup_value[:8],
+            qs_api_key.count(),
+            list(qs_api_key.values_list("id", flat=True)[:5]),
+        )
+        client = qs_api_key.first()
+        if client is not None:
+            return client
+
+        try:
+            client_uuid = uuid.UUID(lookup_value)
+        except ValueError:
+            return None
+
+        qs_uuid = Client.objects.filter(uuid=client_uuid, is_active=True)
+        logger.info(
+            "Client lookup by uuid+is_active for pay payload: uuid=%s count=%s ids=%s",
+            str(client_uuid),
+            qs_uuid.count(),
+            list(qs_uuid.values_list("id", flat=True)[:5]),
+        )
+        return qs_uuid.first()
 
     def _send_message(self, token: str, chat_id: int, text: str, reply_markup: dict | None = None) -> None:
         endpoint = f"https://api.telegram.org/bot{token}/sendMessage"
@@ -112,17 +184,28 @@ class Command(BaseCommand):
             return
 
         payload = parts[1].strip()
+        logger.info(
+            "Telegram /start payload received chat_id=%s sender_id=%s payload=%r",
+            chat_id,
+            sender_id,
+            payload,
+        )
         if payload.lower().startswith("pay_"):
             if sender_id is None:
                 self._send_message(token, chat_id, "Ошибка: не удалось определить пользователя Telegram.")
                 return
 
-            client_id_raw = payload[4:].strip()
-            if not client_id_raw.isdigit():
+            client_lookup_value = payload[4:].strip()
+            client = self._find_client_for_pay_payload(client_lookup_value)
+            if client is None:
                 self._send_message(token, chat_id, "Ошибка оплаты: неверная ссылка.")
                 return
 
-            client = Client.objects.filter(id=int(client_id_raw), is_active=True).first()
+            logger.info(
+                "Resolved pay payload to client: lookup_value=%r client_id=%s",
+                client_lookup_value,
+                client.id,
+            )
             if client is None:
                 self._send_message(token, chat_id, "Ошибка оплаты: клиент не найден.")
                 return
@@ -138,6 +221,13 @@ class Command(BaseCommand):
             else:
                 link.save(update_fields=["telegram_chat_id", "updated_at"])
 
+            logger.info(
+                "Telegram pay link bound sender_id=%s chat_id=%s client_id=%s telegram_link_id=%s",
+                sender_id,
+                chat_id,
+                client.id,
+                link.id,
+            )
             self._send_payment_plans_keyboard(token, chat_id)
             return
 
@@ -220,6 +310,15 @@ class Command(BaseCommand):
             return
 
         payment_data = create_yookassa_payment(client=link.client, plan=plan)
+        logger.info(
+            "Telegram plan callback payment create result: client_id=%s plan_id=%s has_error=%s payment_id=%s yookassa_id=%s status=%s",
+            link.client_id,
+            plan.id,
+            bool(payment_data.get("error")),
+            getattr(payment_data.get("payment"), "id", None),
+            getattr(payment_data.get("payment"), "yookassa_payment_id", None),
+            getattr(payment_data.get("payment"), "status", None),
+        )
         if payment_data.get("error"):
             self._send_message(
                 token,
@@ -259,12 +358,27 @@ class Command(BaseCommand):
             .filter(id=int(payment_id_raw))
             .first()
         )
+        logger.info(
+            "Telegram check_payment lookup: requested_payment_id=%s found=%s found_client_id=%s requester_client_id=%s created_at=%s activated_at=%s",
+            payment_id_raw,
+            payment is not None,
+            payment.client_id if payment else None,
+            link.client_id,
+            payment.created_at if payment else None,
+            payment.activated_at if payment else None,
+        )
         if payment is None or payment.client_id != link.client_id:
             self._send_message(token, chat_id, "Платёж не найден.")
             return
 
         try:
             provider_status = refresh_payment_status(payment)
+            logger.info(
+                "Telegram check_payment provider status: payment_id=%s provider_status=%s local_status=%s",
+                payment.id,
+                provider_status,
+                payment.status,
+            )
         except requests.RequestException:
             logger.exception("Failed to refresh payment status payment_id=%s", payment.id)
             self._send_message(token, chat_id, "Не удалось проверить оплату. Попробуйте позже.")
@@ -306,6 +420,16 @@ class Command(BaseCommand):
             return
 
         payment_data = create_yookassa_payment(client=link.client, plan=subscription.plan)
+        logger.info(
+            "Telegram renew callback payment create result: client_id=%s subscription_id=%s plan_id=%s has_error=%s payment_id=%s yookassa_id=%s status=%s",
+            link.client_id,
+            subscription.id,
+            subscription.plan.id if subscription.plan else None,
+            bool(payment_data.get("error")),
+            getattr(payment_data.get("payment"), "id", None),
+            getattr(payment_data.get("payment"), "yookassa_payment_id", None),
+            getattr(payment_data.get("payment"), "status", None),
+        )
         if payment_data.get("error"):
             self._send_message(
                 token,
@@ -383,17 +507,29 @@ class Command(BaseCommand):
 
         timeout_seconds = int(getattr(settings, "TELEGRAM_POLLING_TIMEOUT", 30))
         sleep_seconds = float(getattr(settings, "TELEGRAM_POLLING_RETRY_DELAY", 2))
-        delete_webhook = bool(getattr(settings, "TELEGRAM_POLLING_DELETE_WEBHOOK", True))
         get_updates_endpoint = f"https://api.telegram.org/bot{token}/getUpdates"
         delete_webhook_endpoint = f"https://api.telegram.org/bot{token}/deleteWebhook"
+        lock_key = str(getattr(settings, "TELEGRAM_POLLING_LOCK_KEY", "telegram:polling:lock"))
+        lock_ttl = int(getattr(settings, "TELEGRAM_POLLING_LOCK_TTL", 120))
+        lock_value = uuid.uuid4().hex
 
-        if delete_webhook:
+        if not cache.add(lock_key, lock_value, timeout=lock_ttl):
+            logger.error("Telegram polling lock is already held. Exiting current process. lock_key=%s", lock_key)
+            return
+        logger.info("Telegram polling lock acquired. lock_key=%s ttl=%s", lock_key, lock_ttl)
+
+        webhook_info = self._log_webhook_info(token)
+        webhook_url = (webhook_info.get("url") or "").strip() if isinstance(webhook_info, dict) else ""
+        if webhook_url:
             try:
                 response = requests.post(delete_webhook_endpoint, json={"drop_pending_updates": False}, timeout=15)
                 response.raise_for_status()
-                logger.info("Telegram webhook disabled for polling mode.")
+                logger.info("Telegram webhook disabled for polling mode. previous_url=%r", webhook_url)
             except requests.RequestException:
                 logger.exception("Failed to disable Telegram webhook before polling start.")
+        else:
+            logger.info("Telegram webhook is not configured. Polling can start.")
+        self._log_webhook_info(token)
 
         offset = options.get("offset")
         if offset is None:
@@ -403,72 +539,97 @@ class Command(BaseCommand):
 
         logger.info("Telegram polling started. timeout=%s retry=%s offset=%s", timeout_seconds, sleep_seconds, offset)
 
-        while True:
-            params = {
-                "timeout": timeout_seconds,
-                "allowed_updates": ["message", "edited_message", "channel_post", "edited_channel_post", "callback_query"],
-            }
-            if offset is not None:
-                params["offset"] = offset
-
-            try:
-                response = requests.get(get_updates_endpoint, params=params, timeout=timeout_seconds + 10)
-                response.raise_for_status()
-                payload = response.json()
-                if not payload.get("ok"):
-                    logger.warning("Telegram API non-ok payload: %s", payload)
-                    time.sleep(sleep_seconds)
-                    continue
-
-                updates = payload.get("result", [])
-                if updates:
-                    logger.info("Received updates count=%s", len(updates))
-
-                for update in updates:
-                    update_id = update.get("update_id")
-                    try:
-                        message = extract_message(update)
-                        chat = message.get("chat", {}) if isinstance(message, dict) else {}
-                        sender = message.get("from", {}) if isinstance(message, dict) else {}
-                        text = message.get("text") if isinstance(message, dict) else None
-                        if not text and isinstance(message, dict):
-                            text = message.get("caption")
-
-                        callback_query = update.get("callback_query") if isinstance(update.get("callback_query"), dict) else {}
-                        callback_data = callback_query.get("data") if callback_query else None
-
-                        logger.info(
-                            "Incoming update update_id=%s chat_id=%s from_id=%s username=%s text=%r callback=%r payload=%s",
-                            update_id,
-                            chat.get("id"),
-                            sender.get("id"),
-                            sender.get("username"),
-                            text,
-                            callback_data,
-                            json.dumps(update, ensure_ascii=False),
+        try:
+            while True:
+                if not cache.touch(lock_key, lock_ttl):
+                    current_holder = cache.get(lock_key)
+                    if current_holder != lock_value:
+                        logger.error(
+                            "Telegram polling lock lost. Stopping polling loop. lock_key=%s holder=%s",
+                            lock_key,
+                            current_holder,
                         )
+                        return
+                    cache.set(lock_key, lock_value, timeout=lock_ttl)
 
-                        if update_id is None:
-                            logger.warning("Update without update_id skipped. payload=%s", update)
-                            continue
+                params = {
+                    "timeout": timeout_seconds,
+                    "allowed_updates": ["message", "edited_message", "channel_post", "edited_channel_post", "callback_query"],
+                }
+                if offset is not None:
+                    params["offset"] = offset
 
-                        _, created = save_telegram_update(update)
-                        if not created:
-                            logger.info("Duplicate update ignored update_id=%s", update_id)
+                try:
+                    response = requests.get(get_updates_endpoint, params=params, timeout=timeout_seconds + 10)
+                    response.raise_for_status()
+                    payload = response.json()
+                    if not payload.get("ok"):
+                        logger.warning("Telegram API non-ok payload: %s", payload)
+                        time.sleep(sleep_seconds)
+                        continue
 
-                        chat_id = chat.get("id")
-                        sender_id = sender.get("id")
-                        self._handle_start_command(token, text, chat_id, sender_id)
-                        if callback_query:
-                            self._handle_callback(token, callback_query)
-                    except Exception:
-                        logger.exception("Failed to process update_id=%s", update_id)
-                    finally:
-                        if update_id is not None:
-                            offset = update_id + 1
-            except requests.RequestException:
-                logger.exception("Telegram polling request error.")
-                time.sleep(sleep_seconds)
-            except Exception:
-                logger.exception("Unexpected polling loop error.")
-                time.sleep(sleep_seconds)
+                    updates = payload.get("result", [])
+                    if updates:
+                        logger.info("Received updates count=%s", len(updates))
+
+                    for update in updates:
+                        update_id = update.get("update_id")
+                        try:
+                            message = extract_message(update)
+                            chat = message.get("chat", {}) if isinstance(message, dict) else {}
+                            sender = message.get("from", {}) if isinstance(message, dict) else {}
+                            text = message.get("text") if isinstance(message, dict) else None
+                            if not text and isinstance(message, dict):
+                                text = message.get("caption")
+
+                            callback_query = update.get("callback_query") if isinstance(update.get("callback_query"), dict) else {}
+                            callback_data = callback_query.get("data") if callback_query else None
+
+                            logger.info(
+                                "Incoming update update_id=%s chat_id=%s from_id=%s username=%s text=%r callback=%r payload=%s",
+                                update_id,
+                                chat.get("id"),
+                                sender.get("id"),
+                                sender.get("username"),
+                                text,
+                                callback_data,
+                                json.dumps(update, ensure_ascii=False),
+                            )
+
+                            if update_id is None:
+                                logger.warning("Update without update_id skipped. payload=%s", update)
+                                continue
+
+                            _, created = save_telegram_update(update)
+                            if not created:
+                                logger.info("Duplicate update ignored update_id=%s", update_id)
+
+                            chat_id = chat.get("id")
+                            sender_id = sender.get("id")
+                            self._handle_start_command(token, text, chat_id, sender_id)
+                            if callback_query:
+                                self._handle_callback(token, callback_query)
+                        except Exception:
+                            logger.exception("Failed to process update_id=%s", update_id)
+                        finally:
+                            if update_id is not None:
+                                offset = update_id + 1
+                except requests.HTTPError as exc:
+                    status_code = exc.response.status_code if exc.response is not None else None
+                    if status_code == 409:
+                        logger.error(
+                            "Telegram polling conflict (409). Another getUpdates consumer is active or webhook conflicts."
+                        )
+                    else:
+                        logger.exception("Telegram polling HTTP error status=%s", status_code)
+                    time.sleep(sleep_seconds)
+                except requests.RequestException:
+                    logger.exception("Telegram polling request error.")
+                    time.sleep(sleep_seconds)
+                except Exception:
+                    logger.exception("Unexpected polling loop error.")
+                    time.sleep(sleep_seconds)
+        finally:
+            if cache.get(lock_key) == lock_value:
+                cache.delete(lock_key)
+                logger.info("Telegram polling lock released. lock_key=%s", lock_key)
