@@ -20,10 +20,7 @@ ALLOWED_HOSTS = [
     for h in os.getenv("ALLOWED_HOSTS", "*").split(",")
     if h.strip()
 ]
-CSRF_TRUSTED_ORIGINS = [
-    "https://tracknode.ru",
-    "https://www.tracknode.ru",
-]
+
 
 CSRF_TRUSTED_ORIGINS = [
     "https://tracknode.ru",
