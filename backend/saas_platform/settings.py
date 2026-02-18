@@ -4,6 +4,7 @@ from pathlib import Path
 
 from celery.schedules import crontab
 from corsheaders.defaults import default_headers
+from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
 from django.utils.translation import gettext_lazy as _
 
@@ -196,9 +197,11 @@ SIMPLE_JWT = {
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_BOT_USERNAME = os.getenv("TELEGRAM_BOT_USERNAME", "").lstrip("@")
 TELEGRAM_WEBHOOK_SECRET = os.getenv("TELEGRAM_WEBHOOK_SECRET", "")
+TELEGRAM_USE_WEBHOOK = os.getenv("TELEGRAM_USE_WEBHOOK", "false").lower() == "true"
 TELEGRAM_POLLING_TIMEOUT = int(os.getenv("TELEGRAM_POLLING_TIMEOUT", "30"))
 TELEGRAM_POLLING_RETRY_DELAY = float(os.getenv("TELEGRAM_POLLING_RETRY_DELAY", "2"))
 TELEGRAM_POLLING_DELETE_WEBHOOK = os.getenv("TELEGRAM_POLLING_DELETE_WEBHOOK", "true").lower() == "true"
+TELEGRAM_POLLING_LOCK_FILE = os.getenv("TELEGRAM_POLLING_LOCK_FILE", "/tmp/tracknode_telegram_polling.lock")
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
 FRONTEND_URL = os.getenv("FRONTEND_URL", "").rstrip("/")
 
@@ -206,8 +209,17 @@ FRONTEND_URL = os.getenv("FRONTEND_URL", "").rstrip("/")
 
 YOOKASSA_SHOP_ID = os.getenv("YOOKASSA_SHOP_ID", "")
 YOOKASSA_SECRET_KEY = os.getenv("YOOKASSA_SECRET_KEY", "")
-PAYMENT_RETURN_URL = os.getenv("PAYMENT_RETURN_URL", "")
+YOOKASSA_RETURN_URL = "https://tracknode.ru/dashboard"
+PAYMENT_RETURN_URL = YOOKASSA_RETURN_URL
 PAYMENT_CHECKOUT_URL = os.getenv("PAYMENT_CHECKOUT_URL", "")
+
+if YOOKASSA_SECRET_KEY.startswith("live_"):
+    if DEBUG:
+        raise ImproperlyConfigured("DEBUG must be False when live YooKassa keys are used.")
+    if len(SECRET_KEY) < 32:
+        raise ImproperlyConfigured("SECRET_KEY must be at least 32 characters in production.")
+    if "localhost" in PAYMENT_RETURN_URL or ":9000" in PAYMENT_RETURN_URL:
+        raise ImproperlyConfigured("PAYMENT_RETURN_URL cannot contain localhost or :9000 in production.")
 
 # ================= CELERY =================
 

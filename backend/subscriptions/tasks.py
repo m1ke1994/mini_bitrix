@@ -41,22 +41,16 @@ def notify_auto_renew_subscriptions_task() -> int:
 
         paid_until_text = timezone.localtime(subscription.paid_until).strftime("%d.%m.%Y %H:%M")
         text = (
-            "⏳ Подписка скоро закончится.\n"
-            f"Тариф: {subscription.plan.name}\n"
-            f"Действует до: {paid_until_text}\n\n"
-            "Продлить автоматически?"
+            "Subscription is ending soon.\n"
+            f"Plan: {subscription.plan.name}\n"
+            f"Valid until: {paid_until_text}\n\n"
+            "You can disable auto-renew from this message."
         )
         keyboard = {
             "inline_keyboard": [
                 [
                     {
-                        "text": "Продлить сейчас",
-                        "callback_data": f"renew_now_{subscription.id}",
-                    }
-                ],
-                [
-                    {
-                        "text": "Отключить автопродление",
+                        "text": "Disable auto-renew",
                         "callback_data": f"disable_auto_renew_{subscription.id}",
                     }
                 ],

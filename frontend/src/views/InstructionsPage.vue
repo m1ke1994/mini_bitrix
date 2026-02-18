@@ -11,7 +11,7 @@
       <button type="button" class="guide-action-btn secondary" @click="openAdminTelegram">
         Связаться с администратором
       </button>
-      <button type="button" class="guide-action-btn" :disabled="payRedirectLoading" @click="goToTelegramPayment">
+      <button type="button" class="guide-action-btn" :disabled="payRedirectLoading" @click="goToPaymentCheckout">
         {{ payRedirectLoading ? "Переход..." : "Оплатить сейчас" }}
       </button>
     </div>
@@ -54,7 +54,8 @@
 
 <script setup>
 import { ref } from "vue";
-import { TELEGRAM_ADMIN_URL, redirectToTelegramPayment } from "../services/telegram";
+import { TELEGRAM_ADMIN_URL } from "../services/telegram";
+import { redirectToYooKassaCheckout } from "../services/subscription";
 
 const payRedirectLoading = ref(false);
 
@@ -62,17 +63,19 @@ function openAdminTelegram() {
   window.open(TELEGRAM_ADMIN_URL, "_blank");
 }
 
-async function goToTelegramPayment() {
+async function goToPaymentCheckout() {
   if (payRedirectLoading.value) return;
 
   payRedirectLoading.value = true;
   try {
-    await redirectToTelegramPayment();
+    await redirectToYooKassaCheckout();
   } catch (e) {
-    if (e?.message === "PAYMENT_CLIENT_ID_MISSING") {
-      alert("Не удалось определить client_id для оплаты. Обновите страницу и попробуйте снова.");
+    if (e?.message === "NO_ACTIVE_PLANS") {
+      alert("Нет активных тарифов для оплаты.");
+    } else if (e?.message === "NO_CONFIRMATION_URL") {
+      alert("Платеж создан, но ссылка на оплату не получена. Обратитесь в поддержку.");
     } else {
-      alert("Не удалось получить статус подписки. Попробуйте снова.");
+      alert("Не удалось начать оплату. Попробуйте снова.");
     }
   } finally {
     payRedirectLoading.value = false;

@@ -1,3 +1,7 @@
+x-django-prod-env: &django_prod_env
+  DEBUG: "False"
+  SECRET_KEY: ${DJANGO_SECRET_KEY:-tracknode_docker_secret_key_min_32_chars_2026}
+
 services:
   db:
     image: postgres:16
@@ -41,6 +45,8 @@ services:
       dockerfile: backend/Dockerfile
     env_file:
       - .env
+    environment:
+      <<: *django_prod_env
     command:
       - sh
       - -c
@@ -72,6 +78,8 @@ services:
       dockerfile: backend/Dockerfile
     env_file:
       - .env
+    environment:
+      <<: *django_prod_env
     command: celery -A saas_platform worker -l info
     volumes:
       - ./backend:/app
@@ -92,6 +100,8 @@ services:
       dockerfile: backend/Dockerfile
     env_file:
       - .env
+    environment:
+      <<: *django_prod_env
     command: celery -A saas_platform beat -l info
     volumes:
       - ./backend:/app
@@ -112,6 +122,10 @@ services:
       dockerfile: backend/Dockerfile
     env_file:
       - .env
+    environment:
+      <<: *django_prod_env
+      TELEGRAM_USE_WEBHOOK: ${TELEGRAM_USE_WEBHOOK:-false}
+      TELEGRAM_POLLING_LOCK_FILE: ${TELEGRAM_POLLING_LOCK_FILE:-/tmp/tracknode_telegram_polling.lock}
     command: python manage.py run_telegram_polling
     volumes:
       - ./backend:/app
@@ -122,7 +136,7 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    restart: unless-stopped
+    restart: on-failure
     networks:
       - saas_net
 

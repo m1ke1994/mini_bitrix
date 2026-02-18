@@ -1,6 +1,10 @@
+import json
 import logging
 
+from django.http import JsonResponse
 from django.utils import timezone
+from django.utils.decorators import method_decorator
+from django.views.decorators.csrf import csrf_exempt
 from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -12,31 +16,67 @@ from subscriptions.services import (
     activate_subscription_from_payment,
     create_yookassa_payment,
     notify_subscription_activated,
+    refresh_payment_status,
 )
 
 logger = logging.getLogger(__name__)
 
 
-def _extract_event_type(payload: dict) -> str:
-    return (
-        payload.get("event")
-        or payload.get("type")
-        or payload.get("event_type")
-        or ""
-    )
+@csrf_exempt
+def yookassa_webhook(request):
+    try:
+        payload = json.loads((request.body or b"{}").decode("utf-8"))
+        event = payload.get("event")
+        payment_object = payload.get("object") if isinstance(payload.get("object"), dict) else {}
+        payment_id = payment_object.get("id")
 
+        logger.info("YooKassa webhook received event=%s payment_id=%s", event, payment_id)
 
-def _extract_payment_object(payload: dict) -> dict:
-    if isinstance(payload.get("data"), dict) and isinstance(payload.get("data", {}).get("object"), dict):
-        return payload.get("data", {}).get("object")
-    if isinstance(payload.get("object"), dict):
-        return payload.get("object")
-    return payload if isinstance(payload, dict) else {}
+        if event != "payment.succeeded":
+            logger.info("YooKassa webhook ignored event=%s", event)
+            return JsonResponse({"status": "ignored"}, status=200)
 
+        if not payment_id:
+            logger.error("YooKassa webhook missing payment id. payload=%s", payload)
+            return JsonResponse({"status": "error", "reason": "missing_payment_id"}, status=200)
 
-def _extract_metadata(payment_object: dict) -> dict:
-    metadata = payment_object.get("metadata") if isinstance(payment_object, dict) else None
-    return metadata if isinstance(metadata, dict) else {}
+        payment = SubscriptionPayment.objects.filter(yookassa_payment_id=payment_id).first()
+        if payment is None:
+            logger.error("Payment not found for yookassa id=%s", payment_id)
+            return JsonResponse({"status": "not_found"}, status=200)
+
+        logger.info(
+            "YooKassa webhook matched payment local_id=%s client_id=%s status=%s",
+            payment.id,
+            payment.client_id,
+            payment.status,
+        )
+
+        if payment.status == SubscriptionPayment.Status.SUCCEEDED:
+            logger.info("YooKassa webhook already processed payment_id=%s", payment.id)
+            return JsonResponse({"status": "already_processed"}, status=200)
+
+        payment.raw_payload = payment_object
+        payment.save(update_fields=["raw_payload", "updated_at"])
+
+        subscription = activate_subscription_from_payment(payment)
+        if subscription is None:
+            logger.error("YooKassa webhook activation failed payment_id=%s", payment.id)
+            return JsonResponse({"status": "activation_failed"}, status=200)
+
+        if subscription.plan and subscription.paid_until:
+            notify_subscription_activated(client=subscription.client, plan=subscription.plan, paid_until=subscription.paid_until)
+
+        logger.info(
+            "YooKassa webhook processed successfully payment_id=%s subscription_status=%s paid_until=%s",
+            payment.id,
+            subscription.status,
+            subscription.paid_until,
+        )
+        return JsonResponse({"status": "ok"}, status=200)
+    except Exception:
+        logger.exception("YooKassa webhook error")
+        return JsonResponse({"status": "error"}, status=200)
 
 
 class SubscriptionStatusView(APIView):
@@ -64,6 +104,50 @@ class SubscriptionStatusView(APIView):
                 is_trial=False,
                 auto_renew=True,
             )
+
+        pending_payment = (
+            SubscriptionPayment.objects
+            .filter(client=client, status=SubscriptionPayment.Status.PENDING)
+            .exclude(yookassa_payment_id__startswith="pending-")
+            .order_by("-created_at")
+            .first()
+        )
+        if pending_payment is not None:
+            logger.info(
+                "Subscription status fallback check start payment_id=%s client_id=%s",
+                pending_payment.id,
+                client.id,
+            )
+            try:
+                provider_status = refresh_payment_status(pending_payment)
+                logger.info(
+                    "Subscription status fallback provider check payment_id=%s client_id=%s provider_status=%s",
+                    pending_payment.id,
+                    client.id,
+                    provider_status,
+                )
+                if provider_status == SubscriptionPayment.Status.SUCCEEDED:
+                    activated = activate_subscription_from_payment(pending_payment)
+                    if activated and activated.plan and activated.paid_until:
+                        notify_subscription_activated(
+                            client=activated.client,
+                            plan=activated.plan,
+                            paid_until=activated.paid_until,
+                        )
+                        subscription = activated
+                        logger.info(
+                            "Subscription status fallback activation succeeded payment_id=%s client_id=%s",
+                            pending_payment.id,
+                            client.id,
+                        )
+                    elif activated:
+                        subscription = activated
+            except Exception:
+                logger.exception(
+                    "Subscription status fallback activation failed payment_id=%s client_id=%s",
+                    pending_payment.id,
+                    client.id,
+                )
 
         if (
             subscription.status == Subscription.Status.ACTIVE
@@ -120,64 +204,15 @@ class SubscriptionCreatePaymentView(APIView):
         )
 
 
-class SubscriptionWebhookView(APIView):
+@method_decorator(csrf_exempt, name="dispatch")
+class YooKassaWebhookView(APIView):
     permission_classes = [permissions.AllowAny]
     authentication_classes = []
 
     def post(self, request):
-        payload = request.data if isinstance(request.data, dict) else {}
-        event_type = _extract_event_type(payload)
-        if event_type != "payment.succeeded":
-            return Response({"ok": True, "ignored": True}, status=status.HTTP_200_OK)
+        django_request = getattr(request, "_request", request)
+        return yookassa_webhook(django_request)
 
-        payment_object = _extract_payment_object(payload)
-        metadata = _extract_metadata(payment_object)
-        client_id = metadata.get("client_id")
-        plan_id = metadata.get("plan_id")
-        local_payment_id = metadata.get("payment_id")
-        yookassa_payment_id = payment_object.get("id")
 
-        if not client_id or not plan_id:
-            logger.warning("subscription webhook missing metadata: %s", payload)
-            return Response({"detail": "Invalid metadata"}, status=status.HTTP_400_BAD_REQUEST)
-
-        plan = SubscriptionPlan.objects.filter(id=plan_id, is_active=True).first()
-        if plan is None:
-            return Response({"detail": "Plan not found"}, status=status.HTTP_404_NOT_FOUND)
-
-        payment = None
-        if local_payment_id:
-            payment = SubscriptionPayment.objects.filter(id=local_payment_id, client_id=client_id).first()
-        if payment is None and yookassa_payment_id:
-            payment = SubscriptionPayment.objects.filter(yookassa_payment_id=yookassa_payment_id, client_id=client_id).first()
-
-        if payment is None:
-            payment = SubscriptionPayment.objects.create(
-                client_id=client_id,
-                plan=plan,
-                yookassa_payment_id=yookassa_payment_id or f"external-{timezone.now().timestamp()}",
-                status=SubscriptionPayment.Status.SUCCEEDED,
-                raw_payload=payment_object,
-            )
-        else:
-            payment.plan = plan
-            if yookassa_payment_id:
-                payment.yookassa_payment_id = yookassa_payment_id
-            payment.status = SubscriptionPayment.Status.SUCCEEDED
-            payment.raw_payload = payment_object
-            payment.save(update_fields=["plan", "yookassa_payment_id", "status", "raw_payload", "updated_at"])
-
-        was_activated = bool(payment.activated_at)
-        subscription = activate_subscription_from_payment(payment)
-        if not was_activated and subscription.plan and subscription.paid_until:
-            notify_subscription_activated(client=subscription.client, plan=subscription.plan, paid_until=subscription.paid_until)
-
-        return Response(
-            {
-                "ok": True,
-                "status": subscription.status,
-                "paid_until": subscription.paid_until,
-                "plan": subscription.plan_id,
-            },
-            status=status.HTTP_200_OK,
-        )
+class SubscriptionWebhookView(YooKassaWebhookView):
+    pass

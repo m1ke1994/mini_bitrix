@@ -14,6 +14,7 @@ from analytics_app.views import (
 from clients.views import ClientSettingsView, tracker_js_view
 from leads.views import LeadViewSet, PublicLeadCreateView
 from rest_framework.routers import DefaultRouter
+from subscriptions.views import YooKassaWebhookView
 from telegram_logs.views import TelegramWebhookView
 
 router = DefaultRouter()
@@ -35,6 +36,8 @@ urlpatterns = [
     path("api/public/event/", PublicEventCreateView.as_view(), name="public_event"),
     path("api/analytics/event/", PublicAnalyticsEventCreateView.as_view(), name="analytics_event"),
     path("api/public/telegram/webhook/", TelegramWebhookView.as_view(), name="telegram_webhook"),
+    path("api/subscriptions/yookassa/webhook/", YooKassaWebhookView.as_view(), name="yookassa_webhook_subscriptions"),
+    path("api/payments/yookassa/webhook/", YooKassaWebhookView.as_view(), name="yookassa_webhook"),
     path("api/analytics/overview/", AnalyticsOverviewView.as_view(), name="analytics_overview"),
     path("api/analytics/devices/", AnalyticsDevicesView.as_view(), name="analytics_devices"),
     path("api/analytics/unique-daily/", AnalyticsUniqueDailyView.as_view(), name="analytics_unique_daily"),

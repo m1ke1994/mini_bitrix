@@ -1,100 +1,80 @@
-import json
+import logging
 import uuid
 from datetime import timedelta
 
-import requests
 from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
+from django.db import transaction
 from django.utils import timezone
+from yookassa import Configuration, Payment
 
-from subscriptions.models import Subscription, SubscriptionPayment, TelegramLink
+from subscriptions.models import Subscription, SubscriptionPayment, SubscriptionPlan, TelegramLink
 from subscriptions.telegram import send_telegram_message
 
-
-def _yookassa_credentials() -> tuple[str, str]:
-    return (
-        (getattr(settings, "YOOKASSA_SHOP_ID", "") or "").strip(),
-        (getattr(settings, "YOOKASSA_SECRET_KEY", "") or "").strip(),
-    )
+logger = logging.getLogger(__name__)
 
 
-def _default_return_url() -> str:
-    frontend_url = (getattr(settings, "FRONTEND_URL", "") or "").strip().rstrip("/")
-    if frontend_url:
-        return f"{frontend_url}/dashboard"
-
-    configured = (getattr(settings, "PAYMENT_RETURN_URL", "") or "").strip()
-    if configured:
-        return configured
-    public_base = (getattr(settings, "PUBLIC_BASE_URL", "") or "").strip().rstrip("/")
-    if public_base:
-        return f"{public_base}/dashboard"
-    return "http://localhost:9003/dashboard"
-
-
-def _build_fallback_checkout_url(client_id: int, plan_id: int) -> str:
-    checkout_base = (getattr(settings, "PAYMENT_CHECKOUT_URL", "") or "").strip()
-    if not checkout_base:
-        return ""
-    connector = "&" if "?" in checkout_base else "?"
-    return f"{checkout_base}{connector}client_id={client_id}&plan_id={plan_id}"
+def _configure_yookassa() -> None:
+    shop_id = (getattr(settings, "YOOKASSA_SHOP_ID", "") or "").strip()
+    secret_key = (getattr(settings, "YOOKASSA_SECRET_KEY", "") or "").strip()
+    if not shop_id or not secret_key:
+        raise ImproperlyConfigured("YOOKASSA_SHOP_ID and YOOKASSA_SECRET_KEY must be set")
+    Configuration.account_id = shop_id
+    Configuration.secret_key = secret_key
 
 
 def create_yookassa_payment(*, client, plan, description: str | None = None) -> dict:
-    metadata = {"client_id": str(client.id), "plan_id": str(plan.id)}
-    shop_id, secret_key = _yookassa_credentials()
-    print("YOOKASSA CONFIG:", {"account_id_set": bool(shop_id), "secret_key_set": bool(secret_key)})
+    _configure_yookassa()
+    amount_value = f"{plan.price:.2f}"
 
     payment = SubscriptionPayment.objects.create(
         client=client,
         plan=plan,
-        yookassa_payment_id=f"mock-{uuid.uuid4().hex}",
+        yookassa_payment_id=f"pending-{uuid.uuid4().hex}",
         status=SubscriptionPayment.Status.PENDING,
-        raw_payload={"metadata": metadata},
+        raw_payload={},
     )
 
-    # Attach internal id so webhook/status checks can map provider payload to local payment.
-    metadata["payment_id"] = str(payment.id)
+    metadata = {
+        "client_id": str(client.id),
+        "plan_id": str(plan.id),
+        "internal_payment_id": str(payment.id),
+    }
 
-    if not shop_id or not secret_key:
-        fallback_url = _build_fallback_checkout_url(client.id, plan.id)
-        return {
-            "payment": payment,
-            "metadata": metadata,
-            "confirmation_url": fallback_url,
-            "checkout_url": fallback_url,
-        }
-
-    endpoint = "https://api.yookassa.ru/v3/payments"
     payload = {
-        "amount": {"value": f"{plan.price:.2f}", "currency": plan.currency or "RUB"},
+        "amount": {"value": amount_value, "currency": plan.currency or "RUB"},
         "confirmation": {
             "type": "redirect",
-            "return_url": _default_return_url(),
+            "return_url": getattr(settings, "YOOKASSA_RETURN_URL", "https://tracknode.ru/dashboard"),
         },
         "capture": True,
         "description": description or f"TrackNode subscription: {plan.name}",
         "metadata": metadata,
     }
 
-    response = requests.post(
-        endpoint,
-        json=payload,
-        auth=(shop_id, secret_key),
-        headers={"Idempotence-Key": uuid.uuid4().hex},
-        timeout=30,
-    )
-    response.raise_for_status()
-    body = response.json()
+    created_payment = Payment.create(payload, uuid.uuid4().hex)
+    confirmation = getattr(created_payment, "confirmation", None)
+    confirmation_url = getattr(confirmation, "confirmation_url", "") if confirmation is not None else ""
+    provider_payment_id = getattr(created_payment, "id", "") or payment.yookassa_payment_id
+    provider_status = getattr(created_payment, "status", "") or SubscriptionPayment.Status.PENDING
 
-    confirmation_url = body.get("confirmation", {}).get("confirmation_url", "")
-    payment.yookassa_payment_id = body.get("id") or payment.yookassa_payment_id
-    payment.status = body.get("status") or SubscriptionPayment.Status.PENDING
-    payment.raw_payload = body
+    payment.yookassa_payment_id = provider_payment_id
+    payment.status = provider_status
+    payment.raw_payload = {
+        "id": provider_payment_id,
+        "status": provider_status,
+        "confirmation": {"confirmation_url": confirmation_url},
+        "metadata": metadata,
+    }
     payment.save(update_fields=["yookassa_payment_id", "status", "raw_payload", "updated_at"])
 
-    print("YOOKASSA RAW RESPONSE:", json.dumps(body, default=str, ensure_ascii=False))
-    print("YOOKASSA STATUS:", body.get("status"))
-    print("YOOKASSA CONFIRMATION:", body.get("confirmation"))
+    logger.info(
+        "YooKassa payment created payment_id=%s client_id=%s status=%s amount=%s",
+        payment.id,
+        client.id,
+        payment.status,
+        amount_value,
+    )
 
     if not confirmation_url:
         return {
@@ -103,8 +83,7 @@ def create_yookassa_payment(*, client, plan, description: str | None = None) -> 
             "confirmation_url": "",
             "checkout_url": "",
             "error": "no_confirmation",
-            "status": body.get("status") or payment.status,
-            "raw": str(body),
+            "status": payment.status,
         }
 
     return {
@@ -116,51 +95,103 @@ def create_yookassa_payment(*, client, plan, description: str | None = None) -> 
 
 
 def refresh_payment_status(payment: SubscriptionPayment) -> str:
-    shop_id, secret_key = _yookassa_credentials()
-    if payment.yookassa_payment_id.startswith("mock-") or not shop_id or not secret_key:
+    if not payment.yookassa_payment_id:
         return payment.status
 
-    endpoint = f"https://api.yookassa.ru/v3/payments/{payment.yookassa_payment_id}"
-    response = requests.get(endpoint, auth=(shop_id, secret_key), timeout=30)
-    response.raise_for_status()
-    body = response.json()
+    _configure_yookassa()
+    provider_payment = Payment.find_one(payment.yookassa_payment_id)
+    provider_status = getattr(provider_payment, "status", "") or payment.status
 
-    status_value = body.get("status") or payment.status
-    payment.status = status_value
-    payment.raw_payload = body
+    payment.status = provider_status
+    payment.raw_payload = {
+        "id": getattr(provider_payment, "id", payment.yookassa_payment_id),
+        "status": provider_status,
+    }
     payment.save(update_fields=["status", "raw_payload", "updated_at"])
-    return status_value
-
-
-def activate_subscription_from_payment(payment: SubscriptionPayment) -> Subscription:
-    subscription, _ = Subscription.objects.get_or_create(
-        client=payment.client,
-        defaults={"status": Subscription.Status.EXPIRED, "is_trial": False, "auto_renew": True},
+    logger.info(
+        "YooKassa payment status refreshed payment_id=%s client_id=%s status=%s",
+        payment.id,
+        payment.client_id,
+        payment.status,
     )
+    return provider_status
 
-    if payment.activated_at:
-        return subscription
+def activate_subscription_from_payment(payment: SubscriptionPayment) -> Subscription | None:
+    logger.info(
+        "Subscription activation requested payment_id=%s client_id=%s",
+        payment.id,
+        payment.client_id,
+    )
+    try:
+        with transaction.atomic():
+            locked_payment = (
+                SubscriptionPayment.objects
+                .select_for_update()
+                .filter(id=payment.id)
+                .first()
+            )
 
-    now = timezone.now()
-    plan = payment.plan
-    if plan is None:
-        return subscription
+            if locked_payment is None:
+                raise SubscriptionPayment.DoesNotExist(
+                    f"SubscriptionPayment id={payment.id} not found"
+                )
 
-    if subscription.paid_until and subscription.paid_until > now:
-        new_paid_until = subscription.paid_until + timedelta(days=plan.duration_days)
-    else:
-        new_paid_until = now + timedelta(days=plan.duration_days)
+            if locked_payment.activated_at:
+                return Subscription.objects.filter(
+                    client=locked_payment.client
+                ).first()
 
-    subscription.status = Subscription.Status.ACTIVE
-    subscription.plan = plan
-    subscription.paid_until = new_paid_until
-    subscription.is_trial = False
-    subscription.save(update_fields=["status", "plan", "paid_until", "is_trial", "updated_at"])
+            if not locked_payment.plan_id:
+                logger.error(
+                    "Payment has no plan. payment_id=%s client_id=%s",
+                    locked_payment.id,
+                    locked_payment.client_id,
+                )
+                return None
 
-    payment.status = SubscriptionPayment.Status.SUCCEEDED
-    payment.activated_at = now
-    payment.save(update_fields=["status", "activated_at", "updated_at"])
-    return subscription
+            plan = SubscriptionPlan.objects.filter(id=locked_payment.plan_id).first()
+            if plan is None:
+                logger.error(
+                    "Plan not found for payment. payment_id=%s client_id=%s plan_id=%s",
+                    locked_payment.id,
+                    locked_payment.client_id,
+                    locked_payment.plan_id,
+                )
+                return None
+
+            subscription, _ = Subscription.objects.select_for_update().get_or_create(
+                client=locked_payment.client,
+                defaults={
+                    "status": Subscription.Status.EXPIRED,
+                    "is_trial": False,
+                    "auto_renew": True,
+                },
+            )
+
+            now = timezone.now()
+
+            subscription.status = Subscription.Status.ACTIVE
+            subscription.plan = plan
+            subscription.paid_until = now + timedelta(days=plan.duration_days)
+            subscription.is_trial = False
+            subscription.save()
+
+            locked_payment.status = SubscriptionPayment.Status.SUCCEEDED
+            locked_payment.activated_at = now
+            locked_payment.save()
+
+            logger.info(
+                "Subscription activated successfully payment_id=%s client_id=%s",
+                locked_payment.id,
+                locked_payment.client_id,
+            )
+            return subscription
+    except Exception:
+        logger.exception(
+            "Subscription activation failed payment_id=%s",
+            payment.id,
+        )
+        raise
 
 
 def notify_subscription_activated(client, plan, paid_until) -> None:
@@ -180,3 +211,4 @@ def notify_subscription_activated(client, plan, paid_until) -> None:
         "Теперь вам доступна вся аналитика TrackNode 🚀"
     )
     send_telegram_message(chat_id=chat_id, text=text)
+

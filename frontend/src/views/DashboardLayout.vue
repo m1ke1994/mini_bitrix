@@ -9,8 +9,8 @@
     <div v-else-if="isExpired" class="subscription-screen">
       <div class="subscription-card">
         <h2>Подписка не активна</h2>
-        <p>Для продолжения работы необходимо оплатить тариф через Telegram.</p>
-        <button type="button" class="pay-btn" :disabled="payRedirectLoading" @click="goToTelegramPayment">
+        <p>Для продолжения работы оплатите подписку через YooKassa.</p>
+        <button type="button" class="pay-btn" :disabled="payRedirectLoading" @click="goToPaymentCheckout">
           {{ payRedirectLoading ? "Переход..." : "Перейти к оплате" }}
         </button>
       </div>
@@ -19,9 +19,9 @@
     <template v-else>
       <h1>Панель управления</h1>
       <div v-if="trialActive" class="trial-banner">
-        🎁 Демо-доступ активен. Осталось: {{ trialDaysLeft }} дн.
+        Демо-доступ активен. Осталось: {{ trialDaysLeft }} дн.
         <div>
-          <button type="button" class="pay-btn" :disabled="payRedirectLoading" @click="goToTelegramPayment">
+          <button type="button" class="pay-btn" :disabled="payRedirectLoading" @click="goToPaymentCheckout">
             {{ payRedirectLoading ? "Переход..." : "Оплатить сейчас" }}
           </button>
         </div>
@@ -44,8 +44,7 @@
 
 <script setup>
 import { computed, onMounted, ref } from "vue";
-import { getSubscriptionStatus } from "../services/subscription";
-import { redirectToTelegramPayment } from "../services/telegram";
+import { getSubscriptionStatus, redirectToYooKassaCheckout } from "../services/subscription";
 import { useAuthStore } from "../stores/auth";
 
 const loading = ref(true);
@@ -53,7 +52,6 @@ const status = ref("expired");
 const isTrial = ref(false);
 const paidUntil = ref(null);
 const payRedirectLoading = ref(false);
-const clientId = ref(null);
 
 const auth = useAuthStore();
 const isExpired = computed(() => status.value !== "active");
@@ -76,28 +74,28 @@ async function loadSubscription() {
     status.value = statusResponse?.status || "expired";
     isTrial.value = Boolean(statusResponse?.is_trial);
     paidUntil.value = statusResponse?.paid_until ?? null;
-    clientId.value = statusResponse?.client_id ?? (auth.clientId ? Number(auth.clientId) : null);
   } catch (e) {
     status.value = "expired";
     isTrial.value = false;
     paidUntil.value = null;
-    clientId.value = auth.clientId ? Number(auth.clientId) : null;
   } finally {
     loading.value = false;
   }
 }
 
-async function goToTelegramPayment() {
+async function goToPaymentCheckout() {
   if (payRedirectLoading.value) return;
 
   payRedirectLoading.value = true;
   try {
-    clientId.value = await redirectToTelegramPayment();
+    await redirectToYooKassaCheckout();
   } catch (e) {
-    if (e?.message === "PAYMENT_CLIENT_ID_MISSING") {
-      alert("Не удалось определить client_id для оплаты. Обновите страницу и попробуйте снова.");
+    if (e?.message === "NO_ACTIVE_PLANS") {
+      alert("Нет активных тарифов для оплаты.");
+    } else if (e?.message === "NO_CONFIRMATION_URL") {
+      alert("Платеж создан, но ссылка на оплату не получена. Обратитесь в поддержку.");
     } else {
-      alert("Не удалось получить статус подписки. Попробуйте снова.");
+      alert("Не удалось начать оплату. Попробуйте снова.");
     }
   } finally {
     payRedirectLoading.value = false;

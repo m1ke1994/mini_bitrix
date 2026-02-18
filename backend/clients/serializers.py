@@ -2,6 +2,7 @@ from django.conf import settings
 from rest_framework import serializers
 
 from clients.models import Client
+from clients.telegram_binding import build_secure_start_payload
 
 
 class ClientSettingsSerializer(serializers.ModelSerializer):
@@ -56,4 +57,4 @@ class ClientSettingsSerializer(serializers.ModelSerializer):
         bot_username = getattr(settings, "TELEGRAM_BOT_USERNAME", "")
         if not bot_username:
             return ""
-        return f"https://t.me/{bot_username}?start={obj.api_key}"
+        return f"https://t.me/{bot_username}?start={build_secure_start_payload(obj)}"
