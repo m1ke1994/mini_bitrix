@@ -163,6 +163,55 @@ class Command(BaseCommand):
             },
         )
 
+    def _upsert_telegram_link(self, *, sender_id: int, chat_id: int, client: Client) -> TelegramLink:
+        link_by_sender = TelegramLink.objects.filter(telegram_user_id=sender_id).select_related("client").first()
+        link_by_client = TelegramLink.objects.filter(client=client).select_related("client").first()
+
+        if link_by_sender and link_by_client and link_by_sender.pk != link_by_client.pk:
+            logger.warning(
+                "telegram link conflict resolved by sender. sender_id=%s chat_id=%s sender_client_id=%s target_client_id=%s",
+                sender_id,
+                chat_id,
+                link_by_sender.client_id,
+                client.id,
+            )
+            link_by_client.delete()
+
+        link = link_by_sender or link_by_client
+        if link is None:
+            return TelegramLink.objects.create(
+                telegram_user_id=sender_id,
+                telegram_chat_id=chat_id,
+                client=client,
+            )
+
+        update_fields = []
+        if link.telegram_user_id != sender_id:
+            link.telegram_user_id = sender_id
+            update_fields.append("telegram_user_id")
+        if link.telegram_chat_id != chat_id:
+            link.telegram_chat_id = chat_id
+            update_fields.append("telegram_chat_id")
+        if link.client_id != client.id:
+            link.client = client
+            update_fields.append("client")
+        if update_fields:
+            link.save(update_fields=[*update_fields, "updated_at"])
+        return link
+
+    def _resolve_payment_link(self, *, sender_id: int, chat_id: int) -> TelegramLink | None:
+        link = TelegramLink.objects.filter(telegram_user_id=sender_id).select_related("client").first()
+        if link is not None:
+            if link.telegram_chat_id != chat_id:
+                link.telegram_chat_id = chat_id
+                link.save(update_fields=["telegram_chat_id", "updated_at"])
+            return link
+
+        client = Client.objects.filter(telegram_chat_id=str(chat_id), is_active=True).first()
+        if client is None:
+            return None
+        return self._upsert_telegram_link(sender_id=sender_id, chat_id=chat_id, client=client)
+
     def _handle_start_command(self, token: str, text: str | None, chat_id: int | None, sender_id: int | None) -> None:
         if not text or chat_id is None:
             return
@@ -195,6 +244,7 @@ class Command(BaseCommand):
                 self._send_message(token, chat_id, "Ошибка: не удалось определить пользователя Telegram.")
                 return
 
+<<<<<<< HEAD
             client_lookup_value = payload[4:].strip()
             client = self._find_client_for_pay_payload(client_lookup_value)
             if client is None:
@@ -206,20 +256,38 @@ class Command(BaseCommand):
                 client_lookup_value,
                 client.id,
             )
-            if client is None:
-                self._send_message(token, chat_id, "Ошибка оплаты: клиент не найден.")
+=======
+            client_id_raw = payload[4:].strip()
+            logger.info(
+                "telegram pay start received. sender_id=%s chat_id=%s client_id_raw=%r",
+                sender_id,
+                chat_id,
+                client_id_raw,
+            )
+            if not client_id_raw.isdigit():
+                self._send_message(token, chat_id, "Ошибка оплаты: неверная ссылка.")
                 return
 
-            link, _ = TelegramLink.objects.get_or_create(
-                telegram_user_id=sender_id,
-                defaults={"client": client, "telegram_chat_id": chat_id},
-            )
-            link.telegram_chat_id = chat_id
-            if link.client_id != client.id:
-                link.client = client
-                link.save(update_fields=["client", "telegram_chat_id", "updated_at"])
-            else:
-                link.save(update_fields=["telegram_chat_id", "updated_at"])
+            client = Client.objects.filter(id=int(client_id_raw)).first()
+>>>>>>> 156e2de17d2910ddb3f4c000492b8c6fe37b7f6d
+            if client is None:
+                logger.warning(
+                    "telegram pay start client not found. sender_id=%s chat_id=%s client_id_raw=%r",
+                    sender_id,
+                    chat_id,
+                    client_id_raw,
+                )
+                self._send_message(token, chat_id, "Ошибка оплаты: клиент не найден.")
+                return
+            if not client.is_active:
+                logger.warning(
+                    "telegram pay start for inactive client allowed. sender_id=%s chat_id=%s client_id=%s",
+                    sender_id,
+                    chat_id,
+                    client.id,
+                )
+
+            self._upsert_telegram_link(sender_id=sender_id, chat_id=chat_id, client=client)
 
             logger.info(
                 "Telegram pay link bound sender_id=%s chat_id=%s client_id=%s telegram_link_id=%s",
@@ -232,7 +300,7 @@ class Command(BaseCommand):
             return
 
         api_key = payload
-        client = Client.objects.filter(api_key=api_key, is_active=True).first()
+        client = Client.objects.filter(api_key=api_key).first()
         if client is None:
             self._send_message(token, chat_id, "Ошибка подключения. Неверная ссылка.")
             return
@@ -247,6 +315,8 @@ class Command(BaseCommand):
             previous_chat_id,
             client.telegram_chat_id,
         )
+        if sender_id is not None:
+            self._upsert_telegram_link(sender_id=sender_id, chat_id=chat_id, client=client)
         self._send_message(token, chat_id, "Telegram подключён к вашему кабинету TrackNode.")
 
     def _handle_trial_command(self, token: str, chat_id: int, sender_id: int | None) -> None:
@@ -296,13 +366,10 @@ class Command(BaseCommand):
             self._send_message(token, chat_id, "Ошибка оплаты: неверный тариф.")
             return
 
-        link = TelegramLink.objects.filter(telegram_user_id=sender_id).select_related("client").first()
+        link = self._resolve_payment_link(sender_id=sender_id, chat_id=chat_id)
         if link is None:
-            self._send_message(token, chat_id, "Сначала откройте оплату через ссылку из кабинета TrackNode.")
+            self._send_message(token, chat_id, "Ошибка оплаты: клиент не найден для текущего чата.")
             return
-
-        link.telegram_chat_id = chat_id
-        link.save(update_fields=["telegram_chat_id", "updated_at"])
 
         plan = SubscriptionPlan.objects.filter(id=int(plan_id_raw), is_active=True).first()
         if plan is None:
@@ -348,16 +415,12 @@ class Command(BaseCommand):
             self._send_message(token, chat_id, "Ошибка: неверный идентификатор платежа.")
             return
 
-        link = TelegramLink.objects.filter(telegram_user_id=sender_id).select_related("client").first()
-        if link is None:
-            self._send_message(token, chat_id, "Сначала начните оплату из кабинета TrackNode.")
-            return
-
         payment = (
             SubscriptionPayment.objects.select_related("plan", "client")
             .filter(id=int(payment_id_raw))
             .first()
         )
+<<<<<<< HEAD
         logger.info(
             "Telegram check_payment lookup: requested_payment_id=%s found=%s found_client_id=%s requester_client_id=%s created_at=%s activated_at=%s",
             payment_id_raw,
@@ -368,8 +431,32 @@ class Command(BaseCommand):
             payment.activated_at if payment else None,
         )
         if payment is None or payment.client_id != link.client_id:
+=======
+        if payment is None:
+>>>>>>> 156e2de17d2910ddb3f4c000492b8c6fe37b7f6d
             self._send_message(token, chat_id, "Платёж не найден.")
             return
+
+        link = self._resolve_payment_link(sender_id=sender_id, chat_id=chat_id)
+        if link is None:
+            link = self._upsert_telegram_link(sender_id=sender_id, chat_id=chat_id, client=payment.client)
+            logger.info(
+                "telegram link auto-created from payment callback. sender_id=%s chat_id=%s client_id=%s payment_id=%s",
+                sender_id,
+                chat_id,
+                payment.client_id,
+                payment.id,
+            )
+        elif link.client_id != payment.client_id:
+            logger.warning(
+                "telegram link client mismatch fixed from payment callback. sender_id=%s chat_id=%s link_client_id=%s payment_client_id=%s payment_id=%s",
+                sender_id,
+                chat_id,
+                link.client_id,
+                payment.client_id,
+                payment.id,
+            )
+            link = self._upsert_telegram_link(sender_id=sender_id, chat_id=chat_id, client=payment.client)
 
         try:
             provider_status = refresh_payment_status(payment)
@@ -402,9 +489,9 @@ class Command(BaseCommand):
             self._send_message(token, chat_id, "Ошибка: неверные параметры продления.")
             return
 
-        link = TelegramLink.objects.filter(telegram_user_id=sender_id).select_related("client").first()
+        link = self._resolve_payment_link(sender_id=sender_id, chat_id=chat_id)
         if link is None:
-            self._send_message(token, chat_id, "Сначала откройте оплату через кабинет TrackNode.")
+            self._send_message(token, chat_id, "Ошибка оплаты: клиент не найден для текущего чата.")
             return
 
         subscription = (

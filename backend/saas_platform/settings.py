@@ -25,6 +25,13 @@ CSRF_TRUSTED_ORIGINS = [
     "https://www.tracknode.ru",
 ]
 
+CSRF_TRUSTED_ORIGINS = [
+    "https://tracknode.ru",
+    "https://www.tracknode.ru",
+]
+
+# если используешь nginx + https
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 # ================= APPS =================
 
 INSTALLED_APPS = [
