@@ -149,11 +149,38 @@ def tracker_js_view(request):
   }
 
   function getScript() {
-    if (document.currentScript) {
-      return document.currentScript;
-    }
+    var current = document.currentScript || null;
+    try {
+      if (current && current.src && current.src.indexOf('/tracker.js') !== -1) {
+        return current;
+      }
+    } catch (_) {}
+
     var scripts = document.getElementsByTagName('script');
-    return scripts && scripts.length ? scripts[scripts.length - 1] : null;
+    if (!scripts || !scripts.length) {
+      return current;
+    }
+
+    // Prefer tracker.js script with explicit tracker token on it.
+    for (var i = scripts.length - 1; i >= 0; i--) {
+      var script = scripts[i];
+      if (!script || !script.src || script.src.indexOf('/tracker.js') === -1) {
+        continue;
+      }
+      if (script.dataset && (script.dataset.token || script.dataset.apiKey)) {
+        return script;
+      }
+    }
+
+    // Fallback to any tracker.js script.
+    for (var j = scripts.length - 1; j >= 0; j--) {
+      var fallback = scripts[j];
+      if (fallback && fallback.src && fallback.src.indexOf('/tracker.js') !== -1) {
+        return fallback;
+      }
+    }
+
+    return current || scripts[scripts.length - 1] || null;
   }
 
   function createUuid() {
@@ -177,7 +204,12 @@ def tracker_js_view(request):
   }
 
   var scriptTag = getScript();
-  var token = scriptTag && scriptTag.dataset ? (scriptTag.dataset.token || scriptTag.dataset.apiKey || '') : '';
+  var token = '';
+  try {
+    token = String(scriptTag && scriptTag.dataset ? (scriptTag.dataset.token || scriptTag.dataset.apiKey || '') : '').trim();
+  } catch (_) {
+    token = '';
+  }
   var debug = false;
   try {
     debug = (
@@ -196,6 +228,12 @@ def tracker_js_view(request):
     logError('Missing tracker token. Use data-token or data-api-key.');
     return;
   }
+
+  if (window.__saasTrackerInitializedToken === token) {
+    logDebug('skip duplicate tracker init for token', token);
+    return;
+  }
+  window.__saasTrackerInitializedToken = token;
 
   var baseUrl = getBaseUrl(scriptTag);
   var trackerOrigin = baseUrl;
@@ -374,12 +412,19 @@ def tracker_js_view(request):
         keepalive: true
       }).then(function (response) {
         if (!response.ok) {
-          throw new Error('HTTP ' + response.status);
+          var httpError = new Error('HTTP ' + response.status);
+          httpError.status = response.status;
+          throw httpError;
         }
         logDebug('success', endpoint, 'status', response.status);
         return response;
       }).catch(function (err) {
         logWarn('request failed', endpoint, 'attempt', attempt, err && err.message ? err.message : err);
+        var statusCode = err && typeof err.status === 'number' ? err.status : 0;
+        if (statusCode >= 400 && statusCode < 500 && statusCode !== 429) {
+          logError('request rejected without retry: ' + endpoint, err);
+          return null;
+        }
         if (attempt >= maxAttempts) {
           logError('request permanently failed: ' + endpoint, err);
           return null;
@@ -407,7 +452,7 @@ def tracker_js_view(request):
   }
 
   function trackPageView() {
-    var fingerprint = window.location.pathname + window.location.search + '|' + (document.title || '');
+    var fingerprint = window.location.pathname + window.location.search;
     if (fingerprint === sentPageviewFingerprint) {
       logDebug('skip duplicate pageview', fingerprint);
       return Promise.resolve();
@@ -705,8 +750,13 @@ def tracker_js_view(request):
   try {
     logDebug('init handlers');
     resetPageTimer(window.location.pathname || '/');
-    trackVisitStart();
-    trackPageView();
+    trackVisitStart()
+      .then(function () {
+        return trackPageView();
+      })
+      .catch(function () {
+        return trackPageView();
+      });
     installFetchInterceptor();
     installXhrInterceptor();
     document.addEventListener('click', onClick, true);
@@ -717,6 +767,11 @@ def tracker_js_view(request):
     wrapHistory();
     logDebug('init complete');
   } catch (err) {
+    try {
+      if (window.__saasTrackerInitializedToken === token) {
+        window.__saasTrackerInitializedToken = '';
+      }
+    } catch (_) {}
     logError('tracker init failed', err);
   }
 })();
