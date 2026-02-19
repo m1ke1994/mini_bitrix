@@ -64,3 +64,33 @@ class MetricsServiceTests(TestCase):
         self.assertEqual(metrics["forms"], 1)
         self.assertEqual(metrics["leads"], 1)
         self.assertEqual(metrics["conversion"], 50.0)
+
+    def test_conversion_uses_form_submit_when_leads_absent(self):
+        for idx in range(5):
+            self._visit(session_id=f"session-{idx}", visitor_id=f"visitor-{idx}")
+        for idx in range(2):
+            Event.objects.create(
+                client=self.client_obj,
+                visitor_id=f"visitor-{idx}",
+                event_type=Event.EventType.FORM_SUBMIT,
+                element_id=f"form-{idx}",
+                page_url="https://test.local/contact",
+            )
+
+        metrics = get_metrics(self.client_obj, self.date_from, self.date_to)
+        self.assertEqual(metrics["visits"], 5)
+        self.assertEqual(metrics["forms"], 2)
+        self.assertEqual(metrics["leads"], 0)
+        self.assertEqual(metrics["conversion"], 40.0)
+
+    def test_conversion_falls_back_to_leads_when_forms_absent(self):
+        for idx in range(4):
+            self._visit(session_id=f"session-{idx}", visitor_id=f"visitor-{idx}")
+        for idx in range(2):
+            Lead.objects.create(client=self.client_obj, name=f"Lead {idx + 1}")
+
+        metrics = get_metrics(self.client_obj, self.date_from, self.date_to)
+        self.assertEqual(metrics["visits"], 4)
+        self.assertEqual(metrics["forms"], 0)
+        self.assertEqual(metrics["leads"], 2)
+        self.assertEqual(metrics["conversion"], 50.0)

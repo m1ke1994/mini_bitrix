@@ -51,13 +51,16 @@ def get_metrics(client, date_from, date_to):
     unique_without_visitor_id = visits_qs.exclude(with_id_filter).values("session_id").distinct().count()
     unique_users = unique_with_visitor_id + unique_without_visitor_id
 
-    conversion = round((leads / visits) * 100, 2) if visits > 0 else 0.0
+    # Count form submits as conversions for tracker-based funnels.
+    conversion_events = max(forms, leads)
+    conversion = round((conversion_events / visits) * 100, 2) if visits > 0 else 0.0
 
     return {
         "visits": visits,
         "unique_users": unique_users,
         "forms": forms,
         "leads": leads,
+        "conversion_events": conversion_events,
         "conversion": conversion,
         "from_dt": from_dt,
         "to_dt": to_dt,

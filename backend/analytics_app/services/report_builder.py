@@ -50,6 +50,7 @@ def build_full_report(client, date_from, date_to):
         unique = unique_with_id_by_day.get(day, 0) + unique_without_id_by_day.get(day, 0)
         forms = forms_by_day.get(day, 0)
         leads = leads_by_day.get(day, 0)
+        conversion_events = max(forms, leads)
         daily_stats.append(
             {
                 "day": day,
@@ -57,7 +58,7 @@ def build_full_report(client, date_from, date_to):
                 "unique_users": unique,
                 "forms": forms,
                 "leads": leads,
-                "conversion": round((leads / visits) * 100, 2) if visits else 0.0,
+                "conversion": round((conversion_events / visits) * 100, 2) if visits else 0.0,
             }
         )
 

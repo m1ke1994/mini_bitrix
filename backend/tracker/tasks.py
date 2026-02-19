@@ -1,4 +1,5 @@
 import logging
+from html import escape
 from urllib.parse import urlparse
 
 from celery import shared_task
@@ -11,17 +12,21 @@ from tracker.models import Event
 logger = logging.getLogger(__name__)
 
 
-def _safe_text(value, *, fallback: str = "-", max_len: int = 255) -> str:
+def _safe_text(value, *, fallback: str = "-", max_len: int = 1024) -> str:
     text = (value or "").strip()
     if not text:
         return fallback
     return text[:max_len]
 
 
-def _field_names(payload: dict) -> str:
+def _escape_html(value: str) -> str:
+    return escape(value, quote=True)
+
+
+def _field_names(payload: dict) -> list[str]:
     raw_fields = payload.get("fields")
     if not isinstance(raw_fields, list):
-        return ""
+        return []
 
     names: list[str] = []
     for item in raw_fields:
@@ -33,9 +38,9 @@ def _field_names(payload: dict) -> str:
         if name in names:
             continue
         names.append(name)
-        if len(names) >= 8:
+        if len(names) >= 12:
             break
-    return ", ".join(names)
+    return names
 
 
 @shared_task
@@ -55,7 +60,10 @@ def send_tracker_form_submit_notification_task(event_id: int, client_id: int) ->
     page_url = _safe_text(payload.get("page_url") or payload.get("url"), fallback="")
     page_path = _safe_text(payload.get("path"), fallback="")
     if not page_path and page_url:
-        page_path = _safe_text(urlparse(page_url).path, fallback="/", max_len=256)
+        parsed_page_url = urlparse(page_url)
+        page_path = _safe_text(parsed_page_url.path, fallback="/", max_len=256)
+        if parsed_page_url.query:
+            page_path = f"{page_path}?{parsed_page_url.query}"[:512]
     if not page_path:
         page_path = "/"
 
@@ -66,27 +74,38 @@ def send_tracker_form_submit_notification_task(event_id: int, client_id: int) ->
         site_name = _safe_text(event.visit.site.domain, fallback="unknown", max_len=255)
 
     local_time = timezone.localtime(event.timestamp).strftime("%d.%m.%Y %H:%M")
-    form_method = _safe_text(payload.get("method"), fallback="")
-    form_action = _safe_text(payload.get("action"), fallback="")
-    fields_text = _field_names(payload)
+    form_method = _safe_text(payload.get("method"), fallback="-", max_len=16).upper()
+    form_action = _safe_text(payload.get("action"), fallback="-", max_len=1024)
+    field_names = _field_names(payload)
+
+    site_name_html = _escape_html(site_name)
+    page_path_html = _escape_html(page_path)
+    local_time_html = _escape_html(local_time)
+    form_method_html = _escape_html(form_method)
+    form_action_html = _escape_html(form_action)
 
     lines = [
-        "Новая заявка",
+        "📥 <b>Новый лид</b>",
         "",
-        f"Сайт: {site_name}",
-        f"Страница: {page_path}",
-        f"Время: {local_time}",
+        f"🌐 <b>Сайт:</b> <code>{site_name_html}</code>",
+        f"📄 <b>Страница:</b> <code>{page_path_html}</code>",
+        f"🕒 <b>Время:</b> {local_time_html}",
+        f"⚙️ <b>Метод:</b> {form_method_html}",
+        "",
+        "🧾 <b>Форма:</b>",
+        form_action_html,
+        "",
+        "📝 <b>Поля формы:</b>",
     ]
 
-    if form_method:
-        lines.append(f"Метод: {form_method}")
-    if form_action:
-        lines.append(f"Форма: {form_action}")
-    if fields_text:
-        lines.append(f"Поля: {fields_text}")
+    if field_names:
+        for field_name in field_names:
+            lines.append(f"• {_escape_html(field_name)}")
+    else:
+        lines.append("• —")
 
     try:
-        send_telegram_message(client.telegram_chat_id, "\n".join(lines))
+        send_telegram_message(client.telegram_chat_id, "\n".join(lines), parse_mode="HTML")
     except Exception:
         logger.exception(
             "tracker.form_submit telegram notify failed event_id=%s client_id=%s",
