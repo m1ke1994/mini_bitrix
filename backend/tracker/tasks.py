@@ -23,26 +23,6 @@ def _escape_html(value: str) -> str:
     return escape(value, quote=True)
 
 
-def _field_names(payload: dict) -> list[str]:
-    raw_fields = payload.get("fields")
-    if not isinstance(raw_fields, list):
-        return []
-
-    names: list[str] = []
-    for item in raw_fields:
-        if not isinstance(item, dict):
-            continue
-        name = _safe_text(item.get("name"), fallback="", max_len=64)
-        if not name:
-            continue
-        if name in names:
-            continue
-        names.append(name)
-        if len(names) >= 12:
-            break
-    return names
-
-
 @shared_task
 def send_tracker_form_submit_notification_task(event_id: int, client_id: int) -> None:
     try:
@@ -76,36 +56,26 @@ def send_tracker_form_submit_notification_task(event_id: int, client_id: int) ->
     local_time = timezone.localtime(event.timestamp).strftime("%d.%m.%Y %H:%M")
     form_method = _safe_text(payload.get("method"), fallback="-", max_len=16).upper()
     form_action = _safe_text(payload.get("action"), fallback="-", max_len=1024)
-    field_names = _field_names(payload)
 
-    site_name_html = _escape_html(site_name)
-    page_path_html = _escape_html(page_path)
-    local_time_html = _escape_html(local_time)
-    form_method_html = _escape_html(form_method)
-    form_action_html = _escape_html(form_action)
+    safe_site = _escape_html(site_name)
+    safe_page = _escape_html(page_path)
+    safe_form = _escape_html(form_action)
+    safe_timestamp = _escape_html(local_time)
+    safe_method = _escape_html(form_method)
 
-    lines = [
-        "📥 <b>Новый лид</b>",
-        "",
-        f"🌐 <b>Сайт:</b> <code>{site_name_html}</code>",
-        f"📄 <b>Страница:</b> <code>{page_path_html}</code>",
-        f"🕒 <b>Время:</b> {local_time_html}",
-        f"⚙️ <b>Метод:</b> {form_method_html}",
-        "",
-        "🧾 <b>Форма:</b>",
-        form_action_html,
-        "",
-        "📝 <b>Поля формы:</b>",
-    ]
-
-    if field_names:
-        for field_name in field_names:
-            lines.append(f"• {_escape_html(field_name)}")
-    else:
-        lines.append("• —")
+    message = (
+        f"📥 <b>Новое уведомление</b>\n\n"
+        f"🌐 <b>Сайт:</b> <code>{safe_site}</code>\n"
+        f"📄 <b>Страница:</b> <code>{safe_page}</code>\n"
+        f"🕒 <b>Время:</b> {safe_timestamp}\n"
+        f"⚙️ <b>Метод:</b> {safe_method}\n\n"
+        f"🧾 <b>Форма:</b>\n"
+        f"{safe_form}\n\n"
+        f"ℹ️ <i>Для подробной информации зайдите в админ-панель сайта.</i>"
+    )
 
     try:
-        send_telegram_message(client.telegram_chat_id, "\n".join(lines), parse_mode="HTML")
+        send_telegram_message(client.telegram_chat_id, message, parse_mode="HTML")
     except Exception:
         logger.exception(
             "tracker.form_submit telegram notify failed event_id=%s client_id=%s",
