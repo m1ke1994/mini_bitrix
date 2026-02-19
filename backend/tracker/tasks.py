@@ -37,6 +37,9 @@ def send_tracker_form_submit_notification_task(event_id: int, client_id: int) ->
         return
 
     payload = event.payload if isinstance(event.payload, dict) else {}
+    if payload.get("telegram_notified") is True:
+        return
+
     page_url = _safe_text(payload.get("page_url") or payload.get("url"), fallback="")
     page_path = _safe_text(payload.get("path"), fallback="")
     if not page_path and page_url:
@@ -64,7 +67,7 @@ def send_tracker_form_submit_notification_task(event_id: int, client_id: int) ->
     safe_method = _escape_html(form_method)
 
     message = (
-        f"📥 <b>Новое уведомление</b>\n\n"
+        f"📥 <b>Новый лид</b>\n\n"
         f"🌐 <b>Сайт:</b> <code>{safe_site}</code>\n"
         f"📄 <b>Страница:</b> <code>{safe_page}</code>\n"
         f"🕒 <b>Время:</b> {safe_timestamp}\n"
@@ -75,7 +78,13 @@ def send_tracker_form_submit_notification_task(event_id: int, client_id: int) ->
     )
 
     try:
-        send_telegram_message(client.telegram_chat_id, message, parse_mode="HTML")
+        delivered = send_telegram_message(client.telegram_chat_id, message, parse_mode="HTML")
+        if delivered:
+            payload_for_update = dict(payload)
+            payload_for_update["telegram_notified"] = True
+            payload_for_update["telegram_notified_at"] = timezone.now().isoformat()
+            event.payload = payload_for_update
+            event.save(update_fields=["payload"])
     except Exception:
         logger.exception(
             "tracker.form_submit telegram notify failed event_id=%s client_id=%s",

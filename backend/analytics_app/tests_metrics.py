@@ -8,6 +8,7 @@ from analytics_app.models import Event
 from analytics_app.services.metrics import get_metrics
 from clients.models import Client
 from leads.models import Lead
+from tracker.models import Event as TrackerEvent
 from tracker.models import Site, Visit
 
 
@@ -21,7 +22,7 @@ class MetricsServiceTests(TestCase):
         self.date_from = self.date_to - timedelta(days=1)
 
     def _visit(self, session_id, visitor_id):
-        Visit.objects.create(
+        return Visit.objects.create(
             site=self.site,
             session_id=session_id,
             visitor_id=visitor_id,
@@ -94,3 +95,30 @@ class MetricsServiceTests(TestCase):
         self.assertEqual(metrics["forms"], 0)
         self.assertEqual(metrics["leads"], 2)
         self.assertEqual(metrics["conversion"], 50.0)
+
+    def test_notifications_sent_count_tracks_successful_telegram_dispatch(self):
+        visit_ok = self._visit(session_id="notify-1", visitor_id="visitor-1")
+        visit_fail = self._visit(session_id="notify-2", visitor_id="visitor-2")
+        visit_other = self._visit(session_id="notify-3", visitor_id="visitor-3")
+
+        TrackerEvent.objects.create(
+            visit=visit_ok,
+            type="form_submit",
+            payload={"telegram_notified": True},
+            timestamp=timezone.now(),
+        )
+        TrackerEvent.objects.create(
+            visit=visit_fail,
+            type="form_submit",
+            payload={"telegram_notified": False},
+            timestamp=timezone.now(),
+        )
+        TrackerEvent.objects.create(
+            visit=visit_other,
+            type="click",
+            payload={"telegram_notified": True},
+            timestamp=timezone.now(),
+        )
+
+        metrics = get_metrics(self.client_obj, self.date_from, self.date_to)
+        self.assertEqual(metrics["notifications_sent"], 1)

@@ -71,6 +71,7 @@ def _build_summary_payload(client, from_dt, to_dt):
         "visitors_unique": summary["unique_users"],
         "form_submit_count": summary["forms"],
         "leads_count": summary["leads"],
+        "notifications_sent_count": summary.get("notifications_sent", 0),
         "conversion": summary["conversion"],
         "visits_by_day": visits_by_day,
         "unique_by_day": unique_by_day,
@@ -209,6 +210,7 @@ class AnalyticsOverviewView(APIView):
             "visitors_unique": metrics["unique_users"],
             "forms_total": metrics["forms"],
             "leads_total": metrics["leads"],
+            "notifications_sent_total": metrics["notifications_sent"],
             "conversion": metrics["conversion"],
         }
         logger.info(

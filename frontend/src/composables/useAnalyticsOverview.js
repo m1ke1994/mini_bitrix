@@ -6,6 +6,7 @@ const overview = ref({
   visitors_unique: 0,
   forms_total: 0,
   leads_total: 0,
+  notifications_sent_total: 0,
   conversion: 0,
 });
 const loading = ref(false);

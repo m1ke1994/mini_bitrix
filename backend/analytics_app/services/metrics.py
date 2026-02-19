@@ -5,6 +5,7 @@ from django.utils import timezone
 
 from analytics_app.models import Event
 from leads.models import Lead
+from tracker.models import Event as TrackerEvent
 from tracker.models import Visit
 
 
@@ -41,10 +42,18 @@ def get_metrics(client, date_from, date_to):
         created_at__gte=from_dt,
         created_at__lte=to_dt,
     )
+    notified_qs = TrackerEvent.objects.filter(
+        visit__site__token=client.api_key,
+        type="form_submit",
+        timestamp__gte=from_dt,
+        timestamp__lte=to_dt,
+        payload__telegram_notified=True,
+    )
 
     visits = visits_qs.count()
     forms = forms_qs.count()
     leads = leads_qs.count()
+    notifications_sent = notified_qs.count()
 
     with_id_filter = Q(visitor_id__isnull=False) & ~Q(visitor_id="")
     unique_with_visitor_id = visits_qs.filter(with_id_filter).values("visitor_id").distinct().count()
@@ -60,6 +69,7 @@ def get_metrics(client, date_from, date_to):
         "unique_users": unique_users,
         "forms": forms,
         "leads": leads,
+        "notifications_sent": notifications_sent,
         "conversion_events": conversion_events,
         "conversion": conversion,
         "from_dt": from_dt,

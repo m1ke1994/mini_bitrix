@@ -1,4 +1,3 @@
-from datetime import datetime
 from io import BytesIO
 from pathlib import Path
 
@@ -420,26 +419,15 @@ def build_pdf_for_client(*, client, user):
         rows_per_page=28,
     )
 
-    leads_rows = [
-        [
-            str(row.get("id", "")),
-            _sanitize_text(row.get("name")),
-            _sanitize_text(row.get("phone")),
-            _sanitize_text(row.get("email")),
-            timezone.localtime(datetime.fromisoformat(row["created_at"].replace("Z", "+00:00"))).strftime("%d.%m.%Y %H:%M")
-            if row.get("created_at")
-            else "-",
-        ]
-        for row in report["leads"]
-    ]
+    notifications_sent = int(summary.get("notifications_sent") or 0)
+    notification_rows = [[f"Всего отправлено уведомлений: {notifications_sent}"]]
     _render_table(
         elements,
-        "Раздел 10. Последние заявки",
-        ["ID", "Имя", "Телефон", "Email", "Дата"],
-        leads_rows,
-        widths=[14 * mm, 38 * mm, 34 * mm, 54 * mm, 36 * mm],
-        numeric_cols={0},
-        rows_per_page=22,
+        "Раздел 10. Заявки (уведомления)",
+        ["Показатель"],
+        notification_rows,
+        widths=[176 * mm],
+        rows_per_page=32,
     )
 
     doc.build(elements, onFirstPage=_draw_page_footer, onLaterPages=_draw_page_footer)

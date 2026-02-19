@@ -161,6 +161,7 @@ def build_full_report(client, date_from, date_to):
             "unique_users": metrics["unique_users"],
             "forms": metrics["forms"],
             "leads": metrics["leads"],
+            "notifications_sent": metrics["notifications_sent"],
             "conversion": metrics["conversion"],
         },
         "daily_stats": daily_stats,
