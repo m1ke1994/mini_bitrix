@@ -1,6 +1,9 @@
+from datetime import timedelta
+
 from django.contrib import admin
 from django.http import HttpResponseRedirect
 from django.urls import reverse
+from django.utils import timezone
 
 from subscriptions.models import Subscription, SubscriptionPayment, SubscriptionPlan, SubscriptionSettings, TelegramLink
 
@@ -14,9 +17,25 @@ class SubscriptionPlanAdmin(admin.ModelAdmin):
 
 @admin.register(Subscription)
 class SubscriptionAdmin(admin.ModelAdmin):
-    list_display = ("id", "client", "plan", "status", "paid_until", "updated_at")
+    list_display = ("id", "client", "plan", "status", "paid_until", "admin_override", "updated_at")
     list_filter = ("status",)
     search_fields = ("client__name", "client__owner__email")
+    list_editable = ("status", "paid_until", "admin_override")
+    actions = ("activate_subscription",)
+
+    @admin.action(description="Активировать подписку")
+    def activate_subscription(self, request, queryset):
+        now = timezone.now()
+        updated = 0
+        for subscription in queryset.select_related("plan"):
+            duration_days = subscription.plan.duration_days if subscription.plan_id and subscription.plan else 30
+            subscription.status = Subscription.Status.ACTIVE
+            subscription.paid_until = now + timedelta(days=duration_days)
+            subscription.is_trial = False
+            subscription.save(update_fields=["status", "paid_until", "is_trial", "updated_at"])
+            updated += 1
+
+        self.message_user(request, f"Активировано подписок: {updated}")
 
 
 @admin.register(TelegramLink)

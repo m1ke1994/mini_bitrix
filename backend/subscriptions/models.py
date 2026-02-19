@@ -14,6 +14,8 @@ class SubscriptionPlan(models.Model):
 
     class Meta:
         ordering = ("price",)
+        verbose_name = "Тариф"
+        verbose_name_plural = "Тарифы"
 
     def __str__(self) -> str:
         return f"{self.name} ({self.price} {self.currency}, {self.duration_days}d)"
@@ -23,6 +25,7 @@ class Subscription(models.Model):
     class Status(models.TextChoices):
         ACTIVE = "active", "active"
         EXPIRED = "expired", "expired"
+        CANCELED = "canceled", "canceled"
 
     client = models.ForeignKey(Client, on_delete=models.CASCADE, related_name="subscriptions")
     plan = models.ForeignKey(
@@ -35,12 +38,15 @@ class Subscription(models.Model):
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.EXPIRED, db_index=True)
     paid_until = models.DateTimeField(null=True, blank=True)
     is_trial = models.BooleanField(default=False)
+    admin_override = models.BooleanField(default=False)
     auto_renew = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ("-updated_at",)
+        verbose_name = "Подписка"
+        verbose_name_plural = "Подписки"
         constraints = [
             models.UniqueConstraint(fields=["client"], name="unique_subscription_per_client"),
         ]
@@ -58,6 +64,8 @@ class TelegramLink(models.Model):
 
     class Meta:
         ordering = ("-updated_at",)
+        verbose_name = "Связь с Telegram"
+        verbose_name_plural = "Связи с Telegram"
         constraints = [
             models.UniqueConstraint(fields=["client"], name="unique_telegram_link_per_client"),
         ]
@@ -89,6 +97,8 @@ class SubscriptionPayment(models.Model):
 
     class Meta:
         ordering = ("-created_at",)
+        verbose_name = "Платёж подписки"
+        verbose_name_plural = "Платежи подписки"
 
     def __str__(self) -> str:
         return (

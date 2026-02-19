@@ -5,6 +5,18 @@ from subscriptions.exceptions import PaymentRequired
 from subscriptions.models import Subscription
 
 
+def has_active_subscription(client) -> bool:
+    if Subscription.objects.filter(client=client, admin_override=True).exists():
+        return True
+
+    subscription = Subscription.objects.filter(
+        client=client,
+        status=Subscription.Status.ACTIVE,
+        paid_until__gt=timezone.now(),
+    ).first()
+    return bool(subscription)
+
+
 class HasActiveSubscription(permissions.BasePermission):
     message = "Подписка не активна."
 
@@ -13,17 +25,7 @@ class HasActiveSubscription(permissions.BasePermission):
         if client is None:
             return True
 
-        subscription, _ = Subscription.objects.get_or_create(
-            client=client,
-            defaults={"status": Subscription.Status.EXPIRED, "paid_until": None, "is_trial": False, "auto_renew": True},
-        )
-        now = timezone.now()
-
-        if subscription.status == Subscription.Status.ACTIVE:
-            if subscription.paid_until is None or subscription.paid_until <= now:
-                subscription.status = Subscription.Status.EXPIRED
-                subscription.save(update_fields=["status", "updated_at"])
-                raise PaymentRequired()
+        if has_active_subscription(client):
             return True
 
         raise PaymentRequired()
