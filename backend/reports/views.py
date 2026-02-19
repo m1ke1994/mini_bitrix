@@ -21,13 +21,13 @@ class ReportSendNowView(APIView):
         settings_obj, _ = ReportSettings.objects.get_or_create(client=client)
 
         now = timezone.now()
-        cooldown = timedelta(hours=5)
+        cooldown = timedelta(minutes=10)
         if settings_obj.last_manual_sent_at and now < settings_obj.last_manual_sent_at + cooldown:
             available_at = timezone.localtime(settings_obj.last_manual_sent_at + cooldown).strftime("%d.%m.%Y %H:%M")
             return Response(
                 {
                     "ok": False,
-                    "detail": f"Отправка доступна раз в 5 часов. Следующая попытка после {available_at}.",
+                    "detail": f"Отправка доступна раз в 10 минут. Следующая попытка после {available_at}.",
                 },
                 status=status.HTTP_429_TOO_MANY_REQUESTS,
             )
