@@ -1,5 +1,7 @@
-﻿import { createRouter, createWebHistory } from "vue-router";
+import { createRouter, createWebHistory } from "vue-router";
 import MainLayout from "./views/MainLayout.vue";
+import PublicHomePage from "./views/PublicHomePage.vue";
+import PublicFeaturePage from "./views/PublicFeaturePage.vue";
 import DashboardLayout from "./views/DashboardLayout.vue";
 import DashboardOverview from "./views/DashboardOverview.vue";
 import DashboardDynamics from "./views/DashboardDynamics.vue";
@@ -15,68 +17,241 @@ import LeadsPage from "./views/LeadsPage.vue";
 import ReportsPage from "./views/ReportsPage.vue";
 import SettingsPage from "./views/SettingsPage.vue";
 import { useAuthStore } from "./stores/auth";
+import { homepageSoftwareSchema, setSeoForRoute } from "./seo";
 
 const routes = [
-  { path: "/auth", name: "auth", component: AuthPage, meta: { public: true, title: "Авторизация" } },
+  {
+    path: "/",
+    name: "home",
+    component: PublicHomePage,
+    meta: {
+      public: true,
+      title: "TrackNode — SaaS аналитика сайтов и воронка лидогенерации",
+      description:
+        "TrackNode — платформа аналитики сайтов для малого бизнеса. Отслеживание заявок, воронка лидов, отчёты и Telegram-уведомления в одном сервисе.",
+      keywords: "аналитика сайта, SaaS аналитика, TrackNode, воронка лидогенерации, отслеживание заявок",
+      ogType: "website",
+      schema: homepageSoftwareSchema,
+    },
+  },
+  {
+    path: "/analitika",
+    name: "analitika",
+    component: PublicFeaturePage,
+    meta: {
+      public: true,
+      title: "Аналитика сайтов TrackNode — контроль трафика, лидов и конверсии",
+      description:
+        "Аналитика TrackNode показывает источники трафика, динамику заявок и конверсию страниц, чтобы быстро находить точки роста.",
+      keywords: "аналитика сайта, веб-аналитика, конверсия, лиды, TrackNode",
+      pageHeading: "Аналитика сайтов",
+      pageText:
+        "Собирайте данные по визитам, источникам и событиям в одном интерфейсе. TrackNode помогает видеть реальную эффективность маркетинга и сайта.",
+      ogType: "website",
+    },
+  },
+  {
+    path: "/otchety",
+    name: "otchety",
+    component: PublicFeaturePage,
+    meta: {
+      public: true,
+      title: "Отчёты TrackNode — ежедневные и PDF-отчёты по заявкам и воронке",
+      description:
+        "Создавайте отчёты по заявкам и воронке продаж в TrackNode: ежедневная статистика, PDF-выгрузка и прозрачные показатели для бизнеса.",
+      keywords: "отчёты по лидам, PDF отчёт, отчёты аналитики, TrackNode",
+      pageHeading: "Отчёты",
+      pageText:
+        "Формируйте регулярные отчёты по ключевым метрикам: заявкам, источникам и конверсии. Подходит для собственника, маркетолога и отдела продаж.",
+      ogType: "website",
+    },
+  },
+  {
+    path: "/telegram",
+    name: "telegram",
+    component: PublicFeaturePage,
+    meta: {
+      public: true,
+      title: "Telegram-уведомления TrackNode — мгновенные оповещения по заявкам",
+      description:
+        "Подключите Telegram-уведомления в TrackNode и получайте сообщения о новых заявках, оплатах и статусах без задержек.",
+      keywords: "telegram уведомления, уведомления о заявках, TrackNode",
+      pageHeading: "Telegram-уведомления",
+      pageText:
+        "Настройте быстрые уведомления о событиях в Telegram, чтобы команда сразу реагировала на новые обращения и изменения статусов.",
+      ogType: "website",
+    },
+  },
+  {
+    path: "/tarify",
+    name: "tarify",
+    component: PublicFeaturePage,
+    meta: {
+      public: true,
+      title: "Тарифы TrackNode — SaaS аналитика для малого и среднего бизнеса",
+      description:
+        "Выберите тариф TrackNode под ваш поток заявок: прозрачная цена, быстрый старт и инструменты аналитики без сложной настройки.",
+      keywords: "тарифы аналитики сайта, цена saas, TrackNode тарифы",
+      pageHeading: "Тарифы",
+      pageText:
+        "Подберите подходящий план для вашего бизнеса и начните работать с аналитикой сайта, отчётами и лидогенерацией в одном сервисе.",
+      ogType: "website",
+    },
+  },
+  {
+    path: "/auth",
+    name: "auth",
+    component: AuthPage,
+    meta: {
+      public: true,
+      noindex: true,
+      title: "Авторизация | TrackNode",
+      description: "Вход в личный кабинет TrackNode.",
+      keywords: "tracknode login, авторизация",
+    },
+  },
+  {
+    path: "/login",
+    name: "login",
+    component: AuthPage,
+    meta: {
+      public: true,
+      noindex: true,
+      title: "Вход в TrackNode",
+      description: "Вход в личный кабинет TrackNode для работы с аналитикой и заявками.",
+      keywords: "вход tracknode, логин",
+    },
+  },
+  {
+    path: "/register",
+    name: "register",
+    component: AuthPage,
+    meta: {
+      public: true,
+      noindex: true,
+      title: "Регистрация в TrackNode",
+      description: "Создайте аккаунт TrackNode для доступа к аналитике сайта и воронке лидогенерации.",
+      keywords: "регистрация tracknode, создать аккаунт",
+    },
+  },
   {
     path: "/",
     component: MainLayout,
+    meta: { noindex: true },
     children: [
-      { path: "", redirect: "/dashboard" },
       {
-        path: "dashboard",
+        path: "/dashboard",
         component: DashboardLayout,
+        meta: { noindex: true },
         children: [
-          { path: "", name: "dashboard_overview", component: DashboardOverview, meta: { title: "Панель управления - Обзор" } },
+          {
+            path: "",
+            name: "dashboard_overview",
+            component: DashboardOverview,
+            meta: {
+              noindex: true,
+              title: "Панель управления - Обзор",
+              description: "Личный кабинет TrackNode: обзор ключевых метрик.",
+            },
+          },
           {
             path: "dynamics",
             name: "dashboard_dynamics",
             component: DashboardDynamics,
-            meta: { title: "Панель управления - Динамика по дням" },
+            meta: {
+              noindex: true,
+              title: "Панель управления - Динамика по дням",
+              description: "Личный кабинет TrackNode: динамика метрик по дням.",
+            },
           },
           {
             path: "sources",
             name: "dashboard_sources",
             component: DashboardSources,
-            meta: { title: "Панель управления - Топ источников" },
+            meta: {
+              noindex: true,
+              title: "Панель управления - Топ источников",
+              description: "Личный кабинет TrackNode: топ источников трафика.",
+            },
           },
           {
             path: "unique",
             name: "dashboard_unique",
             component: DashboardUniqueVisitors,
-            meta: { title: "Панель управления - Уникальные пользователи" },
+            meta: {
+              noindex: true,
+              title: "Панель управления - Уникальные пользователи",
+              description: "Личный кабинет TrackNode: уникальные пользователи.",
+            },
           },
           {
             path: "clicks",
             name: "dashboard_clicks",
             component: DashboardClicks,
-            meta: { title: "Панель управления - Топ кликов" },
+            meta: {
+              noindex: true,
+              title: "Панель управления - Топ кликов",
+              description: "Личный кабинет TrackNode: отчёт по кликам.",
+            },
           },
           {
             path: "pages-conversion",
             name: "dashboard_pages_conversion",
             component: DashboardPagesConversion,
-            meta: { title: "Панель управления - Конверсия по страницам" },
+            meta: {
+              noindex: true,
+              title: "Панель управления - Конверсия по страницам",
+              description: "Личный кабинет TrackNode: конверсия страниц.",
+            },
           },
           {
             path: "devices",
             name: "dashboard_devices",
             component: DashboardDevices,
-            meta: { title: "Панель управления - Устройства" },
+            meta: {
+              noindex: true,
+              title: "Панель управления - Устройства",
+              description: "Личный кабинет TrackNode: статистика устройств.",
+            },
           },
         ],
       },
-      { path: "leads", name: "leads", component: LeadsPage, meta: { title: "Заявки" } },
-      { path: "settings", name: "settings", component: SettingsPage, meta: { title: "Настройки" } },
-      { path: "integration", name: "integration", component: IntegrationPage, meta: { title: "Интеграции" } },
-      { path: "reports", name: "reports", component: ReportsPage, meta: { title: "Отчёт PDF" } },
-      { path: "instructions", name: "instructions", component: InstructionsPage, meta: { title: "Инструкция по подключению" } },
+      {
+        path: "/leads",
+        name: "leads",
+        component: LeadsPage,
+        meta: { noindex: true, title: "Заявки", description: "Личный кабинет TrackNode: работа с заявками." },
+      },
+      {
+        path: "/settings",
+        name: "settings",
+        component: SettingsPage,
+        meta: { noindex: true, title: "Настройки", description: "Личный кабинет TrackNode: настройки аккаунта." },
+      },
+      {
+        path: "/integration",
+        name: "integration",
+        component: IntegrationPage,
+        meta: { noindex: true, title: "Интеграции", description: "Личный кабинет TrackNode: настройки интеграции." },
+      },
+      {
+        path: "/reports",
+        name: "reports",
+        component: ReportsPage,
+        meta: { noindex: true, title: "Отчёт PDF", description: "Личный кабинет TrackNode: PDF-отчёты." },
+      },
+      {
+        path: "/instructions",
+        name: "instructions",
+        component: InstructionsPage,
+        meta: { noindex: true, title: "Инструкция по подключению", description: "Личный кабинет TrackNode: инструкции." },
+      },
     ],
   },
   { path: "/dashboard/leads", redirect: "/leads" },
   { path: "/dashboard/settings", redirect: "/settings" },
   { path: "/dashboard/integration", redirect: "/integration" },
-  { path: "/:pathMatch(.*)*", redirect: "/dashboard" },
+  { path: "/:pathMatch(.*)*", redirect: "/" },
 ];
 
 const router = createRouter({
@@ -86,18 +261,20 @@ const router = createRouter({
 
 router.beforeEach((to) => {
   const auth = useAuthStore();
-  if (!to.meta.public && !auth.isAuthenticated) {
-    return { name: "auth" };
+  const isPublic = to.matched.some((record) => record.meta?.public === true);
+  const isAuthPage = ["auth", "login", "register"].includes(String(to.name || ""));
+
+  if (!isPublic && !auth.isAuthenticated) {
+    return { name: "login" };
   }
-  if (to.meta.public && auth.isAuthenticated) {
+  if (isAuthPage && auth.isAuthenticated) {
     return { name: "dashboard_overview" };
   }
   return true;
 });
 
 router.afterEach((to) => {
-  const pageTitle = to.meta?.title ? `${to.meta.title} | TrackNode Analytics` : "TrackNode Analytics";
-  document.title = pageTitle;
+  setSeoForRoute(to);
 });
 
 export default router;
