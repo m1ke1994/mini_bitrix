@@ -1,6 +1,7 @@
 import { createApp } from "vue";
 import { createPinia } from "pinia";
 import { createHead } from "@vueuse/head";
+import { registerSW } from "virtual:pwa-register";
 import App from "./App.vue";
 import router from "./router";
 import "./style.css";
@@ -11,3 +12,7 @@ app.use(createPinia());
 app.use(head);
 app.use(router);
 app.mount("#app");
+
+if (import.meta.env.PROD) {
+  registerSW({ immediate: true });
+}
