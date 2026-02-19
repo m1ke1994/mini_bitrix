@@ -225,6 +225,10 @@ def tracker_js_view(request):
   logDebug('visit started_at', startedAt);
 
   var sentPageviewFingerprint = '';
+  var pageTrackPath = '/';
+  var pageTrackStartedAt = Date.now();
+  var pageTrackSent = false;
+  var pageTrackRouteFingerprint = '';
 
   function toAbsoluteUrl(input) {
     if (!input) {
@@ -424,6 +428,75 @@ def tracker_js_view(request):
     }));
   }
 
+  function routeFingerprint() {
+    return (window.location.pathname || '/') + (window.location.search || '');
+  }
+
+  function resetPageTimer(pathname) {
+    pageTrackPath = (pathname || window.location.pathname || '/');
+    pageTrackStartedAt = Date.now();
+    pageTrackSent = false;
+    pageTrackRouteFingerprint = routeFingerprint();
+    logDebug('page timer reset', pageTrackPath, pageTrackRouteFingerprint);
+  }
+
+  function buildEventPayload(type, payload) {
+    return buildPayload({
+      type: type,
+      payload: payload || {},
+      timestamp: nowIso()
+    });
+  }
+
+  function sendEventPayload(payload, preferBeacon) {
+    if (preferBeacon && navigator.sendBeacon) {
+      try {
+        var data = JSON.stringify(payload);
+        var blob = new Blob([data], { type: 'application/json' });
+        var ok = navigator.sendBeacon(baseUrl + '/api/track/event/', blob);
+        logDebug('sendBeacon event', payload && payload.type, ok);
+        if (ok) {
+          return;
+        }
+      } catch (err) {
+        logWarn('sendBeacon event failed', err && err.message ? err.message : err);
+      }
+    }
+    postWithRetry('/api/track/event/', payload, { maxAttempts: 2 });
+  }
+
+  function flushTimeOnPage(reason, opts) {
+    var options = opts || {};
+    if (pageTrackSent) {
+      return;
+    }
+    var durationSeconds = 0;
+    try {
+      durationSeconds = Math.floor((Date.now() - pageTrackStartedAt) / 1000);
+    } catch (_) {
+      durationSeconds = 0;
+    }
+    pageTrackSent = true;
+    if (durationSeconds <= 1) {
+      logDebug('skip short time_on_page', durationSeconds, pageTrackPath, reason || '');
+      return;
+    }
+    sendEventPayload(buildEventPayload('time_on_page', {
+      page: pageTrackPath || '/',
+      duration_seconds: durationSeconds
+    }), !!options.preferBeacon);
+  }
+
+  function handleRouteChange() {
+    var nextFingerprint = routeFingerprint();
+    if (nextFingerprint === pageTrackRouteFingerprint) {
+      return;
+    }
+    flushTimeOnPage('spa_route_change');
+    resetPageTimer(window.location.pathname || '/');
+    setTimeout(trackPageView, 0);
+  }
+
   function trackApiRequest(payload) {
     if (!payload || !payload.url) {
       return;
@@ -468,6 +541,25 @@ def tracker_js_view(request):
     } catch (err) {
       logError('visit-end failed', err);
     }
+  }
+
+  function onVisibilityChange() {
+    try {
+      if (document.visibilityState === 'hidden') {
+        flushTimeOnPage('visibility_hidden', { preferBeacon: true });
+        return;
+      }
+      if (document.visibilityState === 'visible') {
+        resetPageTimer(window.location.pathname || '/');
+      }
+    } catch (err) {
+      logError('visibility tracking failed', err);
+    }
+  }
+
+  function onPageClose() {
+    flushTimeOnPage('page_close', { preferBeacon: true });
+    trackVisitEnd();
   }
 
   function onClick(event) {
@@ -523,16 +615,16 @@ def tracker_js_view(request):
       var originalReplace = history.replaceState;
       history.pushState = function () {
         var result = originalPush.apply(this, arguments);
-        setTimeout(trackPageView, 0);
+        setTimeout(handleRouteChange, 0);
         return result;
       };
       history.replaceState = function () {
         var result = originalReplace.apply(this, arguments);
-        setTimeout(trackPageView, 0);
+        setTimeout(handleRouteChange, 0);
         return result;
       };
       window.addEventListener('popstate', function () {
-        trackPageView();
+        handleRouteChange();
       });
     } catch (err) {
       logError('history tracking failed', err);
@@ -612,14 +704,16 @@ def tracker_js_view(request):
 
   try {
     logDebug('init handlers');
+    resetPageTimer(window.location.pathname || '/');
     trackVisitStart();
     trackPageView();
     installFetchInterceptor();
     installXhrInterceptor();
     document.addEventListener('click', onClick, true);
     document.addEventListener('submit', onSubmit, true);
-    window.addEventListener('beforeunload', trackVisitEnd);
-    window.addEventListener('pagehide', trackVisitEnd);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('beforeunload', onPageClose);
+    window.addEventListener('pagehide', onPageClose);
     wrapHistory();
     logDebug('init complete');
   } catch (err) {

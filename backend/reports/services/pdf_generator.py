@@ -71,6 +71,19 @@ def _sanitize_text(value):
     return "".join(ch for ch in text if ch == "\n" or ord(ch) >= 32)
 
 
+def _format_duration(seconds):
+    total_seconds = max(0, int(float(seconds or 0)))
+    if total_seconds < 60:
+        return f"{total_seconds} сек"
+    if total_seconds < 3600:
+        minutes = total_seconds // 60
+        rest_seconds = total_seconds % 60
+        return f"{minutes} мин {rest_seconds} сек"
+    hours = total_seconds // 3600
+    minutes = (total_seconds % 3600) // 60
+    return f"{hours} ч {minutes} мин"
+
+
 def _styles():
     styles = getSampleStyleSheet()
     if "tn_title" not in styles:
@@ -428,6 +441,40 @@ def build_pdf_for_client(*, client, user):
         notification_rows,
         widths=[176 * mm],
         rows_per_page=32,
+    )
+
+    engagement = report.get("engagement") or {}
+    total_time_on_site_seconds = int(engagement.get("total_time_on_site_seconds") or 0)
+    avg_visit_duration_seconds = float(engagement.get("avg_visit_duration_seconds") or 0)
+    engagement_summary_rows = [
+        ["Общее время на сайте", _format_duration(total_time_on_site_seconds)],
+        ["Среднее время визита", _format_duration(avg_visit_duration_seconds)],
+    ]
+    _render_table(
+        elements,
+        "Раздел 11. Вовлечённость",
+        ["Показатель", "Значение"],
+        engagement_summary_rows,
+        widths=[104 * mm, 72 * mm],
+        rows_per_page=32,
+    )
+
+    top_time_pages_rows = [
+        [
+            _sanitize_text(row.get("pathname") or "/"),
+            _format_duration(row.get("avg_duration_seconds") or 0),
+            _format_duration(row.get("total_duration_seconds") or 0),
+            str(int(row.get("visits_count") or 0)),
+        ]
+        for row in (engagement.get("pages") or [])[:5]
+    ]
+    _render_table(
+        elements,
+        "Раздел 12. Топ-5 страниц по времени",
+        ["Страница", "Среднее время", "Общее время", "Посещения"],
+        top_time_pages_rows,
+        widths=[86 * mm, 30 * mm, 30 * mm, 30 * mm],
+        rows_per_page=24,
     )
 
     doc.build(elements, onFirstPage=_draw_page_footer, onLaterPages=_draw_page_footer)

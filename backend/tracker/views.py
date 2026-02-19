@@ -1,5 +1,5 @@
 import logging
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urljoin, urlparse
 
 from django.utils import timezone
 from rest_framework import permissions, status
@@ -106,6 +106,18 @@ def _pageview_payload_from_url(url: str):
         "utm_term": _query_param(query, "utm_term"),
         "utm_content": _query_param(query, "utm_content"),
     }
+
+
+def _compose_page_url(page: str, origin: str, fallback: str = "https://tracker.local/") -> str:
+    raw_page = (page or "").strip()
+    if raw_page:
+        parsed = urlparse(raw_page)
+        if parsed.scheme and parsed.netloc:
+            return raw_page
+    base = _safe_url(origin, fallback=fallback)
+    if not raw_page:
+        return base
+    return urljoin(base, raw_page)
 
 
 class TrackBaseAPIView(APIView):
@@ -273,15 +285,30 @@ class EventCreateView(TrackBaseAPIView):
             request,
             visitor_id=serializer.validated_data.get("visitor_id") or "",
         )
+        event_type = serializer.validated_data["type"]
+        payload = serializer.validated_data.get("payload") or {}
+        duration_seconds = 0
+        if event_type == "time_on_page":
+            try:
+                duration_seconds = int(payload.get("duration_seconds") or 0)
+            except (TypeError, ValueError):
+                duration_seconds = 0
+            if duration_seconds <= 0:
+                logger.info(
+                    "track.event ignored invalid time_on_page duration visit_id=%s session_id=%s payload=%s",
+                    visit.id,
+                    serializer.validated_data["session_id"],
+                    payload,
+                )
+                return Response({"ok": True, "ignored": True}, status=status.HTTP_200_OK)
+
         event = Event.objects.create(
             visit=visit,
-            type=serializer.validated_data["type"],
-            payload=serializer.validated_data.get("payload") or {},
+            type=event_type,
+            payload=payload,
             timestamp=serializer.get_timestamp(),
         )
         client = _client_by_token(serializer.validated_data["token"])
-        event_type = serializer.validated_data["type"]
-        payload = serializer.validated_data.get("payload") or {}
         if client:
             try:
                 if event_type == "form_submit":
@@ -322,6 +349,33 @@ class EventCreateView(TrackBaseAPIView):
                         element_text=((payload.get("text") or "")[:100]),
                         element_id=((payload.get("id") or "")[:255]),
                         element_class=((payload.get("class") or "")[:255]),
+                    )
+                elif event_type == "time_on_page":
+                    latest_page_view = (
+                        AnalyticsPageView.objects.filter(
+                            client=client,
+                            session_id=serializer.validated_data["session_id"],
+                        )
+                        .order_by("-created_at")
+                        .first()
+                    )
+                    page = ((payload.get("page") or payload.get("path") or "").strip() or "/")
+                    page_url = _compose_page_url(
+                        page=page,
+                        origin=(
+                            payload.get("url")
+                            or payload.get("page_url")
+                            or (latest_page_view.url if latest_page_view else "")
+                            or request.headers.get("Origin")
+                        ),
+                    )
+                    AnalyticsEvent.objects.create(
+                        client=client,
+                        visitor_id=serializer.validated_data.get("visitor_id") or "",
+                        event_type=AnalyticsEvent.EventType.TIME_ON_PAGE,
+                        element_id=page[:255],
+                        page_url=page_url,
+                        duration_seconds=duration_seconds,
                     )
             except Exception:
                 logger.exception(

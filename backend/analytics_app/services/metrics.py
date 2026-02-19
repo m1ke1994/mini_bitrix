@@ -1,6 +1,6 @@
 from datetime import datetime, time, timedelta
 
-from django.db.models import Q
+from django.db.models import Q, Sum
 from django.utils import timezone
 
 from analytics_app.models import Event
@@ -37,6 +37,13 @@ def get_metrics(client, date_from, date_to):
         created_at__gte=from_dt,
         created_at__lte=to_dt,
     ).exclude(element_id="fetch_json")
+    time_on_page_qs = Event.objects.filter(
+        client=client,
+        event_type=Event.EventType.TIME_ON_PAGE,
+        created_at__gte=from_dt,
+        created_at__lte=to_dt,
+        duration_seconds__gt=0,
+    )
     leads_qs = Lead.objects.filter(
         client=client,
         created_at__gte=from_dt,
@@ -54,6 +61,9 @@ def get_metrics(client, date_from, date_to):
     forms = forms_qs.count()
     leads = leads_qs.count()
     notifications_sent = notified_qs.count()
+    total_time_on_site_seconds = int(time_on_page_qs.aggregate(total=Sum("duration_seconds")).get("total") or 0)
+    time_on_page_events = time_on_page_qs.count()
+    avg_visit_duration_seconds = round(total_time_on_site_seconds / time_on_page_events, 2) if time_on_page_events else 0
 
     with_id_filter = Q(visitor_id__isnull=False) & ~Q(visitor_id="")
     unique_with_visitor_id = visits_qs.filter(with_id_filter).values("visitor_id").distinct().count()
@@ -72,6 +82,9 @@ def get_metrics(client, date_from, date_to):
         "notifications_sent": notifications_sent,
         "conversion_events": conversion_events,
         "conversion": conversion,
+        "total_time_on_site_seconds": total_time_on_site_seconds,
+        "avg_visit_duration_seconds": avg_visit_duration_seconds,
+        "time_on_page_events": time_on_page_events,
         "from_dt": from_dt,
         "to_dt": to_dt,
     }

@@ -34,6 +34,13 @@ def build_full_report(client, date_from, date_to):
         created_at__gte=from_dt,
         created_at__lte=to_dt,
     ).exclude(element_id="fetch_json")
+    time_on_page_qs = Event.objects.filter(
+        client=client,
+        event_type=Event.EventType.TIME_ON_PAGE,
+        created_at__gte=from_dt,
+        created_at__lte=to_dt,
+        duration_seconds__gt=0,
+    )
     leads_qs = Lead.objects.filter(client=client, created_at__gte=from_dt, created_at__lte=to_dt)
 
     unique_filter = Q(visitor_id__isnull=False) & ~Q(visitor_id="")
@@ -155,6 +162,37 @@ def build_full_report(client, date_from, date_to):
         for name, count in sorted(device_distribution["browsers"].items(), key=lambda pair: pair[1], reverse=True)
     ]
 
+    total_time_on_site_seconds = int(time_on_page_qs.aggregate(total=Sum("duration_seconds")).get("total") or 0)
+    time_on_page_events = time_on_page_qs.count()
+    avg_visit_duration_seconds = round(total_time_on_site_seconds / time_on_page_events, 2) if time_on_page_events else 0
+    engagement_map = {}
+    for item in time_on_page_qs.values("page_url", "duration_seconds"):
+        pathname = urlparse(item.get("page_url") or "").path or "/"
+        if pathname not in engagement_map:
+            engagement_map[pathname] = {"total_duration_seconds": 0, "visits_count": 0}
+        engagement_map[pathname]["total_duration_seconds"] += int(item.get("duration_seconds") or 0)
+        engagement_map[pathname]["visits_count"] += 1
+
+    engagement_pages = []
+    for pathname, row in engagement_map.items():
+        visits_count = int(row["visits_count"] or 0)
+        total_duration_seconds = int(row["total_duration_seconds"] or 0)
+        engagement_pages.append(
+            {
+                "pathname": pathname or "/",
+                "avg_duration_seconds": round(total_duration_seconds / visits_count, 2) if visits_count else 0,
+                "total_duration_seconds": total_duration_seconds,
+                "visits_count": visits_count,
+            }
+        )
+    engagement_pages.sort(
+        key=lambda row: (
+            int(row.get("total_duration_seconds") or 0),
+            int(row.get("visits_count") or 0),
+        ),
+        reverse=True,
+    )
+
     return {
         "summary": {
             "visits": metrics["visits"],
@@ -163,12 +201,19 @@ def build_full_report(client, date_from, date_to):
             "leads": metrics["leads"],
             "notifications_sent": metrics["notifications_sent"],
             "conversion": metrics["conversion"],
+            "total_time_on_site_seconds": total_time_on_site_seconds,
+            "avg_visit_duration_seconds": avg_visit_duration_seconds,
         },
         "daily_stats": daily_stats,
         "top_clicks": top_clicks,
         "page_conversion": page_conversion,
         "sources": sources,
         "leads": leads,
+        "engagement": {
+            "total_time_on_site_seconds": total_time_on_site_seconds,
+            "avg_visit_duration_seconds": avg_visit_duration_seconds,
+            "pages": engagement_pages,
+        },
         "devices_distribution": {
             "devices": device_rows,
             "os": os_rows,

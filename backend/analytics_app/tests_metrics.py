@@ -122,3 +122,34 @@ class MetricsServiceTests(TestCase):
 
         metrics = get_metrics(self.client_obj, self.date_from, self.date_to)
         self.assertEqual(metrics["notifications_sent"], 1)
+
+    def test_time_on_page_metrics_are_aggregated(self):
+        for idx in range(3):
+            self._visit(session_id=f"time-{idx}", visitor_id=f"visitor-{idx}")
+
+        Event.objects.create(
+            client=self.client_obj,
+            visitor_id="visitor-1",
+            event_type=Event.EventType.TIME_ON_PAGE,
+            page_url="https://test.local/",
+            duration_seconds=20,
+        )
+        Event.objects.create(
+            client=self.client_obj,
+            visitor_id="visitor-2",
+            event_type=Event.EventType.TIME_ON_PAGE,
+            page_url="https://test.local/catalog",
+            duration_seconds=40,
+        )
+        Event.objects.create(
+            client=self.client_obj,
+            visitor_id="visitor-3",
+            event_type=Event.EventType.TIME_ON_PAGE,
+            page_url="https://test.local/catalog",
+            duration_seconds=60,
+        )
+
+        metrics = get_metrics(self.client_obj, self.date_from, self.date_to)
+        self.assertEqual(metrics["time_on_page_events"], 3)
+        self.assertEqual(metrics["total_time_on_site_seconds"], 120)
+        self.assertEqual(metrics["avg_visit_duration_seconds"], 40)

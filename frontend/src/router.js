@@ -5,6 +5,7 @@ import PublicFeaturePage from "./views/PublicFeaturePage.vue";
 import DashboardLayout from "./views/DashboardLayout.vue";
 import DashboardOverview from "./views/DashboardOverview.vue";
 import DashboardDynamics from "./views/DashboardDynamics.vue";
+import DashboardEngagement from "./views/DashboardEngagement.vue";
 import DashboardSources from "./views/DashboardSources.vue";
 import DashboardClicks from "./views/DashboardClicks.vue";
 import DashboardPagesConversion from "./views/DashboardPagesConversion.vue";
@@ -185,6 +186,16 @@ const routes = [
             },
           },
           {
+            path: "engagement",
+            name: "dashboard_engagement",
+            component: DashboardEngagement,
+            meta: {
+              noindex: true,
+              title: "Панель управления - Вовлечённость",
+              description: "Личный кабинет TrackNode: вовлечённость пользователей по времени на страницах.",
+            },
+          },
+          {
             path: "clicks",
             name: "dashboard_clicks",
             component: DashboardClicks,
@@ -263,7 +274,17 @@ const routes = [
   { path: "/dashboard/leads", redirect: "/leads" },
   { path: "/dashboard/settings", redirect: "/settings" },
   { path: "/dashboard/integration", redirect: "/integration" },
-  { path: "/:pathMatch(.*)*", redirect: "/" },
+  {
+    path: "/:pathMatch(.*)*",
+    name: "NotFound",
+    component: () => import("./views/NotFoundPage.vue"),
+    meta: {
+      public: true,
+      noindex: true,
+      title: "404 - Страница не найдена | TrackNode",
+      description: "Страница не найдена.",
+    },
+  },
 ];
 
 const router = createRouter({

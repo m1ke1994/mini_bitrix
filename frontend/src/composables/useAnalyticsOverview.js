@@ -8,6 +8,8 @@ const overview = ref({
   leads_total: 0,
   notifications_sent_total: 0,
   conversion: 0,
+  total_time_on_site_seconds: 0,
+  avg_visit_duration_seconds: 0,
 });
 const loading = ref(false);
 const error = ref("");
