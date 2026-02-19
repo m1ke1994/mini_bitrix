@@ -198,6 +198,8 @@ def tracker_js_view(request):
   }
 
   var baseUrl = getBaseUrl(scriptTag);
+  var trackerOrigin = baseUrl;
+  var originalFetch = (typeof window.fetch === 'function') ? window.fetch.bind(window) : null;
   var visitorKey = 'saas_tracker_visitor_id';
   var sessionKey = 'saas_tracker_session_id';
   var startKey = 'saas_tracker_started_at';
@@ -224,6 +226,111 @@ def tracker_js_view(request):
 
   var sentPageviewFingerprint = '';
 
+  function toAbsoluteUrl(input) {
+    if (!input) {
+      return '';
+    }
+    try {
+      return new URL(String(input), window.location.href).toString();
+    } catch (_) {
+      return '';
+    }
+  }
+
+  function requestMethodOrDefault(method) {
+    return ((method || 'GET') + '').toUpperCase();
+  }
+
+  function shouldTrackApiRequest(urlValue, method) {
+    var absolute = toAbsoluteUrl(urlValue);
+    if (!absolute) {
+      return false;
+    }
+    try {
+      var parsed = new URL(absolute);
+      var pathname = parsed.pathname || '';
+      if (pathname.indexOf('/api/') === -1) {
+        return false;
+      }
+      if (parsed.origin === trackerOrigin && pathname.indexOf('/api/track/') === 0) {
+        return false;
+      }
+      return requestMethodOrDefault(method) !== 'OPTIONS';
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function extractFetchUrl(input) {
+    if (!input) {
+      return '';
+    }
+    if (typeof input === 'string') {
+      return toAbsoluteUrl(input);
+    }
+    try {
+      if (input.url) {
+        return toAbsoluteUrl(input.url);
+      }
+      if (input.href) {
+        return toAbsoluteUrl(input.href);
+      }
+    } catch (_) {}
+    return '';
+  }
+
+  function extractFetchMethod(input, init) {
+    try {
+      if (init && init.method) {
+        return requestMethodOrDefault(init.method);
+      }
+      if (input && input.method) {
+        return requestMethodOrDefault(input.method);
+      }
+    } catch (_) {}
+    return 'GET';
+  }
+
+  function extractSafeFormFields(form) {
+    if (!form || !form.elements) {
+      return [];
+    }
+    var fields = [];
+    var seen = {};
+    var sensitiveNamePattern = /(pass|password|pwd|token|secret|key|card|cvv|cvc|iban|email|phone|tel|cookie|session)/i;
+    for (var i = 0; i < form.elements.length; i++) {
+      var field = form.elements[i];
+      if (!field || field.disabled) {
+        continue;
+      }
+      var fieldType = ((field.type || field.tagName || '') + '').toLowerCase();
+      if (fieldType === 'password' || fieldType === 'hidden' || fieldType === 'file') {
+        continue;
+      }
+      var rawName = (field.name || field.id || '').trim();
+      if (!rawName) {
+        continue;
+      }
+      if (sensitiveNamePattern.test(rawName)) {
+        continue;
+      }
+      var key = (rawName + '|' + fieldType).toLowerCase();
+      if (seen[key]) {
+        continue;
+      }
+      seen[key] = true;
+      fields.push({
+        name: rawName.slice(0, 64),
+        type: fieldType.slice(0, 32),
+        checked: !!field.checked
+      });
+      if (fields.length >= 25) {
+        break;
+      }
+    }
+    return fields;
+  }
+
   function buildPayload(extra) {
     var payload = {
       token: token,
@@ -248,7 +355,11 @@ def tracker_js_view(request):
     function runAttempt() {
       attempt += 1;
       logDebug('sending', endpoint, 'attempt', attempt, payload);
-      return fetch(url, {
+      if (!originalFetch) {
+        logWarn('window.fetch is unavailable, skip tracker request', endpoint);
+        return Promise.resolve(null);
+      }
+      return originalFetch(url, {
         method: 'POST',
         mode: 'cors',
         credentials: 'omit',
@@ -313,6 +424,24 @@ def tracker_js_view(request):
     }));
   }
 
+  function trackApiRequest(payload) {
+    if (!payload || !payload.url) {
+      return;
+    }
+    if (!shouldTrackApiRequest(payload.url, payload.method)) {
+      return;
+    }
+    trackEvent('api_post', {
+      url: payload.url,
+      method: requestMethodOrDefault(payload.method),
+      status: payload.status || 0,
+      transport: payload.transport || 'fetch',
+      page_url: window.location.href,
+      path: window.location.pathname,
+      domain: window.location.hostname
+    });
+  }
+
   function trackVisitEnd() {
     try {
       var endedAt = nowIso();
@@ -366,9 +495,22 @@ def tracker_js_view(request):
       }
       trackEvent('form_submit', {
         id: form.id || '',
+        name: form.getAttribute('name') || '',
+        page_url: window.location.href,
+        url: window.location.href,
+        domain: window.location.hostname,
         action: form.action || '',
+        action_path: (function () {
+          try {
+            return new URL(form.action || '', window.location.href).pathname || '';
+          } catch (_) {
+            return '';
+          }
+        })(),
         method: (form.method || 'GET').toUpperCase(),
-        path: window.location.pathname
+        path: window.location.pathname,
+        fields: extractSafeFormFields(form),
+        field_count: (form.elements && form.elements.length) ? form.elements.length : 0
       });
     } catch (err) {
       logError('submit tracking failed', err);
@@ -397,10 +539,83 @@ def tracker_js_view(request):
     }
   }
 
+  function installFetchInterceptor() {
+    if (!originalFetch) {
+      return;
+    }
+    window.fetch = function (input, init) {
+      var requestUrl = extractFetchUrl(input);
+      var requestMethod = extractFetchMethod(input, init);
+      return originalFetch.apply(this, arguments)
+        .then(function (response) {
+          trackApiRequest({
+            url: requestUrl,
+            method: requestMethod,
+            status: response && typeof response.status === 'number' ? response.status : 0,
+            transport: 'fetch'
+          });
+          return response;
+        })
+        .catch(function (error) {
+          trackApiRequest({
+            url: requestUrl,
+            method: requestMethod,
+            status: 0,
+            transport: 'fetch'
+          });
+          throw error;
+        });
+    };
+  }
+
+  function installXhrInterceptor() {
+    if (!window.XMLHttpRequest || !window.XMLHttpRequest.prototype) {
+      return;
+    }
+    var proto = window.XMLHttpRequest.prototype;
+    var originalOpen = proto.open;
+    var originalSend = proto.send;
+    if (!originalOpen || !originalSend) {
+      return;
+    }
+
+    proto.open = function (method, url) {
+      try {
+        this.__saasTrackerMethod = requestMethodOrDefault(method);
+        this.__saasTrackerUrl = toAbsoluteUrl(url);
+      } catch (_) {
+        this.__saasTrackerMethod = 'GET';
+        this.__saasTrackerUrl = '';
+      }
+      return originalOpen.apply(this, arguments);
+    };
+
+    proto.send = function () {
+      var xhr = this;
+      function onDone() {
+        try {
+          xhr.removeEventListener('loadend', onDone);
+        } catch (_) {}
+        trackApiRequest({
+          url: xhr.__saasTrackerUrl || '',
+          method: xhr.__saasTrackerMethod || 'GET',
+          status: typeof xhr.status === 'number' ? xhr.status : 0,
+          transport: 'xhr'
+        });
+      }
+      try {
+        xhr.addEventListener('loadend', onDone);
+      } catch (_) {}
+      return originalSend.apply(this, arguments);
+    };
+  }
+
   try {
     logDebug('init handlers');
     trackVisitStart();
     trackPageView();
+    installFetchInterceptor();
+    installXhrInterceptor();
     document.addEventListener('click', onClick, true);
     document.addEventListener('submit', onSubmit, true);
     window.addEventListener('beforeunload', trackVisitEnd);

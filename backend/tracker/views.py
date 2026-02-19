@@ -19,6 +19,7 @@ from tracker.serializers import (
     VisitEndSerializer,
     VisitStartSerializer,
 )
+from tracker.tasks import send_tracker_form_submit_notification_task
 
 logger = logging.getLogger(__name__)
 
@@ -279,10 +280,10 @@ class EventCreateView(TrackBaseAPIView):
             timestamp=serializer.get_timestamp(),
         )
         client = _client_by_token(serializer.validated_data["token"])
+        event_type = serializer.validated_data["type"]
+        payload = serializer.validated_data.get("payload") or {}
         if client:
             try:
-                event_type = serializer.validated_data["type"]
-                payload = serializer.validated_data.get("payload") or {}
                 if event_type == "form_submit":
                     latest_page_view = (
                         AnalyticsPageView.objects.filter(
@@ -329,6 +330,16 @@ class EventCreateView(TrackBaseAPIView):
                     visit.id,
                     client.id,
                 )
+
+            if event_type == "form_submit":
+                try:
+                    send_tracker_form_submit_notification_task.delay(event.id, client.id)
+                except Exception:
+                    logger.exception(
+                        "track.event failed to enqueue telegram form-submit notify event_id=%s client_id=%s",
+                        event.id,
+                        client.id,
+                    )
         logger.info(
             "track.event created event_id=%s visit_id=%s type=%s visitor_id=%s session_id=%s",
             event.id,
