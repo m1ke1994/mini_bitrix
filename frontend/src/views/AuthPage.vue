@@ -13,11 +13,37 @@
             <h1>Регистрация</h1>
             <input v-model="registerForm.companyName" type="text" placeholder="Название компании" required />
             <input v-model="registerForm.email" type="email" placeholder="Email" required />
-            <input v-model="registerForm.password" type="password" minlength="8" placeholder="Пароль" required />
+            <div class="password-field">
+              <input
+                v-model="registerForm.password"
+                :type="showRegisterPassword ? 'text' : 'password'"
+                minlength="8"
+                placeholder="Пароль"
+                required
+              />
+              <button
+                type="button"
+                class="eye-toggle"
+                :aria-label="showRegisterPassword ? 'Скрыть пароль' : 'Показать пароль'"
+                @click="showRegisterPassword = !showRegisterPassword"
+              >
+                <svg v-if="!showRegisterPassword" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path
+                    d="M12 4.5C7 4.5 2.7 7.6 1 12c1.7 4.4 6 7.5 11 7.5s9.3-3.1 11-7.5c-1.7-4.4-6-7.5-11-7.5zm0 12.5a5 5 0 110-10 5 5 0 010 10z"
+                    fill="currentColor"
+                  />
+                </svg>
+                <svg v-else width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M3 5l17 17" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                  <path d="M12 6a6 6 0 016 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                </svg>
+              </button>
+            </div>
             <button type="submit" :disabled="isLoading">
               {{ isLoading ? "Загрузка..." : "Создать аккаунт" }}
             </button>
             <p v-if="error" class="error">{{ error }}</p>
+            <a href="https://t.me/M1ke994" target="_blank" rel="noopener noreferrer" class="forgot-link">Забыли пароль?</a>
           </form>
 
           <form
@@ -29,11 +55,37 @@
           >
             <h1>Вход</h1>
             <input v-model="loginForm.email" type="email" placeholder="Email" required />
-            <input v-model="loginForm.password" type="password" minlength="8" placeholder="Пароль" required />
+            <div class="password-field">
+              <input
+                v-model="loginForm.password"
+                :type="showLoginPassword ? 'text' : 'password'"
+                minlength="8"
+                placeholder="Пароль"
+                required
+              />
+              <button
+                type="button"
+                class="eye-toggle"
+                :aria-label="showLoginPassword ? 'Скрыть пароль' : 'Показать пароль'"
+                @click="showLoginPassword = !showLoginPassword"
+              >
+                <svg v-if="!showLoginPassword" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path
+                    d="M12 4.5C7 4.5 2.7 7.6 1 12c1.7 4.4 6 7.5 11 7.5s9.3-3.1 11-7.5c-1.7-4.4-6-7.5-11-7.5zm0 12.5a5 5 0 110-10 5 5 0 010 10z"
+                    fill="currentColor"
+                  />
+                </svg>
+                <svg v-else width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M3 5l17 17" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                  <path d="M12 6a6 6 0 016 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                </svg>
+              </button>
+            </div>
             <button type="submit" :disabled="isLoading">
               {{ isLoading ? "Загрузка..." : "Войти" }}
             </button>
             <p v-if="error" class="error">{{ error }}</p>
+            <a href="https://t.me/M1ke994" target="_blank" rel="noopener noreferrer" class="forgot-link">Забыли пароль?</a>
           </form>
         </transition>
       </section>
@@ -68,6 +120,8 @@ const router = useRouter();
 const isRegister = ref(false);
 const isLoading = ref(false);
 const error = ref("");
+const showLoginPassword = ref(false);
+const showRegisterPassword = ref(false);
 
 const loginForm = reactive({
   email: "",
@@ -83,6 +137,8 @@ const registerForm = reactive({
 function toggleMode() {
   isRegister.value = !isRegister.value;
   error.value = "";
+  showLoginPassword.value = false;
+  showRegisterPassword.value = false;
 }
 
 function validateLoginForm() {
@@ -193,6 +249,35 @@ async function handleRegister() {
   outline: 0.12rem solid rgba(43, 168, 216, 0.35);
 }
 
+.password-field {
+  position: relative;
+}
+
+.password-field input {
+  width: 100%;
+  padding-right: 2.8rem;
+}
+
+.auth-form .eye-toggle {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #7a8699;
+  padding: 0;
+  min-height: 20px;
+  min-width: 20px;
+  box-shadow: none;
+}
+
+.auth-form .eye-toggle:hover {
+  filter: none;
+  color: #4a5568;
+}
+
 .auth-form button {
   border: none;
   border-radius: 30px;
@@ -220,6 +305,19 @@ async function handleRegister() {
 .auth-form .error {
   margin: 0;
   font-size: 0.9rem;
+}
+
+.forgot-link {
+  display: block;
+  margin-top: 12px;
+  font-size: 14px;
+  color: #2c8fd6;
+  text-align: right;
+  text-decoration: none;
+}
+
+.forgot-link:hover {
+  text-decoration: underline;
 }
 
 .auth-form.loading {
