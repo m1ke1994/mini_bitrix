@@ -5,6 +5,7 @@ from rest_framework_simplejwt.views import TokenRefreshView
 from accounts.views import LoginView, LogoutView, RegisterView
 from analytics_app.views import (
     AnalyticsDevicesView,
+    AnalyticsEngagementView,
     AnalyticsOverviewView,
     AnalyticsSummaryView,
     AnalyticsUniqueDailyView,
@@ -39,6 +40,7 @@ urlpatterns = [
     path("api/subscriptions/yookassa/webhook/", YooKassaWebhookView.as_view(), name="yookassa_webhook_subscriptions"),
     path("api/payments/yookassa/webhook/", YooKassaWebhookView.as_view(), name="yookassa_webhook"),
     path("api/analytics/overview/", AnalyticsOverviewView.as_view(), name="analytics_overview"),
+    path("api/analytics/engagement/", AnalyticsEngagementView.as_view(), name="analytics_engagement"),
     path("api/analytics/devices/", AnalyticsDevicesView.as_view(), name="analytics_devices"),
     path("api/analytics/unique-daily/", AnalyticsUniqueDailyView.as_view(), name="analytics_unique_daily"),
     path("api/analytics/summary/", AnalyticsSummaryView.as_view(), name="analytics_summary"),
@@ -48,3 +50,5 @@ urlpatterns = [
     path("api/client/settings/", ClientSettingsView.as_view(), name="client_settings"),
     path("api/", include(router.urls)),
 ]
+
+handler404 = "core.views.custom_404"

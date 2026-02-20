@@ -5,6 +5,7 @@ import PublicFeaturePage from "./views/PublicFeaturePage.vue";
 import DashboardLayout from "./views/DashboardLayout.vue";
 import DashboardOverview from "./views/DashboardOverview.vue";
 import DashboardDynamics from "./views/DashboardDynamics.vue";
+import DashboardEngagement from "./views/DashboardEngagement.vue";
 import DashboardSources from "./views/DashboardSources.vue";
 import DashboardClicks from "./views/DashboardClicks.vue";
 import DashboardPagesConversion from "./views/DashboardPagesConversion.vue";
@@ -26,9 +27,9 @@ const routes = [
     component: PublicHomePage,
     meta: {
       public: true,
-      title: "TrackNode — SaaS аналитика сайтов и воронка лидогенерации",
+      title: "TrackNode - SaaS аналитика сайтов и воронка лидогенерации",
       description:
-        "TrackNode — платформа аналитики сайтов для малого бизнеса. Отслеживание заявок, воронка лидов, отчёты и Telegram-уведомления в одном сервисе.",
+        "TrackNode - платформа аналитики сайтов для малого бизнеса. Отслеживание заявок, воронка лидов, отчеты и Telegram-уведомления в одном сервисе.",
       keywords: "аналитика сайта, SaaS аналитика, TrackNode, воронка лидогенерации, отслеживание заявок",
       ogType: "website",
       schema: homepageSoftwareSchema,
@@ -40,7 +41,7 @@ const routes = [
     component: PublicFeaturePage,
     meta: {
       public: true,
-      title: "Аналитика сайтов TrackNode — контроль трафика, лидов и конверсии",
+      title: "Аналитика сайтов TrackNode - контроль трафика, лидов и конверсии",
       description:
         "Аналитика TrackNode показывает источники трафика, динамику заявок и конверсию страниц, чтобы быстро находить точки роста.",
       keywords: "аналитика сайта, веб-аналитика, конверсия, лиды, TrackNode",
@@ -56,13 +57,13 @@ const routes = [
     component: PublicFeaturePage,
     meta: {
       public: true,
-      title: "Отчёты TrackNode — ежедневные и PDF-отчёты по заявкам и воронке",
+      title: "Отчеты TrackNode - ежедневные и PDF-отчеты по заявкам и воронке",
       description:
-        "Создавайте отчёты по заявкам и воронке продаж в TrackNode: ежедневная статистика, PDF-выгрузка и прозрачные показатели для бизнеса.",
-      keywords: "отчёты по лидам, PDF отчёт, отчёты аналитики, TrackNode",
-      pageHeading: "Отчёты",
+        "Создавайте отчеты по заявкам и воронке продаж в TrackNode: ежедневная статистика, PDF-выгрузка и прозрачные показатели для бизнеса.",
+      keywords: "отчеты по лидам, PDF отчет, отчеты аналитики, TrackNode",
+      pageHeading: "Отчеты",
       pageText:
-        "Формируйте регулярные отчёты по ключевым метрикам: заявкам, источникам и конверсии. Подходит для собственника, маркетолога и отдела продаж.",
+        "Формируйте регулярные отчеты по ключевым метрикам: заявкам, источникам и конверсии. Подходит для собственника, маркетолога и отдела продаж.",
       ogType: "website",
     },
   },
@@ -72,7 +73,7 @@ const routes = [
     component: PublicFeaturePage,
     meta: {
       public: true,
-      title: "Telegram-уведомления TrackNode — мгновенные оповещения по заявкам",
+      title: "Telegram-уведомления TrackNode - мгновенные оповещения по заявкам",
       description:
         "Подключите Telegram-уведомления в TrackNode и получайте сообщения о новых заявках, оплатах и статусах без задержек.",
       keywords: "telegram уведомления, уведомления о заявках, TrackNode",
@@ -88,13 +89,13 @@ const routes = [
     component: PublicFeaturePage,
     meta: {
       public: true,
-      title: "Тарифы TrackNode — SaaS аналитика для малого и среднего бизнеса",
+      title: "Тарифы TrackNode - SaaS аналитика для малого и среднего бизнеса",
       description:
         "Выберите тариф TrackNode под ваш поток заявок: прозрачная цена, быстрый старт и инструменты аналитики без сложной настройки.",
       keywords: "тарифы аналитики сайта, цена saas, TrackNode тарифы",
       pageHeading: "Тарифы",
       pageText:
-        "Подберите подходящий план для вашего бизнеса и начните работать с аналитикой сайта, отчётами и лидогенерацией в одном сервисе.",
+        "Подберите подходящий план для вашего бизнеса и начните работать с аналитикой сайта, отчетами и лидогенерацией в одном сервисе.",
       ogType: "website",
     },
   },
@@ -185,13 +186,23 @@ const routes = [
             },
           },
           {
+            path: "engagement",
+            name: "dashboard_engagement",
+            component: DashboardEngagement,
+            meta: {
+              noindex: true,
+              title: "Панель управления - Вовлечённость",
+              description: "Личный кабинет TrackNode: вовлечённость пользователей по времени на страницах.",
+            },
+          },
+          {
             path: "clicks",
             name: "dashboard_clicks",
             component: DashboardClicks,
             meta: {
               noindex: true,
               title: "Панель управления - Топ кликов",
-              description: "Личный кабинет TrackNode: отчёт по кликам.",
+              description: "Личный кабинет TrackNode: отчет по кликам.",
             },
           },
           {
@@ -238,7 +249,19 @@ const routes = [
         path: "/reports",
         name: "reports",
         component: ReportsPage,
-        meta: { noindex: true, title: "Отчёт PDF", description: "Личный кабинет TrackNode: PDF-отчёты." },
+        meta: { noindex: true, title: "Отчет PDF", description: "Личный кабинет TrackNode: PDF-отчеты." },
+      },
+      {
+        path: "/about",
+        name: "AboutProject",
+        component: () => import("./views/AboutProject.vue"),
+        meta: {
+          noindex: true,
+          title: "О проекте TrackNode - платформа аналитики сайтов",
+          description: "TrackNode - система аналитики сайтов и управления заявками для малого и среднего бизнеса.",
+          keywords: "TrackNode, аналитика сайта, SaaS аналитика, управление заявками, воронка лидогенерации",
+          ogType: "website",
+        },
       },
       {
         path: "/instructions",
@@ -251,7 +274,17 @@ const routes = [
   { path: "/dashboard/leads", redirect: "/leads" },
   { path: "/dashboard/settings", redirect: "/settings" },
   { path: "/dashboard/integration", redirect: "/integration" },
-  { path: "/:pathMatch(.*)*", redirect: "/" },
+  {
+    path: "/:pathMatch(.*)*",
+    name: "NotFound",
+    component: () => import("./views/NotFoundPage.vue"),
+    meta: {
+      public: true,
+      noindex: true,
+      title: "404 - Страница не найдена | TrackNode",
+      description: "Страница не найдена.",
+    },
+  },
 ];
 
 const router = createRouter({

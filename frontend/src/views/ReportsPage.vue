@@ -11,7 +11,7 @@
           loadingNow
             ? "Формирование..."
             : isSendCooldownActive
-              ? "Доступно раз в 5 часов"
+              ? "Доступно раз в 10 минут"
               : "Сформировать и отправить сейчас"
         }}
       </button>
@@ -43,8 +43,8 @@ const loadingToggle = ref(false);
 const error = ref("");
 const success = ref("");
 
-const SEND_COOLDOWN_MS = 5 * 60 * 60 * 1000;
-const SEND_COOLDOWN_KEY = "reports_send_now_cooldown_until";
+const SEND_COOLDOWN_MS = 10 * 60 * 1000;
+const SEND_COOLDOWN_KEY = "reports_send_now_cooldown_until_v2";
 const cooldownUntil = ref(0);
 
 const isSendCooldownActive = computed(() => Date.now() < cooldownUntil.value);
@@ -57,7 +57,7 @@ const cooldownUntilText = computed(() => {
 
 async function handleSendNow() {
   if (isSendCooldownActive.value) {
-    error.value = `Отправка доступна раз в 5 часов. Следующая попытка: ${cooldownUntilText.value}.`;
+    error.value = `Отправка доступна раз в 10 минут. Следующая попытка: ${cooldownUntilText.value}.`;
     success.value = "";
     return;
   }
@@ -103,7 +103,7 @@ onMounted(async () => {
     const response = await getDailyPdfStatus();
     dailyEnabled.value = !!response.daily_pdf_enabled;
   } catch (_) {
-    // Leave default state when status loading fails.
+    // Keep defaults if status loading fails.
   }
 });
 </script>
