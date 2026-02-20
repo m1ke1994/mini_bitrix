@@ -1,6 +1,8 @@
 import logging
 
 from django.contrib.auth import authenticate
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import permissions, status
 from rest_framework.renderers import JSONRenderer
 from rest_framework.response import Response
@@ -92,6 +94,36 @@ class LoginView(APIView):
             },
             status=status.HTTP_200_OK,
         )
+
+
+class ChangePasswordView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+    renderer_classes = [JSONRenderer]
+
+    def post(self, request, *args, **kwargs):
+        user = request.user
+        current_password = request.data.get("current_password") or ""
+        new_password = request.data.get("new_password") or ""
+
+        validation_errors = {}
+        if not current_password:
+            validation_errors["current_password"] = ["Укажите текущий пароль."]
+        if not new_password:
+            validation_errors["new_password"] = ["Укажите новый пароль."]
+        if validation_errors:
+            return Response(_format_errors(validation_errors), status=status.HTTP_400_BAD_REQUEST)
+
+        if not user.check_password(current_password):
+            return Response({"error": "Неверный текущий пароль"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            validate_password(new_password, user=user)
+        except DjangoValidationError as exc:
+            return Response(_format_errors({"new_password": list(exc.messages)}), status=status.HTTP_400_BAD_REQUEST)
+
+        user.set_password(new_password)
+        user.save(update_fields=["password"])
+        return Response({"success": True}, status=status.HTTP_200_OK)
 
 
 class LogoutView(APIView):

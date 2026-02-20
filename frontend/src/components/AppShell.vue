@@ -111,6 +111,7 @@ const mainNavItems = [
   { to: "/leads", label: "Заявки" },
   { to: "/integration", label: "Интеграции" },
   { to: "/settings", label: "Настройки" },
+  { to: "/account", label: "Аккаунт" },
 ];
 
 async function logout() {

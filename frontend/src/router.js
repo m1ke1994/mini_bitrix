@@ -17,6 +17,7 @@ import AuthPage from "./views/AuthPage.vue";
 import LeadsPage from "./views/LeadsPage.vue";
 import ReportsPage from "./views/ReportsPage.vue";
 import SettingsPage from "./views/SettingsPage.vue";
+import AccountView from "./views/AccountView.vue";
 import { useAuthStore } from "./stores/auth";
 import { homepageSoftwareSchema, setSeoForRoute } from "./seo";
 
@@ -238,6 +239,12 @@ const routes = [
         name: "settings",
         component: SettingsPage,
         meta: { noindex: true, title: "Настройки", description: "Личный кабинет TrackNode: настройки аккаунта." },
+      },
+      {
+        path: "/account",
+        name: "account",
+        component: AccountView,
+        meta: { noindex: true, title: "Аккаунт", description: "Личный кабинет TrackNode: смена пароля." },
       },
       {
         path: "/integration",

@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.urls import include, path
 from rest_framework_simplejwt.views import TokenRefreshView
 
-from accounts.views import LoginView, LogoutView, RegisterView
+from accounts.views import ChangePasswordView, LoginView, LogoutView, RegisterView
 from analytics_app.views import (
     AnalyticsDevicesView,
     AnalyticsEngagementView,
@@ -32,6 +32,7 @@ urlpatterns = [
     path("api/auth/register/", RegisterView.as_view(), name="register"),
     path("api/auth/login/", LoginView.as_view(), name="login"),
     path("api/auth/logout/", LogoutView.as_view(), name="logout"),
+    path("api/auth/change-password/", ChangePasswordView.as_view(), name="change_password"),
     path("api/auth/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
     path("api/public/lead/", PublicLeadCreateView.as_view(), name="public_lead"),
     path("api/public/event/", PublicEventCreateView.as_view(), name="public_event"),
