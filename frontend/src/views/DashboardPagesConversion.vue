@@ -47,5 +47,11 @@ const sortedRows = computed(() => {
   });
 });
 
-onMounted(loadSummary);
+async function manualRefresh() {
+  await loadSummary();
+}
+
+defineExpose({ manualRefresh });
+
+onMounted(manualRefresh);
 </script>

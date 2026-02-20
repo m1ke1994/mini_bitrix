@@ -37,5 +37,11 @@ import { useAnalyticsSummary } from "../composables/useAnalyticsSummary";
 
 const { summary, error, loadSummary } = useAnalyticsSummary();
 
-onMounted(loadSummary);
+async function manualRefresh() {
+  await loadSummary();
+}
+
+defineExpose({ manualRefresh });
+
+onMounted(manualRefresh);
 </script>

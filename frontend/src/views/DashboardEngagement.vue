@@ -61,5 +61,11 @@ const sortedPages = computed(() => {
   });
 });
 
-onMounted(loadEngagement);
+async function manualRefresh() {
+  await loadEngagement();
+}
+
+defineExpose({ manualRefresh });
+
+onMounted(manualRefresh);
 </script>

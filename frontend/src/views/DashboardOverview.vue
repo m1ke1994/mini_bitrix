@@ -56,5 +56,11 @@ const { overview, error: overviewError, loadOverview } = useAnalyticsOverview();
 const totalTimeOnSiteFormatted = computed(() => formatDuration(overview.value.total_time_on_site_seconds));
 const avgVisitTimeFormatted = computed(() => formatDuration(overview.value.avg_visit_duration_seconds));
 
-onMounted(loadOverview);
+async function manualRefresh() {
+  await loadOverview();
+}
+
+defineExpose({ manualRefresh });
+
+onMounted(manualRefresh);
 </script>

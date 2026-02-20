@@ -49,7 +49,11 @@ function formatDay(value) {
   return date.toLocaleDateString("ru-RU");
 }
 
-onMounted(() => {
-  loadUniqueDaily();
-});
+async function manualRefresh() {
+  await loadUniqueDaily();
+}
+
+defineExpose({ manualRefresh });
+
+onMounted(manualRefresh);
 </script>
