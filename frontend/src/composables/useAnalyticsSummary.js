@@ -1,4 +1,4 @@
-import { ref } from "vue";
+﻿import { ref } from "vue";
 import api from "../services/api";
 
 const summary = ref({
@@ -34,7 +34,6 @@ async function loadSummary() {
   error.value = "";
   try {
     const response = await api.get("/api/analytics/summary/");
-    console.log("[analytics] /api/analytics/summary response", response.data);
     summary.value = {
       ...summary.value,
       ...response.data,
@@ -46,8 +45,7 @@ async function loadSummary() {
       engagement_pages: response.data.engagement_pages || [],
     };
   } catch (err) {
-    console.log("[analytics] /api/analytics/summary error", err?.response?.data || err);
-    error.value = "Ошибка загрузки аналитики.";
+    error.value = "РћС€РёР±РєР° Р·Р°РіСЂСѓР·РєРё Р°РЅР°Р»РёС‚РёРєРё.";
   } finally {
     loading.value = false;
   }
@@ -61,3 +59,4 @@ export function useAnalyticsSummary() {
     loadSummary,
   };
 }
+

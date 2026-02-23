@@ -1,25 +1,27 @@
 import { createRouter, createWebHistory } from "vue-router";
-import MainLayout from "./views/MainLayout.vue";
 import PublicHomePage from "./views/PublicHomePage.vue";
-import PublicFeaturePage from "./views/PublicFeaturePage.vue";
-import DashboardLayout from "./views/DashboardLayout.vue";
-import DashboardOverview from "./views/DashboardOverview.vue";
-import DashboardDynamics from "./views/DashboardDynamics.vue";
-import DashboardEngagement from "./views/DashboardEngagement.vue";
-import DashboardSources from "./views/DashboardSources.vue";
-import DashboardClicks from "./views/DashboardClicks.vue";
-import DashboardPagesConversion from "./views/DashboardPagesConversion.vue";
-import DashboardUniqueVisitors from "./views/DashboardUniqueVisitors.vue";
-import DashboardDevices from "./views/DashboardDevices.vue";
-import IntegrationPage from "./views/IntegrationPage.vue";
-import InstructionsPage from "./views/InstructionsPage.vue";
-import AuthPage from "./views/AuthPage.vue";
-import LeadsPage from "./views/LeadsPage.vue";
-import ReportsPage from "./views/ReportsPage.vue";
-import SettingsPage from "./views/SettingsPage.vue";
-import AccountView from "./views/AccountView.vue";
+import { primeSubscriptionStatus } from "./composables/useSubscriptionStatus";
 import { useAuthStore } from "./stores/auth";
 import { homepageSoftwareSchema, setSeoForRoute } from "./seo";
+
+const MainLayout = () => import("./views/MainLayout.vue");
+const PublicFeaturePage = () => import("./views/PublicFeaturePage.vue");
+const DashboardLayout = () => import("./views/DashboardLayout.vue");
+const DashboardOverview = () => import("./views/DashboardOverview.vue");
+const DashboardDynamics = () => import("./views/DashboardDynamics.vue");
+const DashboardEngagement = () => import("./views/DashboardEngagement.vue");
+const DashboardSources = () => import("./views/DashboardSources.vue");
+const DashboardClicks = () => import("./views/DashboardClicks.vue");
+const DashboardPagesConversion = () => import("./views/DashboardPagesConversion.vue");
+const DashboardUniqueVisitors = () => import("./views/DashboardUniqueVisitors.vue");
+const DashboardDevices = () => import("./views/DashboardDevices.vue");
+const IntegrationPage = () => import("./views/IntegrationPage.vue");
+const InstructionsPage = () => import("./views/InstructionsPage.vue");
+const AuthPage = () => import("./views/AuthPage.vue");
+const LeadsPage = () => import("./views/LeadsPage.vue");
+const ReportsPage = () => import("./views/ReportsPage.vue");
+const SettingsPage = () => import("./views/SettingsPage.vue");
+const AccountView = () => import("./views/AccountView.vue");
 
 const routes = [
   {
@@ -310,6 +312,11 @@ router.beforeEach((to) => {
   if (isAuthPage && auth.isAuthenticated) {
     return { name: "dashboard_overview" };
   }
+
+  if (auth.isAuthenticated && to.path.startsWith("/dashboard")) {
+    primeSubscriptionStatus();
+  }
+
   return true;
 });
 

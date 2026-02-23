@@ -1,4 +1,4 @@
-import { ref } from "vue";
+﻿import { ref } from "vue";
 import api from "../services/api";
 
 const engagement = ref({
@@ -15,7 +15,6 @@ async function loadEngagement(params = {}) {
   error.value = "";
   try {
     const response = await api.get("/api/analytics/engagement/", { params });
-    console.log("[analytics] /api/analytics/engagement response", response.data);
     engagement.value = {
       period: response.data?.period || null,
       avg_time_on_page_seconds: response.data?.avg_time_on_page_seconds || 0,
@@ -23,8 +22,7 @@ async function loadEngagement(params = {}) {
       pages: response.data?.pages || [],
     };
   } catch (err) {
-    console.log("[analytics] /api/analytics/engagement error", err?.response?.data || err);
-    error.value = "Ошибка загрузки вовлеченности.";
+    error.value = "РћС€РёР±РєР° Р·Р°РіСЂСѓР·РєРё РІРѕРІР»РµС‡РµРЅРЅРѕСЃС‚Рё.";
   } finally {
     loading.value = false;
   }
@@ -38,3 +36,4 @@ export function useAnalyticsEngagement() {
     loadEngagement,
   };
 }
+

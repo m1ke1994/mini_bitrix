@@ -14,5 +14,11 @@ app.use(router);
 app.mount("#app");
 
 if (import.meta.env.PROD) {
-  registerSW({ immediate: true });
+  window.addEventListener(
+    "load",
+    () => {
+      registerSW();
+    },
+    { once: true }
+  );
 }

@@ -19,13 +19,11 @@ async function loadOverview(params = {}) {
   error.value = "";
   try {
     const response = await api.get("/api/analytics/overview/", { params });
-    console.log("[analytics] /api/analytics/overview response", response.data);
     overview.value = {
       ...overview.value,
       ...response.data,
     };
   } catch (err) {
-    console.log("[analytics] /api/analytics/overview error", err?.response?.data || err);
     error.value = "Ошибка загрузки overview.";
   } finally {
     loading.value = false;
@@ -40,3 +38,4 @@ export function useAnalyticsOverview() {
     loadOverview,
   };
 }
+
