@@ -22,6 +22,9 @@ const summary = ref({
   conversion_by_pages: [],
   top_clicks: [],
   total_clicks: 0,
+  total_time_on_site_seconds: 0,
+  avg_visit_duration_seconds: 0,
+  engagement_pages: [],
 });
 const loading = ref(false);
 const error = ref("");
@@ -40,6 +43,7 @@ async function loadSummary() {
       conversion_by_pages: response.data.conversion_by_pages || [],
       top_clicks: response.data.top_clicks || [],
       latest_leads: response.data.latest_leads || [],
+      engagement_pages: response.data.engagement_pages || [],
     };
   } catch (err) {
     console.log("[analytics] /api/analytics/summary error", err?.response?.data || err);

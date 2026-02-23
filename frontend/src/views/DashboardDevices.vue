@@ -100,5 +100,11 @@ const browserRows = computed(() =>
     .sort((a, b) => (b.count || 0) - (a.count || 0))
 );
 
-onMounted(loadDevices);
+async function manualRefresh() {
+  await loadDevices();
+}
+
+defineExpose({ manualRefresh });
+
+onMounted(manualRefresh);
 </script>

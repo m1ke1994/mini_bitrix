@@ -149,11 +149,38 @@ def tracker_js_view(request):
   }
 
   function getScript() {
-    if (document.currentScript) {
-      return document.currentScript;
-    }
+    var current = document.currentScript || null;
+    try {
+      if (current && current.src && current.src.indexOf('/tracker.js') !== -1) {
+        return current;
+      }
+    } catch (_) {}
+
     var scripts = document.getElementsByTagName('script');
-    return scripts && scripts.length ? scripts[scripts.length - 1] : null;
+    if (!scripts || !scripts.length) {
+      return current;
+    }
+
+    // Prefer tracker.js script with explicit tracker token on it.
+    for (var i = scripts.length - 1; i >= 0; i--) {
+      var script = scripts[i];
+      if (!script || !script.src || script.src.indexOf('/tracker.js') === -1) {
+        continue;
+      }
+      if (script.dataset && (script.dataset.token || script.dataset.apiKey)) {
+        return script;
+      }
+    }
+
+    // Fallback to any tracker.js script.
+    for (var j = scripts.length - 1; j >= 0; j--) {
+      var fallback = scripts[j];
+      if (fallback && fallback.src && fallback.src.indexOf('/tracker.js') !== -1) {
+        return fallback;
+      }
+    }
+
+    return current || scripts[scripts.length - 1] || null;
   }
 
   function createUuid() {
@@ -177,7 +204,12 @@ def tracker_js_view(request):
   }
 
   var scriptTag = getScript();
-  var token = scriptTag && scriptTag.dataset ? (scriptTag.dataset.token || scriptTag.dataset.apiKey || '') : '';
+  var token = '';
+  try {
+    token = String(scriptTag && scriptTag.dataset ? (scriptTag.dataset.token || scriptTag.dataset.apiKey || '') : '').trim();
+  } catch (_) {
+    token = '';
+  }
   var debug = false;
   try {
     debug = (
@@ -197,7 +229,15 @@ def tracker_js_view(request):
     return;
   }
 
+  if (window.__saasTrackerInitializedToken === token) {
+    logDebug('skip duplicate tracker init for token', token);
+    return;
+  }
+  window.__saasTrackerInitializedToken = token;
+
   var baseUrl = getBaseUrl(scriptTag);
+  var trackerOrigin = baseUrl;
+  var originalFetch = (typeof window.fetch === 'function') ? window.fetch.bind(window) : null;
   var visitorKey = 'saas_tracker_visitor_id';
   var sessionKey = 'saas_tracker_session_id';
   var startKey = 'saas_tracker_started_at';
@@ -223,6 +263,115 @@ def tracker_js_view(request):
   logDebug('visit started_at', startedAt);
 
   var sentPageviewFingerprint = '';
+  var pageTrackPath = '/';
+  var pageTrackStartedAt = Date.now();
+  var pageTrackSent = false;
+  var pageTrackRouteFingerprint = '';
+
+  function toAbsoluteUrl(input) {
+    if (!input) {
+      return '';
+    }
+    try {
+      return new URL(String(input), window.location.href).toString();
+    } catch (_) {
+      return '';
+    }
+  }
+
+  function requestMethodOrDefault(method) {
+    return ((method || 'GET') + '').toUpperCase();
+  }
+
+  function shouldTrackApiRequest(urlValue, method) {
+    var absolute = toAbsoluteUrl(urlValue);
+    if (!absolute) {
+      return false;
+    }
+    try {
+      var parsed = new URL(absolute);
+      var pathname = parsed.pathname || '';
+      if (pathname.indexOf('/api/') === -1) {
+        return false;
+      }
+      if (parsed.origin === trackerOrigin && pathname.indexOf('/api/track/') === 0) {
+        return false;
+      }
+      return requestMethodOrDefault(method) !== 'OPTIONS';
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function extractFetchUrl(input) {
+    if (!input) {
+      return '';
+    }
+    if (typeof input === 'string') {
+      return toAbsoluteUrl(input);
+    }
+    try {
+      if (input.url) {
+        return toAbsoluteUrl(input.url);
+      }
+      if (input.href) {
+        return toAbsoluteUrl(input.href);
+      }
+    } catch (_) {}
+    return '';
+  }
+
+  function extractFetchMethod(input, init) {
+    try {
+      if (init && init.method) {
+        return requestMethodOrDefault(init.method);
+      }
+      if (input && input.method) {
+        return requestMethodOrDefault(input.method);
+      }
+    } catch (_) {}
+    return 'GET';
+  }
+
+  function extractSafeFormFields(form) {
+    if (!form || !form.elements) {
+      return [];
+    }
+    var fields = [];
+    var seen = {};
+    var sensitiveNamePattern = /(pass|password|pwd|token|secret|key|card|cvv|cvc|iban|email|phone|tel|cookie|session)/i;
+    for (var i = 0; i < form.elements.length; i++) {
+      var field = form.elements[i];
+      if (!field || field.disabled) {
+        continue;
+      }
+      var fieldType = ((field.type || field.tagName || '') + '').toLowerCase();
+      if (fieldType === 'password' || fieldType === 'hidden' || fieldType === 'file') {
+        continue;
+      }
+      var rawName = (field.name || field.id || '').trim();
+      if (!rawName) {
+        continue;
+      }
+      if (sensitiveNamePattern.test(rawName)) {
+        continue;
+      }
+      var key = (rawName + '|' + fieldType).toLowerCase();
+      if (seen[key]) {
+        continue;
+      }
+      seen[key] = true;
+      fields.push({
+        name: rawName.slice(0, 64),
+        type: fieldType.slice(0, 32),
+        checked: !!field.checked
+      });
+      if (fields.length >= 25) {
+        break;
+      }
+    }
+    return fields;
+  }
 
   function buildPayload(extra) {
     var payload = {
@@ -248,7 +397,11 @@ def tracker_js_view(request):
     function runAttempt() {
       attempt += 1;
       logDebug('sending', endpoint, 'attempt', attempt, payload);
-      return fetch(url, {
+      if (!originalFetch) {
+        logWarn('window.fetch is unavailable, skip tracker request', endpoint);
+        return Promise.resolve(null);
+      }
+      return originalFetch(url, {
         method: 'POST',
         mode: 'cors',
         credentials: 'omit',
@@ -259,12 +412,19 @@ def tracker_js_view(request):
         keepalive: true
       }).then(function (response) {
         if (!response.ok) {
-          throw new Error('HTTP ' + response.status);
+          var httpError = new Error('HTTP ' + response.status);
+          httpError.status = response.status;
+          throw httpError;
         }
         logDebug('success', endpoint, 'status', response.status);
         return response;
       }).catch(function (err) {
         logWarn('request failed', endpoint, 'attempt', attempt, err && err.message ? err.message : err);
+        var statusCode = err && typeof err.status === 'number' ? err.status : 0;
+        if (statusCode >= 400 && statusCode < 500 && statusCode !== 429) {
+          logError('request rejected without retry: ' + endpoint, err);
+          return null;
+        }
         if (attempt >= maxAttempts) {
           logError('request permanently failed: ' + endpoint, err);
           return null;
@@ -292,7 +452,7 @@ def tracker_js_view(request):
   }
 
   function trackPageView() {
-    var fingerprint = window.location.pathname + window.location.search + '|' + (document.title || '');
+    var fingerprint = window.location.pathname + window.location.search;
     if (fingerprint === sentPageviewFingerprint) {
       logDebug('skip duplicate pageview', fingerprint);
       return Promise.resolve();
@@ -311,6 +471,93 @@ def tracker_js_view(request):
       payload: payload || {},
       timestamp: nowIso()
     }));
+  }
+
+  function routeFingerprint() {
+    return (window.location.pathname || '/') + (window.location.search || '');
+  }
+
+  function resetPageTimer(pathname) {
+    pageTrackPath = (pathname || window.location.pathname || '/');
+    pageTrackStartedAt = Date.now();
+    pageTrackSent = false;
+    pageTrackRouteFingerprint = routeFingerprint();
+    logDebug('page timer reset', pageTrackPath, pageTrackRouteFingerprint);
+  }
+
+  function buildEventPayload(type, payload) {
+    return buildPayload({
+      type: type,
+      payload: payload || {},
+      timestamp: nowIso()
+    });
+  }
+
+  function sendEventPayload(payload, preferBeacon) {
+    if (preferBeacon && navigator.sendBeacon) {
+      try {
+        var data = JSON.stringify(payload);
+        var blob = new Blob([data], { type: 'application/json' });
+        var ok = navigator.sendBeacon(baseUrl + '/api/track/event/', blob);
+        logDebug('sendBeacon event', payload && payload.type, ok);
+        if (ok) {
+          return;
+        }
+      } catch (err) {
+        logWarn('sendBeacon event failed', err && err.message ? err.message : err);
+      }
+    }
+    postWithRetry('/api/track/event/', payload, { maxAttempts: 2 });
+  }
+
+  function flushTimeOnPage(reason, opts) {
+    var options = opts || {};
+    if (pageTrackSent) {
+      return;
+    }
+    var durationSeconds = 0;
+    try {
+      durationSeconds = Math.floor((Date.now() - pageTrackStartedAt) / 1000);
+    } catch (_) {
+      durationSeconds = 0;
+    }
+    pageTrackSent = true;
+    if (durationSeconds <= 1) {
+      logDebug('skip short time_on_page', durationSeconds, pageTrackPath, reason || '');
+      return;
+    }
+    sendEventPayload(buildEventPayload('time_on_page', {
+      page: pageTrackPath || '/',
+      duration_seconds: durationSeconds
+    }), !!options.preferBeacon);
+  }
+
+  function handleRouteChange() {
+    var nextFingerprint = routeFingerprint();
+    if (nextFingerprint === pageTrackRouteFingerprint) {
+      return;
+    }
+    flushTimeOnPage('spa_route_change');
+    resetPageTimer(window.location.pathname || '/');
+    setTimeout(trackPageView, 0);
+  }
+
+  function trackApiRequest(payload) {
+    if (!payload || !payload.url) {
+      return;
+    }
+    if (!shouldTrackApiRequest(payload.url, payload.method)) {
+      return;
+    }
+    trackEvent('api_post', {
+      url: payload.url,
+      method: requestMethodOrDefault(payload.method),
+      status: payload.status || 0,
+      transport: payload.transport || 'fetch',
+      page_url: window.location.href,
+      path: window.location.pathname,
+      domain: window.location.hostname
+    });
   }
 
   function trackVisitEnd() {
@@ -341,6 +588,25 @@ def tracker_js_view(request):
     }
   }
 
+  function onVisibilityChange() {
+    try {
+      if (document.visibilityState === 'hidden') {
+        flushTimeOnPage('visibility_hidden', { preferBeacon: true });
+        return;
+      }
+      if (document.visibilityState === 'visible') {
+        resetPageTimer(window.location.pathname || '/');
+      }
+    } catch (err) {
+      logError('visibility tracking failed', err);
+    }
+  }
+
+  function onPageClose() {
+    flushTimeOnPage('page_close', { preferBeacon: true });
+    trackVisitEnd();
+  }
+
   function onClick(event) {
     try {
       var node = event.target && event.target.closest ? event.target.closest('button, a, [role="button"], [data-track]') : null;
@@ -366,9 +632,22 @@ def tracker_js_view(request):
       }
       trackEvent('form_submit', {
         id: form.id || '',
+        name: form.getAttribute('name') || '',
+        page_url: window.location.href,
+        url: window.location.href,
+        domain: window.location.hostname,
         action: form.action || '',
+        action_path: (function () {
+          try {
+            return new URL(form.action || '', window.location.href).pathname || '';
+          } catch (_) {
+            return '';
+          }
+        })(),
         method: (form.method || 'GET').toUpperCase(),
-        path: window.location.pathname
+        path: window.location.pathname,
+        fields: extractSafeFormFields(form),
+        field_count: (form.elements && form.elements.length) ? form.elements.length : 0
       });
     } catch (err) {
       logError('submit tracking failed', err);
@@ -381,33 +660,118 @@ def tracker_js_view(request):
       var originalReplace = history.replaceState;
       history.pushState = function () {
         var result = originalPush.apply(this, arguments);
-        setTimeout(trackPageView, 0);
+        setTimeout(handleRouteChange, 0);
         return result;
       };
       history.replaceState = function () {
         var result = originalReplace.apply(this, arguments);
-        setTimeout(trackPageView, 0);
+        setTimeout(handleRouteChange, 0);
         return result;
       };
       window.addEventListener('popstate', function () {
-        trackPageView();
+        handleRouteChange();
       });
     } catch (err) {
       logError('history tracking failed', err);
     }
   }
 
+  function installFetchInterceptor() {
+    if (!originalFetch) {
+      return;
+    }
+    window.fetch = function (input, init) {
+      var requestUrl = extractFetchUrl(input);
+      var requestMethod = extractFetchMethod(input, init);
+      return originalFetch.apply(this, arguments)
+        .then(function (response) {
+          trackApiRequest({
+            url: requestUrl,
+            method: requestMethod,
+            status: response && typeof response.status === 'number' ? response.status : 0,
+            transport: 'fetch'
+          });
+          return response;
+        })
+        .catch(function (error) {
+          trackApiRequest({
+            url: requestUrl,
+            method: requestMethod,
+            status: 0,
+            transport: 'fetch'
+          });
+          throw error;
+        });
+    };
+  }
+
+  function installXhrInterceptor() {
+    if (!window.XMLHttpRequest || !window.XMLHttpRequest.prototype) {
+      return;
+    }
+    var proto = window.XMLHttpRequest.prototype;
+    var originalOpen = proto.open;
+    var originalSend = proto.send;
+    if (!originalOpen || !originalSend) {
+      return;
+    }
+
+    proto.open = function (method, url) {
+      try {
+        this.__saasTrackerMethod = requestMethodOrDefault(method);
+        this.__saasTrackerUrl = toAbsoluteUrl(url);
+      } catch (_) {
+        this.__saasTrackerMethod = 'GET';
+        this.__saasTrackerUrl = '';
+      }
+      return originalOpen.apply(this, arguments);
+    };
+
+    proto.send = function () {
+      var xhr = this;
+      function onDone() {
+        try {
+          xhr.removeEventListener('loadend', onDone);
+        } catch (_) {}
+        trackApiRequest({
+          url: xhr.__saasTrackerUrl || '',
+          method: xhr.__saasTrackerMethod || 'GET',
+          status: typeof xhr.status === 'number' ? xhr.status : 0,
+          transport: 'xhr'
+        });
+      }
+      try {
+        xhr.addEventListener('loadend', onDone);
+      } catch (_) {}
+      return originalSend.apply(this, arguments);
+    };
+  }
+
   try {
     logDebug('init handlers');
-    trackVisitStart();
-    trackPageView();
+    resetPageTimer(window.location.pathname || '/');
+    trackVisitStart()
+      .then(function () {
+        return trackPageView();
+      })
+      .catch(function () {
+        return trackPageView();
+      });
+    installFetchInterceptor();
+    installXhrInterceptor();
     document.addEventListener('click', onClick, true);
     document.addEventListener('submit', onSubmit, true);
-    window.addEventListener('beforeunload', trackVisitEnd);
-    window.addEventListener('pagehide', trackVisitEnd);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('beforeunload', onPageClose);
+    window.addEventListener('pagehide', onPageClose);
     wrapHistory();
     logDebug('init complete');
   } catch (err) {
+    try {
+      if (window.__saasTrackerInitializedToken === token) {
+        window.__saasTrackerInitializedToken = '';
+      }
+    } catch (_) {}
     logError('tracker init failed', err);
   }
 })();

@@ -68,5 +68,11 @@ function toggleSort() {
   }
 }
 
-onMounted(loadSummary);
+async function manualRefresh() {
+  await loadSummary();
+}
+
+defineExpose({ manualRefresh });
+
+onMounted(manualRefresh);
 </script>

@@ -30,20 +30,23 @@
         <router-link to="/dashboard" exact-active-class="active">Обзор</router-link>
         <router-link to="/dashboard/dynamics" class="sub-item">Динамика по дням</router-link>
         <router-link to="/dashboard/unique" class="sub-item">Уникальные пользователи</router-link>
+        <router-link to="/dashboard/engagement" class="sub-item">Вовлечённость</router-link>
         <router-link to="/dashboard/sources" class="sub-item">Топ источников</router-link>
         <router-link to="/dashboard/clicks" class="sub-item">Топ кликов</router-link>
         <router-link to="/dashboard/pages-conversion" class="sub-item">Конверсия по страницам</router-link>
         <router-link to="/dashboard/devices" class="sub-item">Устройства</router-link>
       </nav>
       <div class="dashboard-view">
-        <router-view />
+        <router-view v-slot="{ Component }">
+          <component :is="Component" ref="activeDashboardView" />
+        </router-view>
       </div>
     </template>
   </section>
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { getSubscriptionStatus, redirectToYooKassaCheckout } from "../services/subscription";
 import { useAuthStore } from "../stores/auth";
 
@@ -52,6 +55,7 @@ const status = ref("expired");
 const isTrial = ref(false);
 const paidUntil = ref(null);
 const payRedirectLoading = ref(false);
+const activeDashboardView = ref(null);
 
 const auth = useAuthStore();
 const isExpired = computed(() => status.value !== "active");
@@ -102,7 +106,28 @@ async function goToPaymentCheckout() {
   }
 }
 
-onMounted(loadSubscription);
+async function refreshActiveDashboard(event) {
+  const refreshFn = activeDashboardView.value?.manualRefresh;
+
+  try {
+    if (typeof refreshFn === "function") {
+      await refreshFn();
+    }
+  } finally {
+    if (typeof event?.detail?.done === "function") {
+      event.detail.done();
+    }
+  }
+}
+
+onMounted(() => {
+  loadSubscription();
+  window.addEventListener("tracknode:manual-refresh", refreshActiveDashboard);
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener("tracknode:manual-refresh", refreshActiveDashboard);
+});
 </script>
 
 <style scoped>
