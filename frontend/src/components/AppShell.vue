@@ -86,7 +86,7 @@
 </template>
 
 <script setup>
-import { computed, ref } from "vue";
+import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useAuthStore } from "../stores/auth";
 
@@ -108,11 +108,24 @@ const mainNavItems = [
   { to: "/dashboard/pages-conversion", label: "Конверсия по страницам" },
   { to: "/dashboard/devices", label: "Устройства" },
   { to: "/reports", label: "Отчёт PDF" },
-  { to: "/leads", label: "Заявки" },
   { to: "/integration", label: "Интеграции" },
   { to: "/settings", label: "Настройки" },
   { to: "/account", label: "Аккаунт" },
 ];
+
+watch(
+  isMenuOpen,
+  (open) => {
+    if (typeof document === "undefined") return;
+    document.body.classList.toggle("menu-open", open);
+  },
+  { immediate: true }
+);
+
+onBeforeUnmount(() => {
+  if (typeof document === "undefined") return;
+  document.body.classList.remove("menu-open");
+});
 
 async function logout() {
   await auth.logout();

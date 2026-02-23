@@ -18,7 +18,6 @@ const DashboardDevices = () => import("./views/DashboardDevices.vue");
 const IntegrationPage = () => import("./views/IntegrationPage.vue");
 const InstructionsPage = () => import("./views/InstructionsPage.vue");
 const AuthPage = () => import("./views/AuthPage.vue");
-const LeadsPage = () => import("./views/LeadsPage.vue");
 const ReportsPage = () => import("./views/ReportsPage.vue");
 const SettingsPage = () => import("./views/SettingsPage.vue");
 const AccountView = () => import("./views/AccountView.vue");
@@ -30,10 +29,14 @@ const routes = [
     component: PublicHomePage,
     meta: {
       public: true,
-      title: "TrackNode - SaaS аналитика сайтов и воронка лидогенерации",
+      title:
+        "Аналитика сайтов и учет заявок — сервис отслеживания лидов | TrackNode",
       description:
-        "TrackNode - платформа аналитики сайтов для малого бизнеса. Отслеживание заявок, воронка лидов, отчеты и Telegram-уведомления в одном сервисе.",
-      keywords: "аналитика сайта, SaaS аналитика, TrackNode, воронка лидогенерации, отслеживание заявок",
+        "Сервис аналитики сайтов и учета заявок. Отслеживайте лиды, конверсию и путь клиента. Аналитика воронки продаж и Telegram-уведомления в одном кабинете.",
+      keywords:
+        "аналитика сайтов, сервис аналитики, учет заявок, аналитика воронки продаж, отслеживание конверсии, TrackNode",
+      ogImageAlt: "аналитика сайтов интерфейс",
+      twitterImageAlt: "учет заявок дашборд",
       ogType: "website",
       schema: homepageSoftwareSchema,
     },
@@ -231,12 +234,6 @@ const routes = [
         ],
       },
       {
-        path: "/leads",
-        name: "leads",
-        component: LeadsPage,
-        meta: { noindex: true, title: "Заявки", description: "Личный кабинет TrackNode: работа с заявками." },
-      },
-      {
         path: "/settings",
         name: "settings",
         component: SettingsPage,
@@ -280,7 +277,6 @@ const routes = [
       },
     ],
   },
-  { path: "/dashboard/leads", redirect: "/leads" },
   { path: "/dashboard/settings", redirect: "/settings" },
   { path: "/dashboard/integration", redirect: "/integration" },
   {
@@ -301,8 +297,11 @@ const router = createRouter({
   routes,
 });
 
-router.beforeEach((to) => {
+router.beforeEach(async (to) => {
   const auth = useAuthStore();
+  if (!auth.isInitialized || auth.isInitializing) {
+    await auth.initializeAuth();
+  }
   const isPublic = to.matched.some((record) => record.meta?.public === true);
   const isAuthPage = ["auth", "login", "register"].includes(String(to.name || ""));
 
@@ -325,3 +324,4 @@ router.afterEach((to) => {
 });
 
 export default router;
+
