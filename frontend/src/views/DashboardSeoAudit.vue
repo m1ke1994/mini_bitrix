@@ -1,0 +1,381 @@
+<template>
+  <section class="dashboard-section seo-audit-page">
+    <p v-if="error" class="error">{{ error }}</p>
+
+    <div class="chart-card">
+      <div class="card-head">
+        <h2>SEO аудит</h2>
+      </div>
+      <div class="seo-start-row">
+        <label class="seo-field">
+          <span class="seo-field-label">Домен</span>
+          <input
+            v-model.trim="domain"
+            type="text"
+            class="seo-input"
+            placeholder="example.com"
+            autocomplete="off"
+          />
+        </label>
+        <button type="button" class="seo-start-btn" :disabled="starting || !domain" @click="startAudit">
+          {{ starting ? "Запуск..." : "Запустить аудит" }}
+        </button>
+        <button type="button" class="seo-refresh-btn" :disabled="loading || !auditId" @click="manualRefresh">
+          {{ loading ? "Обновление..." : "Обновить" }}
+        </button>
+      </div>
+      <p class="muted seo-hint">Аудит обходит до 50 внутренних страниц и выполняется в фоне через Celery.</p>
+    </div>
+
+    <div class="stats seo-stats">
+      <article class="stat-card">
+        <h3>Статус</h3>
+        <strong :class="statusClass">{{ statusLabel }}</strong>
+      </article>
+      <article class="stat-card">
+        <h3>SEO Score</h3>
+        <strong>{{ audit?.score ?? 0 }}</strong>
+      </article>
+      <article class="stat-card">
+        <h3>Страниц</h3>
+        <strong>{{ audit?.pages_count ?? 0 }}</strong>
+      </article>
+      <article class="stat-card">
+        <h3>Ошибок</h3>
+        <strong>{{ errorsCount }}</strong>
+      </article>
+    </div>
+
+    <div v-if="auditId" class="chart-card">
+      <div class="card-head">
+        <h2>Страницы</h2>
+        <span class="muted">Аудит #{{ auditId }}</span>
+      </div>
+      <div class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>URL</th>
+              <th>HTTP</th>
+              <th>Title</th>
+              <th>Title len</th>
+              <th>Description len</th>
+              <th>H1</th>
+              <th>H1 count</th>
+              <th>Words</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="page in pages" :key="page.id">
+              <td class="url-cell">{{ page.url }}</td>
+              <td>{{ page.status_code }}</td>
+              <td>{{ page.title || "—" }}</td>
+              <td>{{ page.title_length }}</td>
+              <td>{{ page.description_length }}</td>
+              <td>{{ page.h1 || "—" }}</td>
+              <td>{{ page.h1_count }}</td>
+              <td>{{ page.word_count }}</td>
+            </tr>
+            <tr v-if="!pages.length">
+              <td colspan="8">Нет данных по страницам</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div v-if="auditId" class="chart-card">
+      <div class="card-head">
+        <h2>Ошибки</h2>
+      </div>
+      <div class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Страница</th>
+              <th>Тип</th>
+              <th>Severity</th>
+              <th>Рекомендация</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="issue in issues" :key="issue.id">
+              <td class="url-cell">{{ issue.page_url }}</td>
+              <td>{{ issue.issue_type }}</td>
+              <td><span class="severity-pill" :class="`severity-${issue.severity}`">{{ issue.severity }}</span></td>
+              <td>{{ issue.recommendation }}</td>
+            </tr>
+            <tr v-if="!issues.length">
+              <td colspan="4">Ошибок не найдено</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+</template>
+
+<script setup>
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+
+import api from "../services/api";
+
+const STORAGE_AUDIT_ID_KEY = "tracknode:seo:lastAuditId";
+const STORAGE_DOMAIN_KEY = "tracknode:seo:lastDomain";
+const POLL_INTERVAL_MS = 3000;
+
+const auditId = ref(null);
+const audit = ref(null);
+const domain = ref("");
+const error = ref("");
+const loading = ref(false);
+const starting = ref(false);
+
+let pollTimer = null;
+
+const pages = computed(() => audit.value?.pages || []);
+const issues = computed(() => audit.value?.errors || []);
+const errorsCount = computed(() => issues.value.length);
+const rawStatus = computed(() => String(audit.value?.status || "idle"));
+
+const statusLabel = computed(() => {
+  const labels = {
+    idle: "Не запускался",
+    pending: "В очереди",
+    running: "Выполняется",
+    done: "Готово",
+    error: "Ошибка",
+  };
+  return labels[rawStatus.value] || rawStatus.value;
+});
+
+const statusClass = computed(() => {
+  if (rawStatus.value === "done") return "status-done";
+  if (rawStatus.value === "error") return "status-error";
+  if (rawStatus.value === "pending" || rawStatus.value === "running") return "status-running";
+  return "status-idle";
+});
+
+function canUseStorage() {
+  return typeof window !== "undefined" && typeof window.localStorage !== "undefined";
+}
+
+function persistState() {
+  if (!canUseStorage()) return;
+  try {
+    if (auditId.value) {
+      window.localStorage.setItem(STORAGE_AUDIT_ID_KEY, String(auditId.value));
+    }
+    window.localStorage.setItem(STORAGE_DOMAIN_KEY, String(domain.value || ""));
+  } catch {
+    // Ignore localStorage errors.
+  }
+}
+
+function restoreState() {
+  if (!canUseStorage()) return;
+  try {
+    const storedId = String(window.localStorage.getItem(STORAGE_AUDIT_ID_KEY) || "").trim();
+    const storedDomain = String(window.localStorage.getItem(STORAGE_DOMAIN_KEY) || "").trim();
+    if (storedDomain) {
+      domain.value = storedDomain;
+    }
+    if (/^\d+$/.test(storedId)) {
+      auditId.value = Number(storedId);
+    }
+  } catch {
+    // Ignore localStorage errors.
+  }
+}
+
+function stopPolling() {
+  if (pollTimer) {
+    clearTimeout(pollTimer);
+    pollTimer = null;
+  }
+}
+
+function schedulePollingIfNeeded() {
+  stopPolling();
+  if (!auditId.value) return;
+  if (!["pending", "running"].includes(rawStatus.value)) return;
+  pollTimer = setTimeout(() => {
+    void loadAudit({ silent: true });
+  }, POLL_INTERVAL_MS);
+}
+
+async function startAudit() {
+  if (starting.value || !domain.value) return;
+  error.value = "";
+  starting.value = true;
+  stopPolling();
+  try {
+    const { data } = await api.post("/api/seo/start/", { domain: domain.value });
+    auditId.value = Number(data?.audit_id || 0) || null;
+    if (data?.domain) {
+      domain.value = String(data.domain);
+    }
+    persistState();
+    await loadAudit();
+  } catch (e) {
+    error.value =
+      e?.response?.data?.detail ||
+      (Array.isArray(e?.response?.data?.domain) ? e.response.data.domain[0] : "") ||
+      "Не удалось запустить аудит.";
+  } finally {
+    starting.value = false;
+  }
+}
+
+async function loadAudit({ silent = false } = {}) {
+  if (!auditId.value) return;
+  if (!silent) loading.value = true;
+  error.value = "";
+  try {
+    const { data } = await api.get(`/api/seo/${auditId.value}/`);
+    audit.value = data || null;
+    if (data?.domain && !domain.value) {
+      domain.value = String(data.domain);
+    }
+    persistState();
+  } catch (e) {
+    error.value = e?.response?.data?.detail || "Не удалось загрузить результат аудита.";
+  } finally {
+    if (!silent) loading.value = false;
+    schedulePollingIfNeeded();
+  }
+}
+
+async function manualRefresh() {
+  await loadAudit();
+}
+
+defineExpose({ manualRefresh });
+
+onMounted(() => {
+  restoreState();
+  if (auditId.value) {
+    void loadAudit({ silent: true });
+  }
+});
+
+onBeforeUnmount(() => {
+  stopPolling();
+});
+</script>
+
+<style scoped>
+.seo-start-row {
+  display: grid;
+  grid-template-columns: minmax(16rem, 30rem) auto auto;
+  gap: 0.75rem;
+  align-items: end;
+}
+
+.seo-field {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.seo-field-label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--color-muted);
+}
+
+.seo-input {
+  min-height: 2.6rem;
+  border-radius: 0.65rem;
+  border: 1px solid var(--color-border);
+  padding: 0.5rem 0.75rem;
+  font: inherit;
+}
+
+.seo-start-btn,
+.seo-refresh-btn {
+  min-height: 2.6rem;
+  border-radius: 0.65rem;
+  border: 1px solid var(--color-border);
+  padding: 0 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.seo-start-btn {
+  border-color: transparent;
+  color: #fff;
+  background: linear-gradient(135deg, #0284c7, #2563eb);
+}
+
+.seo-refresh-btn {
+  background: #fff;
+}
+
+.seo-start-btn:disabled,
+.seo-refresh-btn:disabled {
+  opacity: 0.65;
+  cursor: default;
+}
+
+.seo-hint {
+  margin: 0.7rem 0 0;
+}
+
+.seo-stats {
+  margin-top: 16px;
+}
+
+.url-cell {
+  max-width: 20rem;
+  word-break: break-word;
+}
+
+.severity-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 4.8rem;
+  border-radius: 999px;
+  padding: 0.15rem 0.5rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.severity-high {
+  color: #991b1b;
+  background: #fee2e2;
+}
+
+.severity-medium {
+  color: #92400e;
+  background: #fef3c7;
+}
+
+.severity-low {
+  color: #166534;
+  background: #dcfce7;
+}
+
+.status-done {
+  color: #15803d;
+}
+
+.status-error {
+  color: #b91c1c;
+}
+
+.status-running {
+  color: #1d4ed8;
+}
+
+.status-idle {
+  color: #6b7280;
+}
+
+@media (max-width: 960px) {
+  .seo-start-row {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+}
+</style>

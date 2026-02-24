@@ -15,6 +15,7 @@ const DashboardClicks = () => import("./views/DashboardClicks.vue");
 const DashboardPagesConversion = () => import("./views/DashboardPagesConversion.vue");
 const DashboardUniqueVisitors = () => import("./views/DashboardUniqueVisitors.vue");
 const DashboardDevices = () => import("./views/DashboardDevices.vue");
+const DashboardSeoAudit = () => import("./views/DashboardSeoAudit.vue");
 const IntegrationPage = () => import("./views/IntegrationPage.vue");
 const InstructionsPage = () => import("./views/InstructionsPage.vue");
 const AuthPage = () => import("./views/AuthPage.vue");
@@ -219,6 +220,16 @@ const routes = [
               noindex: true,
               title: "Панель управления - Конверсия по страницам",
               description: "Личный кабинет TrackNode: конверсия страниц.",
+            },
+          },
+          {
+            path: "seo",
+            name: "dashboard_seo",
+            component: DashboardSeoAudit,
+            meta: {
+              noindex: true,
+              title: "SEO аудит",
+              description: "Базовый SEO-аудит сайта в кабинете TrackNode.",
             },
           },
           {
