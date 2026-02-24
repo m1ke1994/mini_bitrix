@@ -29,7 +29,7 @@
           {{ stopping ? "Остановка..." : "Остановить аудит" }}
         </button>
       </div>
-      <p class="muted seo-hint">Аудит обходит до 50 внутренних страниц и выполняется в фоне через Celery.</p>
+      <p class="muted seo-hint">Аудит обходит до 100 внутренних страниц и выполняется в фоне через Celery.</p>
     </div>
 
     <div class="stats seo-stats">
@@ -39,7 +39,7 @@
       </article>
       <article class="stat-card">
         <h3>SEO Score</h3>
-        <strong>{{ audit?.score ?? 0 }}</strong>
+        <strong :class="scoreClass">{{ scoreValue }}</strong>
       </article>
       <article class="stat-card">
         <h3>Страниц</h3>
@@ -49,6 +49,26 @@
         <h3>Ошибок</h3>
         <strong>{{ errorsCount }}</strong>
       </article>
+    </div>
+
+    <div v-if="auditId" class="chart-card">
+      <div class="card-head">
+        <h2>Разбивка ошибок</h2>
+      </div>
+      <div class="seo-breakdown-grid">
+        <article class="seo-breakdown-card seo-breakdown-high">
+          <span>High</span>
+          <strong>{{ breakdown.high_issues }}</strong>
+        </article>
+        <article class="seo-breakdown-card seo-breakdown-medium">
+          <span>Medium</span>
+          <strong>{{ breakdown.medium_issues }}</strong>
+        </article>
+        <article class="seo-breakdown-card seo-breakdown-low">
+          <span>Low</span>
+          <strong>{{ breakdown.low_issues }}</strong>
+        </article>
+      </div>
     </div>
 
     <div v-if="auditId" class="chart-card">
@@ -139,11 +159,57 @@ const stopping = ref(false);
 
 let pollTimer = null;
 
-const pages = computed(() => audit.value?.pages || []);
-const issues = computed(() => audit.value?.errors || []);
-const errorsCount = computed(() => issues.value.length);
+const pages = computed(() => (Array.isArray(audit.value?.pages) ? audit.value.pages : []));
+const groupedErrors = computed(() => {
+  const grouped = audit.value?.grouped_errors || {};
+  return {
+    high: Array.isArray(grouped.high) ? grouped.high : [],
+    medium: Array.isArray(grouped.medium) ? grouped.medium : [],
+    low: Array.isArray(grouped.low) ? grouped.low : [],
+  };
+});
+const issues = computed(() => {
+  if (Array.isArray(audit.value?.errors)) return audit.value.errors;
+  return [...groupedErrors.value.high, ...groupedErrors.value.medium, ...groupedErrors.value.low];
+});
+const breakdown = computed(() => {
+  const payload = audit.value?.breakdown;
+  if (payload && typeof payload === "object") {
+    return {
+      score: Number(payload.score ?? audit.value?.score ?? 0) || 0,
+      high_issues: Number(payload.high_issues ?? 0) || 0,
+      medium_issues: Number(payload.medium_issues ?? 0) || 0,
+      low_issues: Number(payload.low_issues ?? 0) || 0,
+    };
+  }
+  let high = 0;
+  let medium = 0;
+  let low = 0;
+  for (const issue of issues.value) {
+    const severity = String(issue?.severity || "").toLowerCase();
+    if (severity === "high") high += 1;
+    if (severity === "medium") medium += 1;
+    if (severity === "low") low += 1;
+  }
+  return {
+    score: Number(audit.value?.score ?? audit.value?.seo_score ?? 0) || 0,
+    high_issues: high,
+    medium_issues: medium,
+    low_issues: low,
+  };
+});
+const scoreValue = computed(() => Number(audit.value?.score ?? audit.value?.seo_score ?? 0) || 0);
+const errorsCount = computed(
+  () => breakdown.value.high_issues + breakdown.value.medium_issues + breakdown.value.low_issues,
+);
 const rawStatus = computed(() => String(audit.value?.status || "idle"));
 const isRunning = computed(() => rawStatus.value === "running");
+const scoreClass = computed(() => {
+  const score = scoreValue.value;
+  if (score <= 40) return "seo-score-bad";
+  if (score <= 70) return "seo-score-warn";
+  return "seo-score-good";
+});
 
 const statusLabel = computed(() => {
   const labels = {
@@ -269,6 +335,19 @@ async function stopAudit() {
       finished_at: data?.finished_at ?? audit.value?.finished_at ?? null,
       pages: Array.isArray(audit.value?.pages) ? audit.value.pages : [],
       errors: Array.isArray(audit.value?.errors) ? audit.value.errors : [],
+      grouped_errors:
+        audit.value?.grouped_errors && typeof audit.value.grouped_errors === "object"
+          ? audit.value.grouped_errors
+          : { high: [], medium: [], low: [] },
+      breakdown:
+        audit.value?.breakdown && typeof audit.value.breakdown === "object"
+          ? audit.value.breakdown
+          : {
+              score: Number(audit.value?.score ?? audit.value?.seo_score ?? 0) || 0,
+              high_issues: 0,
+              medium_issues: 0,
+              low_issues: 0,
+            },
     };
     await loadAudit({ silent: true });
   } catch (e) {
@@ -345,7 +424,7 @@ onBeforeUnmount(() => {
 }
 
 .seo-refresh-btn {
-  background: #fff;
+  background: #1E72F1;
 }
 
 .seo-stop-btn {
@@ -368,6 +447,42 @@ onBeforeUnmount(() => {
 
 .seo-stats {
   margin-top: 16px;
+}
+
+.seo-breakdown-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.seo-breakdown-card {
+  border: 1px solid var(--color-border);
+  border-radius: 0.8rem;
+  padding: 0.85rem;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.seo-breakdown-card span {
+  font-size: 0.82rem;
+  color: var(--color-muted);
+  font-weight: 600;
+}
+
+.seo-breakdown-card strong {
+  font-size: 1.35rem;
+}
+
+.seo-breakdown-high {
+  background: #fff7f7;
+}
+
+.seo-breakdown-medium {
+  background: #fffaf0;
+}
+
+.seo-breakdown-low {
+  background: #f5fbf6;
 }
 
 .url-cell {
@@ -421,10 +536,26 @@ onBeforeUnmount(() => {
   color: #6b7280;
 }
 
+.seo-score-bad {
+  color: #b91c1c;
+}
+
+.seo-score-warn {
+  color: #b45309;
+}
+
+.seo-score-good {
+  color: #15803d;
+}
+
 @media (max-width: 960px) {
   .seo-start-row {
     grid-template-columns: 1fr;
     align-items: stretch;
+  }
+
+  .seo-breakdown-grid {
+    grid-template-columns: 1fr;
   }
 }
 </style>

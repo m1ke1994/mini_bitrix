@@ -88,6 +88,31 @@ class SEOAuditDetailView(APIView):
                     "finished_at": audit.finished_at,
                 }
 
+            try:
+                pages_payload = SEOPageSerializer(pages, many=True).data if pages else []
+            except Exception:
+                logger.exception("seo_audit.detail failed to serialize pages audit_id=%s", audit.id)
+                pages_payload = []
+
+            try:
+                issues_payload = SEOIssueSerializer(issues, many=True).data if issues else []
+            except Exception:
+                logger.exception("seo_audit.detail failed to serialize issues audit_id=%s", audit.id)
+                issues_payload = []
+
+            grouped_errors = {"high": [], "medium": [], "low": []}
+            for item in issues_payload:
+                severity = str(item.get("severity") or "").lower()
+                if severity in grouped_errors:
+                    grouped_errors[severity].append(item)
+
+            breakdown = {
+                "score": int(audit_payload.get("score", audit.seo_score or 0) or 0),
+                "high_issues": len(grouped_errors["high"]),
+                "medium_issues": len(grouped_errors["medium"]),
+                "low_issues": len(grouped_errors["low"]),
+            }
+
             response = {
                 "id": audit_payload.get("id", audit.id),
                 "domain": audit_payload.get("domain", audit.domain),
@@ -96,8 +121,10 @@ class SEOAuditDetailView(APIView):
                 "seo_score": int(audit_payload.get("seo_score", audit.seo_score or 0) or 0),
                 "pages_count": int(audit_payload.get("pages_count", 0) or 0),
                 "created_at": audit_payload.get("created_at", audit.created_at),
-                "pages": SEOPageSerializer(pages, many=True).data if pages else [],
-                "errors": SEOIssueSerializer(issues, many=True).data if issues else [],
+                "pages": pages_payload,
+                "errors": issues_payload,
+                "grouped_errors": grouped_errors,
+                "breakdown": breakdown,
             }
             if not (audit.status == SiteSEOAudit.Status.RUNNING and audit.finished_at is None):
                 response["finished_at"] = audit_payload.get("finished_at", audit.finished_at)

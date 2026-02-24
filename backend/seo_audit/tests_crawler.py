@@ -9,11 +9,15 @@ from seo_audit.services.crawler import crawl_site_audit
 
 
 class _FakeResponse:
-    def __init__(self, url, status_code=200, text="", headers=None):
+    def __init__(self, url, status_code=200, text="", headers=None, apparent_encoding="utf-8", history=None):
         self.url = url
         self.status_code = status_code
         self.text = text
         self.headers = headers or {"Content-Type": "text/html; charset=utf-8"}
+        self.apparent_encoding = apparent_encoding
+        self.encoding = None
+        self.history = history or []
+        self.content = str(text or "").encode("utf-8")
 
 
 class SEOCrawlerServiceTests(TestCase):
@@ -63,6 +67,22 @@ class SEOCrawlerServiceTests(TestCase):
                 url="https://example.com/missing",
                 status_code=404,
                 text="<html><head></head><body><p>Not found</p></body></html>",
+            ),
+            "https://example.com/robots.txt": _FakeResponse(
+                url="https://example.com/robots.txt",
+                headers={"Content-Type": "text/plain; charset=utf-8"},
+                text="User-agent: *\nAllow: /\nSitemap: https://example.com/sitemap.xml\n",
+            ),
+            "https://example.com/sitemap.xml": _FakeResponse(
+                url="https://example.com/sitemap.xml",
+                headers={"Content-Type": "application/xml; charset=utf-8"},
+                text="""
+                <?xml version="1.0" encoding="UTF-8"?>
+                <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+                  <url><loc>https://example.com/</loc></url>
+                  <url><loc>https://example.com/about</loc></url>
+                </urlset>
+                """,
             ),
         }
 
