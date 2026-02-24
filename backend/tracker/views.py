@@ -141,11 +141,12 @@ class TrackBaseAPIView(APIView):
         )
         if bot_check.is_bot:
             logger.debug(
-                "track.bot_detected source=%s site_id=%s session_id=%s ip=%s reasons=%s request_count_5s=%s unique_urls_10s=%s url=%s",
+                "track.bot_detected source=%s site_id=%s session_id=%s ip=%s user_agent=%s reasons=%s request_count_5s=%s unique_urls_10s=%s url=%s",
                 bot_source or "unknown",
                 site.id,
                 session_id,
                 context.get("ip_address"),
+                (context.get("user_agent") or "")[:512],
                 ",".join(bot_check.reasons),
                 bot_check.request_count_5s,
                 bot_check.unique_urls_10s,

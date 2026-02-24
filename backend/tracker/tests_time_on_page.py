@@ -80,3 +80,55 @@ class TrackTimeOnPageEventTests(TestCase):
         self.assertEqual(response.status_code, 201)
         visit = Visit.objects.get(session_id="bot-session-1")
         self.assertTrue(visit.is_bot)
+
+    def test_visit_is_marked_as_bot_for_empty_user_agent(self):
+        response = self.http.post(
+            "/api/track/visit-start/",
+            {
+                "token": self.client_obj.api_key,
+                "session_id": "bot-session-empty-ua",
+                "visitor_id": "visitor-bot-empty-ua",
+            },
+            format="json",
+            HTTP_USER_AGENT="",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        visit = Visit.objects.get(session_id="bot-session-empty-ua")
+        self.assertTrue(visit.is_bot)
+
+    def test_common_browser_user_agents_are_not_marked_as_bot(self):
+        browser_uas = [
+            (
+                "chrome-session",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            ),
+            (
+                "safari-session",
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
+                "(KHTML, like Gecko) Version/17.3 Safari/605.1.15",
+            ),
+            (
+                "edge-session",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36 Edg/122.0.0.0",
+            ),
+        ]
+
+        for session_id, ua in browser_uas:
+            response = self.http.post(
+                "/api/track/visit-start/",
+                {
+                    "token": self.client_obj.api_key,
+                    "session_id": session_id,
+                    "visitor_id": f"visitor-{session_id}",
+                },
+                format="json",
+                HTTP_USER_AGENT=ua,
+            )
+            self.assertEqual(response.status_code, 201)
+
+        for session_id, _ in browser_uas:
+            visit = Visit.objects.get(session_id=session_id)
+            self.assertFalse(visit.is_bot, msg=f"{session_id} was incorrectly marked as bot")
