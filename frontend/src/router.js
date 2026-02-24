@@ -1,23 +1,26 @@
 import { createRouter, createWebHistory } from "vue-router";
-import MainLayout from "./views/MainLayout.vue";
 import PublicHomePage from "./views/PublicHomePage.vue";
-import PublicFeaturePage from "./views/PublicFeaturePage.vue";
-import DashboardLayout from "./views/DashboardLayout.vue";
-import DashboardOverview from "./views/DashboardOverview.vue";
-import DashboardDynamics from "./views/DashboardDynamics.vue";
-import DashboardSources from "./views/DashboardSources.vue";
-import DashboardClicks from "./views/DashboardClicks.vue";
-import DashboardPagesConversion from "./views/DashboardPagesConversion.vue";
-import DashboardUniqueVisitors from "./views/DashboardUniqueVisitors.vue";
-import DashboardDevices from "./views/DashboardDevices.vue";
-import IntegrationPage from "./views/IntegrationPage.vue";
-import InstructionsPage from "./views/InstructionsPage.vue";
-import AuthPage from "./views/AuthPage.vue";
-import LeadsPage from "./views/LeadsPage.vue";
-import ReportsPage from "./views/ReportsPage.vue";
-import SettingsPage from "./views/SettingsPage.vue";
+import { primeSubscriptionStatus } from "./composables/useSubscriptionStatus";
 import { useAuthStore } from "./stores/auth";
 import { homepageSoftwareSchema, setSeoForRoute } from "./seo";
+
+const MainLayout = () => import("./views/MainLayout.vue");
+const PublicFeaturePage = () => import("./views/PublicFeaturePage.vue");
+const DashboardLayout = () => import("./views/DashboardLayout.vue");
+const DashboardOverview = () => import("./views/DashboardOverview.vue");
+const DashboardDynamics = () => import("./views/DashboardDynamics.vue");
+const DashboardEngagement = () => import("./views/DashboardEngagement.vue");
+const DashboardSources = () => import("./views/DashboardSources.vue");
+const DashboardClicks = () => import("./views/DashboardClicks.vue");
+const DashboardPagesConversion = () => import("./views/DashboardPagesConversion.vue");
+const DashboardUniqueVisitors = () => import("./views/DashboardUniqueVisitors.vue");
+const DashboardDevices = () => import("./views/DashboardDevices.vue");
+const IntegrationPage = () => import("./views/IntegrationPage.vue");
+const InstructionsPage = () => import("./views/InstructionsPage.vue");
+const AuthPage = () => import("./views/AuthPage.vue");
+const ReportsPage = () => import("./views/ReportsPage.vue");
+const SettingsPage = () => import("./views/SettingsPage.vue");
+const AccountView = () => import("./views/AccountView.vue");
 
 const routes = [
   {
@@ -26,10 +29,14 @@ const routes = [
     component: PublicHomePage,
     meta: {
       public: true,
-      title: "TrackNode — SaaS аналитика сайтов и воронка лидогенерации",
+      title:
+        "Аналитика сайтов и учет заявок — сервис отслеживания лидов | TrackNode",
       description:
-        "TrackNode — платформа аналитики сайтов для малого бизнеса. Отслеживание заявок, воронка лидов, отчёты и Telegram-уведомления в одном сервисе.",
-      keywords: "аналитика сайта, SaaS аналитика, TrackNode, воронка лидогенерации, отслеживание заявок",
+        "Сервис аналитики сайтов и учета заявок. Отслеживайте лиды, конверсию и путь клиента. Аналитика воронки продаж и Telegram-уведомления в одном кабинете.",
+      keywords:
+        "аналитика сайтов, сервис аналитики, учет заявок, аналитика воронки продаж, отслеживание конверсии, TrackNode",
+      ogImageAlt: "аналитика сайтов интерфейс",
+      twitterImageAlt: "учет заявок дашборд",
       ogType: "website",
       schema: homepageSoftwareSchema,
     },
@@ -40,7 +47,7 @@ const routes = [
     component: PublicFeaturePage,
     meta: {
       public: true,
-      title: "Аналитика сайтов TrackNode — контроль трафика, лидов и конверсии",
+      title: "Аналитика сайтов TrackNode - контроль трафика, лидов и конверсии",
       description:
         "Аналитика TrackNode показывает источники трафика, динамику заявок и конверсию страниц, чтобы быстро находить точки роста.",
       keywords: "аналитика сайта, веб-аналитика, конверсия, лиды, TrackNode",
@@ -56,13 +63,13 @@ const routes = [
     component: PublicFeaturePage,
     meta: {
       public: true,
-      title: "Отчёты TrackNode — ежедневные и PDF-отчёты по заявкам и воронке",
+      title: "Отчеты TrackNode - ежедневные и PDF-отчеты по заявкам и воронке",
       description:
-        "Создавайте отчёты по заявкам и воронке продаж в TrackNode: ежедневная статистика, PDF-выгрузка и прозрачные показатели для бизнеса.",
-      keywords: "отчёты по лидам, PDF отчёт, отчёты аналитики, TrackNode",
-      pageHeading: "Отчёты",
+        "Создавайте отчеты по заявкам и воронке продаж в TrackNode: ежедневная статистика, PDF-выгрузка и прозрачные показатели для бизнеса.",
+      keywords: "отчеты по лидам, PDF отчет, отчеты аналитики, TrackNode",
+      pageHeading: "Отчеты",
       pageText:
-        "Формируйте регулярные отчёты по ключевым метрикам: заявкам, источникам и конверсии. Подходит для собственника, маркетолога и отдела продаж.",
+        "Формируйте регулярные отчеты по ключевым метрикам: заявкам, источникам и конверсии. Подходит для собственника, маркетолога и отдела продаж.",
       ogType: "website",
     },
   },
@@ -72,7 +79,7 @@ const routes = [
     component: PublicFeaturePage,
     meta: {
       public: true,
-      title: "Telegram-уведомления TrackNode — мгновенные оповещения по заявкам",
+      title: "Telegram-уведомления TrackNode - мгновенные оповещения по заявкам",
       description:
         "Подключите Telegram-уведомления в TrackNode и получайте сообщения о новых заявках, оплатах и статусах без задержек.",
       keywords: "telegram уведомления, уведомления о заявках, TrackNode",
@@ -88,13 +95,13 @@ const routes = [
     component: PublicFeaturePage,
     meta: {
       public: true,
-      title: "Тарифы TrackNode — SaaS аналитика для малого и среднего бизнеса",
+      title: "Тарифы TrackNode - SaaS аналитика для малого и среднего бизнеса",
       description:
         "Выберите тариф TrackNode под ваш поток заявок: прозрачная цена, быстрый старт и инструменты аналитики без сложной настройки.",
       keywords: "тарифы аналитики сайта, цена saas, TrackNode тарифы",
       pageHeading: "Тарифы",
       pageText:
-        "Подберите подходящий план для вашего бизнеса и начните работать с аналитикой сайта, отчётами и лидогенерацией в одном сервисе.",
+        "Подберите подходящий план для вашего бизнеса и начните работать с аналитикой сайта, отчетами и лидогенерацией в одном сервисе.",
       ogType: "website",
     },
   },
@@ -185,13 +192,23 @@ const routes = [
             },
           },
           {
+            path: "engagement",
+            name: "dashboard_engagement",
+            component: DashboardEngagement,
+            meta: {
+              noindex: true,
+              title: "Панель управления - Вовлечённость",
+              description: "Личный кабинет TrackNode: вовлечённость пользователей по времени на страницах.",
+            },
+          },
+          {
             path: "clicks",
             name: "dashboard_clicks",
             component: DashboardClicks,
             meta: {
               noindex: true,
               title: "Панель управления - Топ кликов",
-              description: "Личный кабинет TrackNode: отчёт по кликам.",
+              description: "Личный кабинет TrackNode: отчет по кликам.",
             },
           },
           {
@@ -217,16 +234,16 @@ const routes = [
         ],
       },
       {
-        path: "/leads",
-        name: "leads",
-        component: LeadsPage,
-        meta: { noindex: true, title: "Заявки", description: "Личный кабинет TrackNode: работа с заявками." },
-      },
-      {
         path: "/settings",
         name: "settings",
         component: SettingsPage,
         meta: { noindex: true, title: "Настройки", description: "Личный кабинет TrackNode: настройки аккаунта." },
+      },
+      {
+        path: "/account",
+        name: "account",
+        component: AccountView,
+        meta: { noindex: true, title: "Аккаунт", description: "Личный кабинет TrackNode: смена пароля." },
       },
       {
         path: "/integration",
@@ -238,7 +255,19 @@ const routes = [
         path: "/reports",
         name: "reports",
         component: ReportsPage,
-        meta: { noindex: true, title: "Отчёт PDF", description: "Личный кабинет TrackNode: PDF-отчёты." },
+        meta: { noindex: true, title: "Отчет PDF", description: "Личный кабинет TrackNode: PDF-отчеты." },
+      },
+      {
+        path: "/about",
+        name: "AboutProject",
+        component: () => import("./views/AboutProject.vue"),
+        meta: {
+          noindex: true,
+          title: "О проекте TrackNode - платформа аналитики сайтов",
+          description: "TrackNode - система аналитики сайтов и управления заявками для малого и среднего бизнеса.",
+          keywords: "TrackNode, аналитика сайта, SaaS аналитика, управление заявками, воронка лидогенерации",
+          ogType: "website",
+        },
       },
       {
         path: "/instructions",
@@ -248,10 +277,19 @@ const routes = [
       },
     ],
   },
-  { path: "/dashboard/leads", redirect: "/leads" },
   { path: "/dashboard/settings", redirect: "/settings" },
   { path: "/dashboard/integration", redirect: "/integration" },
-  { path: "/:pathMatch(.*)*", redirect: "/" },
+  {
+    path: "/:pathMatch(.*)*",
+    name: "NotFound",
+    component: () => import("./views/NotFoundPage.vue"),
+    meta: {
+      public: true,
+      noindex: true,
+      title: "404 - Страница не найдена | TrackNode",
+      description: "Страница не найдена.",
+    },
+  },
 ];
 
 const router = createRouter({
@@ -259,8 +297,11 @@ const router = createRouter({
   routes,
 });
 
-router.beforeEach((to) => {
+router.beforeEach(async (to) => {
   const auth = useAuthStore();
+  if (!auth.isInitialized || auth.isInitializing) {
+    await auth.initializeAuth();
+  }
   const isPublic = to.matched.some((record) => record.meta?.public === true);
   const isAuthPage = ["auth", "login", "register"].includes(String(to.name || ""));
 
@@ -270,6 +311,11 @@ router.beforeEach((to) => {
   if (isAuthPage && auth.isAuthenticated) {
     return { name: "dashboard_overview" };
   }
+
+  if (auth.isAuthenticated && to.path.startsWith("/dashboard")) {
+    primeSubscriptionStatus();
+  }
+
   return true;
 });
 
@@ -278,3 +324,4 @@ router.afterEach((to) => {
 });
 
 export default router;
+

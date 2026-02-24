@@ -1,12 +1,15 @@
-import { ref } from "vue";
+﻿import { ref } from "vue";
 
 const SITE_NAME = "TrackNode";
 const BASE_URL = "https://tracknode.ru";
-const DEFAULT_TITLE = "TrackNode — SaaS аналитика сайтов и воронка лидогенерации";
+const DEFAULT_TITLE = "Аналитика сайтов и учет заявок — сервис отслеживания лидов | TrackNode";
 const DEFAULT_DESCRIPTION =
-  "TrackNode — платформа аналитики сайтов для малого бизнеса. Отслеживание заявок, воронка лидов, отчёты и Telegram-уведомления в одном сервисе.";
-const DEFAULT_KEYWORDS = "аналитика сайта, SaaS аналитика, TrackNode, воронка лидогенерации, отслеживание заявок";
+  "Сервис аналитики сайтов и учета заявок. Отслеживайте лиды, конверсию и путь клиента. Аналитика воронки продаж и Telegram-уведомления в одном кабинете.";
+const DEFAULT_KEYWORDS =
+  "аналитика сайтов, сервис аналитики, учет заявок, аналитика воронки продаж, отслеживание конверсии, TrackNode";
 const DEFAULT_IMAGE = `${BASE_URL}/og-preview.jpg`;
+const DEFAULT_OG_IMAGE_ALT = "аналитика сайтов интерфейс";
+const DEFAULT_TWITTER_IMAGE_ALT = "учет заявок дашборд";
 
 export const seoState = ref({
   title: DEFAULT_TITLE,
@@ -18,7 +21,9 @@ export const seoState = ref({
   ogUrl: `${BASE_URL}/`,
   ogType: "website",
   ogImage: DEFAULT_IMAGE,
+  ogImageAlt: DEFAULT_OG_IMAGE_ALT,
   twitterCard: "summary_large_image",
+  twitterImageAlt: DEFAULT_TWITTER_IMAGE_ALT,
   robots: "index,follow",
   schema: null,
 });
@@ -41,7 +46,9 @@ export function setSeoForRoute(route) {
     ogUrl: canonical,
     ogType: meta.ogType || "website",
     ogImage: meta.ogImage || DEFAULT_IMAGE,
+    ogImageAlt: meta.ogImageAlt || DEFAULT_OG_IMAGE_ALT,
     twitterCard: meta.twitterCard || "summary_large_image",
+    twitterImageAlt: meta.twitterImageAlt || DEFAULT_TWITTER_IMAGE_ALT,
     robots: noindex ? "noindex,nofollow" : "index,follow",
     schema: meta.schema || null,
   };
@@ -54,7 +61,13 @@ export const homepageSoftwareSchema = {
   applicationCategory: "BusinessApplication",
   operatingSystem: "Web",
   url: BASE_URL,
-  description: "SaaS аналитика сайтов и система отслеживания заявок",
+  description:
+    "Сервис аналитики сайтов и учета заявок для отслеживания лидов, конверсии и пути клиента в одном кабинете.",
+  image: {
+    "@type": "ImageObject",
+    url: DEFAULT_IMAGE,
+    description: "аналитика воронки продаж",
+  },
   offers: [
     {
       "@type": "Offer",

@@ -1,12 +1,6 @@
-<template>
+﻿<template>
   <section class="page dashboard-layout">
-    <div v-if="loading" class="subscription-screen">
-      <div class="subscription-card">
-        <h2>Проверка подписки...</h2>
-      </div>
-    </div>
-
-    <div v-else-if="isExpired" class="subscription-screen">
+    <div v-if="isExpired" class="subscription-screen">
       <div class="subscription-card">
         <h2>Подписка не активна</h2>
         <p>Для продолжения работы оплатите подписку через YooKassa.</p>
@@ -18,6 +12,7 @@
 
     <template v-else>
       <h1>Панель управления</h1>
+      <p v-if="subscriptionChecking" class="muted subscription-checking">Проверяем подписку...</p>
       <div v-if="trialActive" class="trial-banner">
         Демо-доступ активен. Осталось: {{ trialDaysLeft }} дн.
         <div>
@@ -30,58 +25,39 @@
         <router-link to="/dashboard" exact-active-class="active">Обзор</router-link>
         <router-link to="/dashboard/dynamics" class="sub-item">Динамика по дням</router-link>
         <router-link to="/dashboard/unique" class="sub-item">Уникальные пользователи</router-link>
+        <router-link to="/dashboard/engagement" class="sub-item">Вовлечённость</router-link>
         <router-link to="/dashboard/sources" class="sub-item">Топ источников</router-link>
         <router-link to="/dashboard/clicks" class="sub-item">Топ кликов</router-link>
         <router-link to="/dashboard/pages-conversion" class="sub-item">Конверсия по страницам</router-link>
         <router-link to="/dashboard/devices" class="sub-item">Устройства</router-link>
       </nav>
       <div class="dashboard-view">
-        <router-view />
+        <div v-if="subscriptionChecking" class="subscription-inline-skeleton" aria-hidden="true"></div>
+        <router-view v-else v-slot="{ Component }">
+          <component :is="Component" ref="activeDashboardView" />
+        </router-view>
       </div>
     </template>
   </section>
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from "vue";
-import { getSubscriptionStatus, redirectToYooKassaCheckout } from "../services/subscription";
-import { useAuthStore } from "../stores/auth";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { useSubscriptionStatus } from "../composables/useSubscriptionStatus";
+import { redirectToYooKassaCheckout } from "../services/subscription";
 
-const loading = ref(true);
-const status = ref("expired");
-const isTrial = ref(false);
-const paidUntil = ref(null);
 const payRedirectLoading = ref(false);
+const activeDashboardView = ref(null);
+const { status, isTrial, paidUntil, isLoading, hasLoadedOnce, refreshSubscriptionStatus } = useSubscriptionStatus();
 
-const auth = useAuthStore();
-const isExpired = computed(() => status.value !== "active");
+const isExpired = computed(() => hasLoadedOnce.value && status.value !== "active");
+const subscriptionChecking = computed(() => isLoading.value && !hasLoadedOnce.value);
 const trialActive = computed(() => status.value === "active" && isTrial.value === true);
 const trialDaysLeft = computed(() => {
   if (!trialActive.value || !paidUntil.value) return 0;
   const ms = new Date(paidUntil.value).getTime() - Date.now();
   return Math.max(0, Math.ceil(ms / (1000 * 60 * 60 * 24)));
 });
-
-async function loadSubscription() {
-  if (!auth.isAuthenticated) {
-    loading.value = false;
-    return;
-  }
-
-  loading.value = true;
-  try {
-    const statusResponse = await getSubscriptionStatus();
-    status.value = statusResponse?.status || "expired";
-    isTrial.value = Boolean(statusResponse?.is_trial);
-    paidUntil.value = statusResponse?.paid_until ?? null;
-  } catch (e) {
-    status.value = "expired";
-    isTrial.value = false;
-    paidUntil.value = null;
-  } finally {
-    loading.value = false;
-  }
-}
 
 async function goToPaymentCheckout() {
   if (payRedirectLoading.value) return;
@@ -93,7 +69,7 @@ async function goToPaymentCheckout() {
     if (e?.message === "NO_ACTIVE_PLANS") {
       alert("Нет активных тарифов для оплаты.");
     } else if (e?.message === "NO_CONFIRMATION_URL") {
-      alert("Платеж создан, но ссылка на оплату не получена. Обратитесь в поддержку.");
+      alert("Платёж создан, но ссылка на оплату не получена. Обратитесь в поддержку.");
     } else {
       alert("Не удалось начать оплату. Попробуйте снова.");
     }
@@ -102,7 +78,28 @@ async function goToPaymentCheckout() {
   }
 }
 
-onMounted(loadSubscription);
+async function refreshActiveDashboard(event) {
+  const refreshFn = activeDashboardView.value?.manualRefresh;
+
+  try {
+    if (typeof refreshFn === "function") {
+      await refreshFn();
+    }
+  } finally {
+    if (typeof event?.detail?.done === "function") {
+      event.detail.done();
+    }
+  }
+}
+
+onMounted(() => {
+  void refreshSubscriptionStatus({ force: true });
+  window.addEventListener("tracknode:manual-refresh", refreshActiveDashboard);
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener("tracknode:manual-refresh", refreshActiveDashboard);
+});
 </script>
 
 <style scoped>
@@ -121,6 +118,19 @@ onMounted(loadSubscription);
   padding: 1.2rem;
   display: grid;
   gap: 0.8rem;
+}
+
+.subscription-checking {
+  margin-bottom: 0.75rem;
+}
+
+.subscription-inline-skeleton {
+  min-height: 16rem;
+  border: 1px solid #d9e2ec;
+  border-radius: 0.75rem;
+  background: linear-gradient(90deg, #f8fafc 0%, #eef2f7 50%, #f8fafc 100%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.1s linear infinite;
 }
 
 .trial-banner {
@@ -144,5 +154,14 @@ onMounted(loadSubscription);
 
 .pay-btn:disabled {
   opacity: 0.65;
+}
+
+@keyframes skeleton-shimmer {
+  from {
+    background-position: 0% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
 }
 </style>

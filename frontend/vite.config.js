@@ -1,9 +1,10 @@
-import { defineConfig } from "vite";
+﻿import { defineConfig } from "vite";
 import vue from "@vitejs/plugin-vue";
 import { VitePWA } from "vite-plugin-pwa";
+import { visualizer } from "rollup-plugin-visualizer";
 
-export default defineConfig({
-  plugins: [
+export default defineConfig(({ mode }) => {
+  const plugins = [
     vue(),
     VitePWA({
       registerType: "autoUpdate",
@@ -38,6 +39,8 @@ export default defineConfig({
         cleanupOutdatedCaches: true,
         clientsClaim: true,
         skipWaiting: true,
+        navigationPreload: true,
+        globIgnores: ["**/bundle-stats.html"],
         navigateFallback: "/index.html",
         navigateFallbackDenylist: [/^\/api\//, /^\/dashboard(\/|$)/, /^\/settings(\/|$)/],
         runtimeCaching: [
@@ -78,10 +81,25 @@ export default defineConfig({
         enabled: false,
       },
     }),
-  ],
-  server: {
-    host: true,
-    port: 9003,
-    allowedHosts: ["tracknode.ru"],
-  },
+  ];
+
+  if (mode === "analyze") {
+    plugins.push(
+      visualizer({
+        filename: "dist/bundle-stats.html",
+        open: false,
+        gzipSize: true,
+        brotliSize: true,
+      })
+    );
+  }
+
+  return {
+    plugins,
+    server: {
+      host: true,
+      port: 9003,
+      allowedHosts: ["tracknode.ru"],
+    },
+  };
 });

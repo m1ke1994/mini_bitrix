@@ -49,6 +49,7 @@ def _build_summary_payload(client, from_dt, to_dt):
     report = build_full_report(client=client, date_from=from_dt.date(), date_to=to_dt.date())
     summary = report["summary"]
     daily_stats = report["daily_stats"]
+    engagement = report.get("engagement") or {}
 
     visits_by_day = [{"day": row["day"], "count": row["visits"]} for row in daily_stats]
     unique_by_day = [{"day": row["day"], "count": row["unique_users"]} for row in daily_stats]
@@ -71,13 +72,16 @@ def _build_summary_payload(client, from_dt, to_dt):
         "visitors_unique": summary["unique_users"],
         "form_submit_count": summary["forms"],
         "leads_count": summary["leads"],
+        "notifications_sent_count": summary.get("notifications_sent", 0),
         "conversion": summary["conversion"],
         "visits_by_day": visits_by_day,
         "unique_by_day": unique_by_day,
         "forms_by_day": forms_by_day,
         "leads_by_day": leads_by_day,
         "latest_leads": report["leads"][:10],
-        "avg_time_on_site": 0,
+        "avg_time_on_site": summary.get("avg_visit_duration_seconds", 0),
+        "avg_visit_duration_seconds": summary.get("avg_visit_duration_seconds", 0),
+        "total_time_on_site_seconds": summary.get("total_time_on_site_seconds", 0),
         "avg_session_duration": 0,
         "avg_scroll_depth": 0,
         "total_sessions": 0,
@@ -87,6 +91,7 @@ def _build_summary_payload(client, from_dt, to_dt):
         "conversion_by_pages": report["page_conversion"],
         "top_clicks": report["top_clicks"][:10],
         "total_clicks": sum(item["count"] for item in report["top_clicks"]),
+        "engagement_pages": engagement.get("pages", []),
     }
 
 
@@ -209,7 +214,10 @@ class AnalyticsOverviewView(APIView):
             "visitors_unique": metrics["unique_users"],
             "forms_total": metrics["forms"],
             "leads_total": metrics["leads"],
+            "notifications_sent_total": metrics["notifications_sent"],
             "conversion": metrics["conversion"],
+            "total_time_on_site_seconds": metrics["total_time_on_site_seconds"],
+            "avg_visit_duration_seconds": metrics["avg_visit_duration_seconds"],
         }
         logger.info(
             "analytics.overview: client_id=%s from=%s to=%s payload=%s",
@@ -217,6 +225,31 @@ class AnalyticsOverviewView(APIView):
             date_from,
             date_to,
             response,
+        )
+        return Response(response)
+
+
+class AnalyticsEngagementView(APIView):
+    permission_classes = [permissions.IsAuthenticated, IsClientUser, HasActiveSubscription]
+
+    def get(self, request):
+        client = request.client
+        date_from, date_to, _, _ = _period_range(request, days=14)
+        report = build_full_report(client=client, date_from=date_from, date_to=date_to)
+        engagement = report.get("engagement") or {}
+        response = {
+            "period": {"date_from": date_from, "date_to": date_to},
+            "avg_time_on_page_seconds": engagement.get("avg_visit_duration_seconds", 0),
+            "total_time_on_site_seconds": engagement.get("total_time_on_site_seconds", 0),
+            "pages": engagement.get("pages", []),
+        }
+        logger.info(
+            "analytics.engagement: client_id=%s from=%s to=%s total_time=%s pages=%s",
+            client.id,
+            date_from,
+            date_to,
+            response["total_time_on_site_seconds"],
+            len(response["pages"]),
         )
         return Response(response)
 
