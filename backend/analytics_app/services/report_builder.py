@@ -26,7 +26,7 @@ def build_full_report(client, date_from, date_to):
     from_dt = metrics["from_dt"]
     to_dt = metrics["to_dt"]
 
-    visits_qs = Visit.objects.filter(site__token=client.api_key, started_at__gte=from_dt, started_at__lte=to_dt)
+    visits_qs = Visit.objects.filter(site__token=client.api_key, started_at__gte=from_dt, started_at__lte=to_dt, is_bot=False)
     page_views_qs = PageView.objects.filter(client=client, created_at__gte=from_dt, created_at__lte=to_dt)
     forms_qs = Event.objects.filter(
         client=client,

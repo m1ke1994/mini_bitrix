@@ -30,6 +30,7 @@ def get_metrics(client, date_from, date_to):
         site__token=client.api_key,
         started_at__gte=from_dt,
         started_at__lte=to_dt,
+        is_bot=False,
     )
     forms_qs = Event.objects.filter(
         client=client,

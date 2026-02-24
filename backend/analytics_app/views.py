@@ -261,7 +261,7 @@ class AnalyticsUniqueDailyView(APIView):
         client = request.client
         date_from, date_to, from_dt, to_dt = _period_range(request, days=14)
         unique_filter = Q(visitor_id__isnull=False) & ~Q(visitor_id="")
-        visits_qs = Visit.objects.filter(site__token=client.api_key, started_at__gte=from_dt, started_at__lte=to_dt)
+        visits_qs = Visit.objects.filter(site__token=client.api_key, started_at__gte=from_dt, started_at__lte=to_dt, is_bot=False)
         rows_with_id = list(
             visits_qs.filter(unique_filter)
             .annotate(day=TruncDate("started_at"))

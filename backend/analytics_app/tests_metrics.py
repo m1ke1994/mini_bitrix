@@ -21,11 +21,12 @@ class MetricsServiceTests(TestCase):
         self.date_to = timezone.localdate()
         self.date_from = self.date_to - timedelta(days=1)
 
-    def _visit(self, session_id, visitor_id):
+    def _visit(self, session_id, visitor_id, is_bot=False):
         return Visit.objects.create(
             site=self.site,
             session_id=session_id,
             visitor_id=visitor_id,
+            is_bot=is_bot,
             started_at=timezone.now(),
         )
 
@@ -153,3 +154,13 @@ class MetricsServiceTests(TestCase):
         self.assertEqual(metrics["time_on_page_events"], 3)
         self.assertEqual(metrics["total_time_on_site_seconds"], 120)
         self.assertEqual(metrics["avg_visit_duration_seconds"], 40)
+
+    def test_bot_visits_are_excluded_from_visits_and_unique_counts(self):
+        self._visit(session_id="human-1", visitor_id="visitor-1", is_bot=False)
+        self._visit(session_id="human-2", visitor_id="", is_bot=False)
+        self._visit(session_id="bot-1", visitor_id="visitor-bot", is_bot=True)
+        self._visit(session_id="bot-2", visitor_id="", is_bot=True)
+
+        metrics = get_metrics(self.client_obj, self.date_from, self.date_to)
+        self.assertEqual(metrics["visits"], 2)
+        self.assertEqual(metrics["unique_users"], 2)

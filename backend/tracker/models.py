@@ -29,6 +29,7 @@ class Visit(models.Model):
     visitor_id = models.CharField(max_length=64, blank=True, default="", db_index=True)
     session_id = models.CharField(max_length=64, db_index=True)
     ip_address = models.GenericIPAddressField(null=True, blank=True)
+    is_bot = models.BooleanField(default=False)
     device_type = models.CharField(max_length=20, db_index=True, null=True, blank=True)
     os = models.CharField(max_length=50, null=True, blank=True)
     browser = models.CharField(max_length=50, null=True, blank=True)
@@ -51,12 +52,13 @@ class Visit(models.Model):
         is_new = self.pk is None
         super().save(*args, **kwargs)
         logger.info(
-            "tracker.visit saved id=%s site_id=%s visitor_id=%s session_id=%s new=%s duration=%s",
+            "tracker.visit saved id=%s site_id=%s visitor_id=%s session_id=%s new=%s is_bot=%s duration=%s",
             self.pk,
             self.site_id,
             self.visitor_id,
             self.session_id,
             is_new,
+            self.is_bot,
             self.duration,
         )
 

@@ -19,6 +19,7 @@ from tracker.serializers import (
     VisitEndSerializer,
     VisitStartSerializer,
 )
+from tracker.services.bot_filter import detect_bot_visit
 from tracker.tasks import send_tracker_form_submit_notification_task
 
 logger = logging.getLogger(__name__)
@@ -130,8 +131,26 @@ class TrackBaseAPIView(APIView):
             raise PermissionDenied("Invalid token.")
         return site
 
-    def get_or_create_visit(self, site, session_id, request, started_at=None, referrer="", visitor_id=""):
+    def get_or_create_visit(self, site, session_id, request, started_at=None, referrer="", visitor_id="", tracked_url=None, bot_source=""):
         context = _extract_visit_context(request)
+        bot_check = detect_bot_visit(
+            site_id=site.id,
+            ip_address=context.get("ip_address"),
+            user_agent=context.get("user_agent"),
+            tracked_url=tracked_url,
+        )
+        if bot_check.is_bot:
+            logger.debug(
+                "track.bot_detected source=%s site_id=%s session_id=%s ip=%s reasons=%s request_count_5s=%s unique_urls_10s=%s url=%s",
+                bot_source or "unknown",
+                site.id,
+                session_id,
+                context.get("ip_address"),
+                ",".join(bot_check.reasons),
+                bot_check.request_count_5s,
+                bot_check.unique_urls_10s,
+                (tracked_url or "")[:512],
+            )
         visit = (
             Visit.objects.filter(site=site, session_id=session_id)
             .order_by("-started_at")
@@ -152,6 +171,9 @@ class TrackBaseAPIView(APIView):
                 if current != field_value:
                     setattr(visit, field_name, field_value)
                     updates.append(field_name)
+            if bot_check.is_bot and not visit.is_bot:
+                visit.is_bot = True
+                updates.append("is_bot")
             if updates:
                 visit.save(update_fields=updates)
             return visit
@@ -160,6 +182,7 @@ class TrackBaseAPIView(APIView):
             visitor_id=visitor_id or "",
             session_id=session_id,
             ip_address=context["ip_address"],
+            is_bot=bot_check.is_bot,
             user_agent=context["user_agent"],
             device_type=context["device_type"],
             os=context["os"],
@@ -189,6 +212,8 @@ class VisitStartView(TrackBaseAPIView):
             started_at=serializer.get_started_at(),
             referrer=serializer.validated_data.get("referrer") or "",
             visitor_id=serializer.validated_data.get("visitor_id") or "",
+            tracked_url=(request.data.get("url") or ""),
+            bot_source="visit_start",
         )
         client = _client_by_token(serializer.validated_data["token"])
         if client:
@@ -230,6 +255,8 @@ class PageViewCreateView(TrackBaseAPIView):
             serializer.validated_data["session_id"],
             request,
             visitor_id=serializer.validated_data.get("visitor_id") or "",
+            tracked_url=serializer.validated_data["url"],
+            bot_source="pageview",
         )
         pageview = PageView.objects.create(
             visit=visit,
@@ -279,14 +306,16 @@ class EventCreateView(TrackBaseAPIView):
         serializer.is_valid(raise_exception=True)
 
         site = self.get_site(serializer.validated_data["token"])
+        payload = serializer.validated_data.get("payload") or {}
         visit = self.get_or_create_visit(
             site,
             serializer.validated_data["session_id"],
             request,
             visitor_id=serializer.validated_data.get("visitor_id") or "",
+            tracked_url=(payload.get("url") or payload.get("page_url") or ""),
+            bot_source="event",
         )
         event_type = serializer.validated_data["type"]
-        payload = serializer.validated_data.get("payload") or {}
         duration_seconds = 0
         if event_type == "time_on_page":
             try:
@@ -446,7 +475,7 @@ class TrackStatsView(TrackBaseAPIView):
             return Response(
                 {
                     "sites_total": Site.objects.count(),
-                    "visits_total": Visit.objects.count(),
+                    "visits_total": Visit.objects.filter(is_bot=False).count(),
                     "pageviews_total": PageView.objects.count(),
                     "events_total": Event.objects.count(),
                 },
@@ -454,7 +483,7 @@ class TrackStatsView(TrackBaseAPIView):
             )
 
         site = self.get_site(token)
-        visits = Visit.objects.filter(site=site)
+        visits = Visit.objects.filter(site=site, is_bot=False)
         return Response(
             {
                 "site_id": site.id,

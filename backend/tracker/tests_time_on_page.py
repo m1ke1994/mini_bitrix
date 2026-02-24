@@ -5,7 +5,7 @@ from rest_framework.test import APIClient
 from analytics_app.models import Event as AnalyticsEvent
 from clients.models import Client
 from tracker.models import Event as TrackerEvent
-from tracker.models import Site
+from tracker.models import Site, Visit
 
 
 class TrackTimeOnPageEventTests(TestCase):
@@ -64,3 +64,19 @@ class TrackTimeOnPageEventTests(TestCase):
         self.assertEqual(response.data.get("ignored"), True)
         self.assertEqual(TrackerEvent.objects.filter(type="time_on_page").count(), 0)
         self.assertEqual(AnalyticsEvent.objects.filter(event_type=AnalyticsEvent.EventType.TIME_ON_PAGE).count(), 0)
+
+    def test_visit_is_marked_as_bot_for_headless_user_agent(self):
+        response = self.http.post(
+            "/api/track/visit-start/",
+            {
+                "token": self.client_obj.api_key,
+                "session_id": "bot-session-1",
+                "visitor_id": "visitor-bot",
+            },
+            format="json",
+            HTTP_USER_AGENT="Mozilla/5.0 HeadlessChrome/145.0.0.0 Safari/537.36",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        visit = Visit.objects.get(session_id="bot-session-1")
+        self.assertTrue(visit.is_bot)

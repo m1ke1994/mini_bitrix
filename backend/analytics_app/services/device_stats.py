@@ -6,7 +6,7 @@ from tracker.models import Visit
 
 def get_device_distribution(client, date_from, date_to):
     from_dt, to_dt = period_bounds(date_from, date_to)
-    visits_qs = Visit.objects.filter(site__token=client.api_key, started_at__gte=from_dt, started_at__lte=to_dt)
+    visits_qs = Visit.objects.filter(site__token=client.api_key, started_at__gte=from_dt, started_at__lte=to_dt, is_bot=False)
 
     device_rows = (
         visits_qs.values("device_type")
