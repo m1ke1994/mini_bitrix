@@ -9,12 +9,15 @@ class SiteSEOAudit(models.Model):
         RUNNING = "running", "running"
         DONE = "done", "done"
         ERROR = "error", "error"
+        STOPPED = "stopped", "stopped"
 
     client = models.ForeignKey(Client, on_delete=models.CASCADE, related_name="seo_audits")
     domain = models.CharField(max_length=255, db_index=True)
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING, db_index=True)
     seo_score = models.IntegerField(default=0)
     pages_count = models.PositiveIntegerField(default=0)
+    celery_task_id = models.CharField(max_length=255, null=True, blank=True)
+    is_cancelled = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     finished_at = models.DateTimeField(null=True, blank=True)
 
@@ -72,4 +75,3 @@ class SEOIssue(models.Model):
 
     def __str__(self) -> str:
         return f"SEO issue #{self.pk} {self.issue_type} ({self.severity})"
-

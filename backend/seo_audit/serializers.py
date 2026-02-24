@@ -37,7 +37,7 @@ class SEOPageSerializer(serializers.ModelSerializer):
 
 
 class SEOIssueSerializer(serializers.ModelSerializer):
-    page_id = serializers.IntegerField(source="page_id", read_only=True)
+    page_id = serializers.IntegerField(read_only=True)
     page_url = serializers.CharField(source="page.url", read_only=True)
 
     class Meta:
@@ -51,4 +51,3 @@ class SiteSEOAuditSerializer(serializers.ModelSerializer):
     class Meta:
         model = SiteSEOAudit
         fields = ("id", "domain", "status", "score", "seo_score", "pages_count", "created_at", "finished_at")
-

@@ -1,6 +1,7 @@
 import logging
 import re
 from collections import deque
+from collections.abc import Callable
 from typing import Any
 from urllib.parse import urljoin, urlparse, urlunparse
 
@@ -17,7 +18,16 @@ REQUEST_TIMEOUT_SECONDS = 10
 _WORD_RE = re.compile(r"\w+", re.UNICODE)
 
 
-def crawl_site_audit(audit: SiteSEOAudit, max_pages: int = MAX_PAGES_DEFAULT, session: requests.Session | None = None) -> SiteSEOAudit:
+class AuditCancelledError(Exception):
+    pass
+
+
+def crawl_site_audit(
+    audit: SiteSEOAudit,
+    max_pages: int = MAX_PAGES_DEFAULT,
+    session: requests.Session | None = None,
+    stop_check: Callable[[], bool] | None = None,
+) -> SiteSEOAudit:
     start_url = _start_url_from_domain(audit.domain)
     root_host = _canonical_host(urlparse(start_url).hostname)
     queue: deque[str] = deque([start_url])
@@ -29,6 +39,8 @@ def crawl_site_audit(audit: SiteSEOAudit, max_pages: int = MAX_PAGES_DEFAULT, se
     audit.pages.all().delete()
 
     while queue and len(visited) < max_pages:
+        if stop_check and stop_check():
+            raise AuditCancelledError("SEO audit was cancelled")
         current_url = _normalize_page_url(queue.popleft())
         if current_url in visited:
             continue
@@ -64,7 +76,7 @@ def crawl_site_audit(audit: SiteSEOAudit, max_pages: int = MAX_PAGES_DEFAULT, se
                 queue.append(normalized_next)
 
     _create_duplicate_title_issues(audit, title_to_page_ids)
-    _recalculate_audit_score(audit)
+    recalculate_audit_score(audit)
     return audit
 
 
@@ -247,6 +259,10 @@ def _recalculate_audit_score(audit: SiteSEOAudit) -> None:
     audit.seo_score = score
     audit.pages_count = pages_count
     audit.save(update_fields=["seo_score", "pages_count"])
+
+
+def recalculate_audit_score(audit: SiteSEOAudit) -> None:
+    _recalculate_audit_score(audit)
 
 
 def _start_url_from_domain(domain: str) -> str:

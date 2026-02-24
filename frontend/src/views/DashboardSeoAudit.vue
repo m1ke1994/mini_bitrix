@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <section class="dashboard-section seo-audit-page">
     <p v-if="error" class="error">{{ error }}</p>
 
@@ -22,6 +22,11 @@
         </button>
         <button type="button" class="seo-refresh-btn" :disabled="loading || !auditId" @click="manualRefresh">
           {{ loading ? "Обновление..." : "Обновить" }}
+        </button>
+      </div>
+      <div v-if="isRunning" class="seo-stop-row">
+        <button type="button" class="seo-stop-btn" :disabled="stopping || !auditId" @click="stopAudit">
+          {{ stopping ? "Остановка..." : "Остановить аудит" }}
         </button>
       </div>
       <p class="muted seo-hint">Аудит обходит до 50 внутренних страниц и выполняется в фоне через Celery.</p>
@@ -122,7 +127,7 @@ import api from "../services/api";
 
 const STORAGE_AUDIT_ID_KEY = "tracknode:seo:lastAuditId";
 const STORAGE_DOMAIN_KEY = "tracknode:seo:lastDomain";
-const POLL_INTERVAL_MS = 3000;
+const POLL_INTERVAL_MS = 5000;
 
 const auditId = ref(null);
 const audit = ref(null);
@@ -130,6 +135,7 @@ const domain = ref("");
 const error = ref("");
 const loading = ref(false);
 const starting = ref(false);
+const stopping = ref(false);
 
 let pollTimer = null;
 
@@ -137,6 +143,7 @@ const pages = computed(() => audit.value?.pages || []);
 const issues = computed(() => audit.value?.errors || []);
 const errorsCount = computed(() => issues.value.length);
 const rawStatus = computed(() => String(audit.value?.status || "idle"));
+const isRunning = computed(() => rawStatus.value === "running");
 
 const statusLabel = computed(() => {
   const labels = {
@@ -145,6 +152,7 @@ const statusLabel = computed(() => {
     running: "Выполняется",
     done: "Готово",
     error: "Ошибка",
+    stopped: "Остановлен",
   };
   return labels[rawStatus.value] || rawStatus.value;
 });
@@ -152,6 +160,7 @@ const statusLabel = computed(() => {
 const statusClass = computed(() => {
   if (rawStatus.value === "done") return "status-done";
   if (rawStatus.value === "error") return "status-error";
+  if (rawStatus.value === "stopped") return "status-stopped";
   if (rawStatus.value === "pending" || rawStatus.value === "running") return "status-running";
   return "status-idle";
 });
@@ -198,7 +207,7 @@ function stopPolling() {
 function schedulePollingIfNeeded() {
   stopPolling();
   if (!auditId.value) return;
-  if (!["pending", "running"].includes(rawStatus.value)) return;
+  if (rawStatus.value !== "running") return;
   pollTimer = setTimeout(() => {
     void loadAudit({ silent: true });
   }, POLL_INTERVAL_MS);
@@ -246,6 +255,29 @@ async function loadAudit({ silent = false } = {}) {
   }
 }
 
+async function stopAudit() {
+  if (!auditId.value || stopping.value) return;
+  stopping.value = true;
+  error.value = "";
+  stopPolling();
+  try {
+    const { data } = await api.post(`/api/seo/${auditId.value}/stop/`);
+    audit.value = {
+      ...(audit.value || {}),
+      id: auditId.value,
+      status: String(data?.status || "stopped"),
+      finished_at: data?.finished_at ?? audit.value?.finished_at ?? null,
+      pages: Array.isArray(audit.value?.pages) ? audit.value.pages : [],
+      errors: Array.isArray(audit.value?.errors) ? audit.value.errors : [],
+    };
+    await loadAudit({ silent: true });
+  } catch (e) {
+    error.value = e?.response?.data?.detail || "Не удалось остановить аудит.";
+  } finally {
+    stopping.value = false;
+  }
+}
+
 async function manualRefresh() {
   await loadAudit();
 }
@@ -272,6 +304,10 @@ onBeforeUnmount(() => {
   align-items: end;
 }
 
+.seo-stop-row {
+  margin-top: 0.65rem;
+}
+
 .seo-field {
   display: grid;
   gap: 0.35rem;
@@ -292,7 +328,8 @@ onBeforeUnmount(() => {
 }
 
 .seo-start-btn,
-.seo-refresh-btn {
+.seo-refresh-btn,
+.seo-stop-btn {
   min-height: 2.6rem;
   border-radius: 0.65rem;
   border: 1px solid var(--color-border);
@@ -311,8 +348,16 @@ onBeforeUnmount(() => {
   background: #fff;
 }
 
+.seo-stop-btn {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #b91c1c;
+  font-weight: 700;
+}
+
 .seo-start-btn:disabled,
-.seo-refresh-btn:disabled {
+.seo-refresh-btn:disabled,
+.seo-stop-btn:disabled {
   opacity: 0.65;
   cursor: default;
 }
@@ -366,6 +411,10 @@ onBeforeUnmount(() => {
 
 .status-running {
   color: #1d4ed8;
+}
+
+.status-stopped {
+  color: #b45309;
 }
 
 .status-idle {
