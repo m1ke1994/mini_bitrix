@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from django.urls import path
 
 from seo_audit.views import SEOAuditDetailView, SEOAuditStartView, SEOAuditStopView

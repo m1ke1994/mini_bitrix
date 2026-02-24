@@ -1,10 +1,11 @@
+# -*- coding: utf-8 -*-
 import logging
 
 from celery.result import AsyncResult
 from django.db.models import Prefetch
+from django.http import JsonResponse
 from django.utils import timezone
 from rest_framework import permissions, status
-from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.permissions import IsClientUser
@@ -13,6 +14,15 @@ from seo_audit.serializers import SEOAuditStartSerializer, SEOIssueSerializer, S
 from subscriptions.permissions import HasActiveSubscription
 
 logger = logging.getLogger(__name__)
+
+
+def json_response(data, http_status: int):
+    return JsonResponse(
+        data,
+        status=http_status,
+        safe=isinstance(data, dict),
+        json_dumps_params={"ensure_ascii": False},
+    )
 
 
 class SEOAuditStartView(APIView):
@@ -30,15 +40,15 @@ class SEOAuditStartView(APIView):
         from seo_audit.tasks import run_site_audit_task
 
         run_site_audit_task.delay(audit.id)
-        logger.info("seo_audit.start created audit_id=%s client_id=%s domain=%s", audit.id, request.client.id, audit.domain)
-        return Response(
+        logger.info("seo_audit.start создан audit_id=%s client_id=%s domain=%s", audit.id, request.client.id, audit.domain)
+        return json_response(
             {
                 "ok": True,
                 "audit_id": audit.id,
                 "status": audit.status,
                 "domain": audit.domain,
             },
-            status=status.HTTP_201_CREATED,
+            http_status=status.HTTP_201_CREATED,
         )
 
 
@@ -55,12 +65,12 @@ class SEOAuditDetailView(APIView):
                 .first()
             )
             if not audit:
-                return Response({"detail": "Audit not found.", "ok": False}, status=status.HTTP_404_NOT_FOUND)
+                return json_response({"detail": "Аудит не найден.", "ok": False}, http_status=status.HTTP_404_NOT_FOUND)
 
             try:
                 pages = list(audit.pages.all() or [])
             except Exception:
-                logger.exception("seo_audit.detail failed to fetch pages audit_id=%s", audit.id)
+                logger.exception("seo_audit.detail не удалось получить страницы audit_id=%s", audit.id)
                 pages = []
 
             try:
@@ -70,13 +80,13 @@ class SEOAuditDetailView(APIView):
                     .order_by("page__url", "id")
                 )
             except Exception:
-                logger.exception("seo_audit.detail failed to fetch issues audit_id=%s", audit.id)
+                logger.exception("seo_audit.detail не удалось получить ошибки audit_id=%s", audit.id)
                 issues = []
 
             try:
                 audit_payload = SiteSEOAuditSerializer(audit).data
             except Exception:
-                logger.exception("seo_audit.detail failed to serialize audit audit_id=%s", audit.id)
+                logger.exception("seo_audit.detail не удалось сериализовать аудит audit_id=%s", audit.id)
                 audit_payload = {
                     "id": audit.id,
                     "domain": audit.domain,
@@ -84,6 +94,8 @@ class SEOAuditDetailView(APIView):
                     "score": int(audit.seo_score or 0),
                     "seo_score": int(audit.seo_score or 0),
                     "pages_count": int(audit.pages_count or 0),
+                    "used_sitemap": bool(getattr(audit, "used_sitemap", False)),
+                    "sitemap_urls_count": int(getattr(audit, "sitemap_urls_count", 0) or 0),
                     "created_at": audit.created_at,
                     "finished_at": audit.finished_at,
                 }
@@ -91,13 +103,13 @@ class SEOAuditDetailView(APIView):
             try:
                 pages_payload = SEOPageSerializer(pages, many=True).data if pages else []
             except Exception:
-                logger.exception("seo_audit.detail failed to serialize pages audit_id=%s", audit.id)
+                logger.exception("seo_audit.detail не удалось сериализовать страницы audit_id=%s", audit.id)
                 pages_payload = []
 
             try:
                 issues_payload = SEOIssueSerializer(issues, many=True).data if issues else []
             except Exception:
-                logger.exception("seo_audit.detail failed to serialize issues audit_id=%s", audit.id)
+                logger.exception("seo_audit.detail не удалось сериализовать ошибки audit_id=%s", audit.id)
                 issues_payload = []
 
             grouped_errors = {"high": [], "medium": [], "low": []}
@@ -120,6 +132,10 @@ class SEOAuditDetailView(APIView):
                 "score": int(audit_payload.get("score", audit.seo_score or 0) or 0),
                 "seo_score": int(audit_payload.get("seo_score", audit.seo_score or 0) or 0),
                 "pages_count": int(audit_payload.get("pages_count", 0) or 0),
+                "used_sitemap": bool(audit_payload.get("used_sitemap", getattr(audit, "used_sitemap", False))),
+                "sitemap_urls_count": int(
+                    audit_payload.get("sitemap_urls_count", getattr(audit, "sitemap_urls_count", 0)) or 0
+                ),
                 "created_at": audit_payload.get("created_at", audit.created_at),
                 "pages": pages_payload,
                 "errors": issues_payload,
@@ -138,10 +154,10 @@ class SEOAuditDetailView(APIView):
                 len(pages),
                 len(issues),
             )
-            return Response(response, status=status.HTTP_200_OK)
+            return json_response(response, http_status=status.HTTP_200_OK)
         except Exception:
-            logger.exception("seo_audit.detail failed audit_id=%s client_id=%s", audit_id, getattr(request.client, "id", None))
-            return Response({"detail": "Internal server error.", "ok": False}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            logger.exception("seo_audit.detail ошибка audit_id=%s client_id=%s", audit_id, getattr(request.client, "id", None))
+            return json_response({"detail": "Внутренняя ошибка сервера.", "ok": False}, http_status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 class SEOAuditStopView(APIView):
@@ -151,7 +167,7 @@ class SEOAuditStopView(APIView):
         try:
             audit = SiteSEOAudit.objects.filter(id=audit_id, client=request.client).first()
             if not audit:
-                return Response({"detail": "Audit not found.", "ok": False}, status=status.HTTP_404_NOT_FOUND)
+                return json_response({"detail": "Аудит не найден.", "ok": False}, http_status=status.HTTP_404_NOT_FOUND)
 
             audit.is_cancelled = True
             update_fields = ["is_cancelled"]
@@ -167,7 +183,7 @@ class SEOAuditStopView(APIView):
                     AsyncResult(audit.celery_task_id).revoke(terminate=False)
                 except Exception:
                     logger.exception(
-                        "seo_audit.stop revoke failed audit_id=%s task_id=%s",
+                        "seo_audit.stop не удалось отправить revoke audit_id=%s task_id=%s",
                         audit.id,
                         audit.celery_task_id,
                     )
@@ -179,15 +195,15 @@ class SEOAuditStopView(APIView):
                 audit.status,
                 audit.celery_task_id,
             )
-            return Response(
+            return json_response(
                 {
                     "ok": True,
                     "audit_id": audit.id,
                     "status": audit.status,
                     "finished_at": audit.finished_at,
                 },
-                status=status.HTTP_200_OK,
+                http_status=status.HTTP_200_OK,
             )
         except Exception:
-            logger.exception("seo_audit.stop failed audit_id=%s client_id=%s", audit_id, getattr(request.client, "id", None))
-            return Response({"detail": "Internal server error.", "ok": False}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            logger.exception("seo_audit.stop ошибка audit_id=%s client_id=%s", audit_id, getattr(request.client, "id", None))
+            return json_response({"detail": "Внутренняя ошибка сервера.", "ok": False}, http_status=status.HTTP_500_INTERNAL_SERVER_ERROR)

@@ -38,7 +38,7 @@
         <strong :class="statusClass">{{ statusLabel }}</strong>
       </article>
       <article class="stat-card">
-        <h3>SEO Score</h3>
+        <h3>SEO-оценка</h3>
         <strong :class="scoreClass">{{ scoreValue }}</strong>
       </article>
       <article class="stat-card">
@@ -57,15 +57,15 @@
       </div>
       <div class="seo-breakdown-grid">
         <article class="seo-breakdown-card seo-breakdown-high">
-          <span>High</span>
+          <span>Критичные</span>
           <strong>{{ breakdown.high_issues }}</strong>
         </article>
         <article class="seo-breakdown-card seo-breakdown-medium">
-          <span>Medium</span>
+          <span>Средние</span>
           <strong>{{ breakdown.medium_issues }}</strong>
         </article>
         <article class="seo-breakdown-card seo-breakdown-low">
-          <span>Low</span>
+          <span>Низкие</span>
           <strong>{{ breakdown.low_issues }}</strong>
         </article>
       </div>
@@ -81,13 +81,13 @@
           <thead>
             <tr>
               <th>URL</th>
-              <th>HTTP</th>
+              <th>Код ответа</th>
               <th>Title</th>
-              <th>Title len</th>
-              <th>Description len</th>
+              <th>Длина Title</th>
+              <th>Длина Description</th>
               <th>H1</th>
-              <th>H1 count</th>
-              <th>Words</th>
+              <th>Количество H1</th>
+              <th>Слов</th>
             </tr>
           </thead>
           <tbody>
@@ -119,15 +119,19 @@
             <tr>
               <th>Страница</th>
               <th>Тип</th>
-              <th>Severity</th>
+              <th>Уровень</th>
               <th>Рекомендация</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="issue in issues" :key="issue.id">
               <td class="url-cell">{{ issue.page_url }}</td>
-              <td>{{ issue.issue_type }}</td>
-              <td><span class="severity-pill" :class="`severity-${issue.severity}`">{{ issue.severity }}</span></td>
+              <td>{{ issueLabel(issue) }}</td>
+              <td>
+                <span class="severity-pill" :class="`severity-${issue.severity}`">
+                  {{ severityLabel(issue.severity) }}
+                </span>
+              </td>
               <td>{{ issue.recommendation }}</td>
             </tr>
             <tr v-if="!issues.length">
@@ -218,7 +222,7 @@ const statusLabel = computed(() => {
     running: "Выполняется",
     done: "Готово",
     error: "Ошибка",
-    stopped: "Остановлен",
+    stopped: "Остановлено",
   };
   return labels[rawStatus.value] || rawStatus.value;
 });
@@ -233,6 +237,18 @@ const statusClass = computed(() => {
 
 function canUseStorage() {
   return typeof window !== "undefined" && typeof window.localStorage !== "undefined";
+}
+
+function severityLabel(value) {
+  const key = String(value || "").toLowerCase();
+  if (key === "high") return "Критичный";
+  if (key === "medium") return "Средний";
+  if (key === "low") return "Низкий";
+  return "—";
+}
+
+function issueLabel(issue) {
+  return String(issue?.issue_title || "").trim() || "SEO-ошибка";
 }
 
 function persistState() {

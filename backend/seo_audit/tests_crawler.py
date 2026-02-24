@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
@@ -81,6 +82,7 @@ class SEOCrawlerServiceTests(TestCase):
                 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
                   <url><loc>https://example.com/</loc></url>
                   <url><loc>https://example.com/about</loc></url>
+                  <url><loc>https://example.com/missing?utm=ad#top</loc></url>
                 </urlset>
                 """,
             ),
@@ -102,6 +104,8 @@ class SEOCrawlerServiceTests(TestCase):
 
         audit.refresh_from_db()
         self.assertEqual(audit.status, SiteSEOAudit.Status.PENDING)
+        self.assertTrue(audit.used_sitemap)
+        self.assertEqual(audit.sitemap_urls_count, 3)
         self.assertGreaterEqual(audit.pages_count, 2)
         self.assertTrue(SEOPage.objects.filter(audit=audit, url="https://example.com/about").exists())
         self.assertGreater(SEOIssue.objects.filter(page__audit=audit).count(), 0)

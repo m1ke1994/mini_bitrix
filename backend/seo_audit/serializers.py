@@ -1,8 +1,10 @@
+# -*- coding: utf-8 -*-
 from urllib.parse import urlparse
 
 from rest_framework import serializers
 
 from seo_audit.models import SEOIssue, SEOPage, SiteSEOAudit
+from seo_audit.services.messages import get_issue_title
 
 
 class SEOAuditStartSerializer(serializers.Serializer):
@@ -39,10 +41,14 @@ class SEOPageSerializer(serializers.ModelSerializer):
 class SEOIssueSerializer(serializers.ModelSerializer):
     page_id = serializers.IntegerField(read_only=True)
     page_url = serializers.CharField(source="page.url", read_only=True)
+    issue_title = serializers.SerializerMethodField()
+
+    def get_issue_title(self, obj):
+        return get_issue_title(obj.issue_type)
 
     class Meta:
         model = SEOIssue
-        fields = ("id", "page_id", "page_url", "issue_type", "severity", "recommendation")
+        fields = ("id", "page_id", "page_url", "issue_type", "issue_title", "severity", "recommendation")
 
 
 class SiteSEOAuditSerializer(serializers.ModelSerializer):
@@ -50,4 +56,15 @@ class SiteSEOAuditSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = SiteSEOAudit
-        fields = ("id", "domain", "status", "score", "seo_score", "pages_count", "created_at", "finished_at")
+        fields = (
+            "id",
+            "domain",
+            "status",
+            "score",
+            "seo_score",
+            "pages_count",
+            "used_sitemap",
+            "sitemap_urls_count",
+            "created_at",
+            "finished_at",
+        )

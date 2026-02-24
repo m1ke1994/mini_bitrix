@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from django.db import models
 
 from clients.models import Client
@@ -5,17 +6,19 @@ from clients.models import Client
 
 class SiteSEOAudit(models.Model):
     class Status(models.TextChoices):
-        PENDING = "pending", "pending"
-        RUNNING = "running", "running"
-        DONE = "done", "done"
-        ERROR = "error", "error"
-        STOPPED = "stopped", "stopped"
+        PENDING = "pending", "В очереди"
+        RUNNING = "running", "Выполняется"
+        DONE = "done", "Готово"
+        ERROR = "error", "Ошибка"
+        STOPPED = "stopped", "Остановлено"
 
     client = models.ForeignKey(Client, on_delete=models.CASCADE, related_name="seo_audits")
     domain = models.CharField(max_length=255, db_index=True)
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING, db_index=True)
     seo_score = models.IntegerField(default=0)
     pages_count = models.PositiveIntegerField(default=0)
+    used_sitemap = models.BooleanField(default=False)
+    sitemap_urls_count = models.PositiveIntegerField(default=0)
     celery_task_id = models.CharField(max_length=255, null=True, blank=True)
     is_cancelled = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -25,7 +28,7 @@ class SiteSEOAudit(models.Model):
         ordering = ("-created_at",)
 
     def __str__(self) -> str:
-        return f"SEO audit #{self.pk} {self.domain} ({self.status})"
+        return f"SEO-аудит #{self.pk} {self.domain} ({self.status})"
 
 
 class SEOPage(models.Model):
@@ -47,7 +50,7 @@ class SEOPage(models.Model):
         ]
 
     def __str__(self) -> str:
-        return f"SEO page #{self.pk} ({self.status_code}) {self.url}"
+        return f"SEO-страница #{self.pk} ({self.status_code}) {self.url}"
 
 
 class SEOIssue(models.Model):
@@ -84,9 +87,9 @@ class SEOIssue(models.Model):
         SITEMAP_MISMATCH = "sitemap_mismatch", "sitemap_mismatch"
 
     class Severity(models.TextChoices):
-        LOW = "low", "low"
-        MEDIUM = "medium", "medium"
-        HIGH = "high", "high"
+        LOW = "low", "Низкая"
+        MEDIUM = "medium", "Средняя"
+        HIGH = "high", "Критичная"
 
     page = models.ForeignKey(SEOPage, on_delete=models.CASCADE, related_name="issues")
     issue_type = models.CharField(max_length=64, choices=IssueType.choices)
@@ -97,4 +100,4 @@ class SEOIssue(models.Model):
         ordering = ("page__url", "id")
 
     def __str__(self) -> str:
-        return f"SEO issue #{self.pk} {self.issue_type} ({self.severity})"
+        return f"SEO-ошибка #{self.pk} {self.issue_type} ({self.severity})"

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import logging
 import re
 import time
@@ -10,14 +11,16 @@ import requests
 from bs4 import BeautifulSoup
 
 from seo_audit.models import SEOIssue, SEOPage, SiteSEOAudit
+from seo_audit.services.messages import get_issue_recommendation
 
 logger = logging.getLogger(__name__)
 
 MAX_PAGES_DEFAULT = 100
+MAX_SITEMAP_URLS_DEFAULT = 200
 REQUEST_TIMEOUT_SECONDS = 8
 SLOW_RESPONSE_SECONDS = 2.0
 MAX_PAGE_BYTES = 2 * 1024 * 1024
-SKIP_FILE_EXTENSIONS = (".pdf", ".jpg", ".jpeg", ".png", ".svg")
+SKIP_FILE_EXTENSIONS = (".pdf", ".jpg", ".jpeg", ".png", ".svg", ".zip", ".doc", ".docx", ".xls", ".xlsx")
 HEADING_TAG_RE = re.compile(r"^h[1-6]$")
 WORD_RE = re.compile(r"[A-Za-z0-9\u0400-\u04FF]+")
 
@@ -33,6 +36,14 @@ class FetchResult:
     error: Optional[str]
     elapsed_seconds: float
     size_bytes: int
+
+
+@dataclass
+class SitemapURLResult:
+    response_received: bool
+    status_code: int
+    is_xml: bool
+    urls: list[str]
 
 
 def _check_cancelled(stop_check: Optional[Callable[[], bool]]) -> None:
@@ -164,12 +175,113 @@ def _fetch_url(session: requests.Session, url: str, stop_check: Optional[Callabl
         return FetchResult(url=url, response=None, error=str(exc), elapsed_seconds=elapsed, size_bytes=0)
 
 
-def _create_issue(page: SEOPage, issue_type: str, severity: str, recommendation: str) -> None:
+def _response_content_type(response: Optional[requests.Response]) -> str:
+    if response is None:
+        return ""
+    return str((getattr(response, "headers", {}) or {}).get("Content-Type") or "").lower()
+
+
+def _is_xml_response(response: Optional[requests.Response]) -> bool:
+    return "xml" in _response_content_type(response)
+
+
+def _extract_loc_values_from_xml(xml_text: str) -> tuple[bool, list[str]]:
+    soup = BeautifulSoup(xml_text or "", "xml")
+    is_sitemap_index = bool(soup.find("sitemapindex"))
+    loc_values: list[str] = []
+    for loc_tag in soup.find_all("loc"):
+        loc_text = _extract_text(loc_tag.get_text(" ", strip=True))
+        if loc_text:
+            loc_values.append(loc_text)
+    return is_sitemap_index, loc_values
+
+
+def _collect_urls_from_sitemap(
+    session: requests.Session,
+    *,
+    sitemap_url: str,
+    root_host: str,
+    stop_check: Optional[Callable[[], bool]],
+    max_urls: int = MAX_SITEMAP_URLS_DEFAULT,
+) -> SitemapURLResult:
+    normalized_root_sitemap = _normalize_url(sitemap_url)
+    pending_sitemaps: deque[str] = deque([normalized_root_sitemap])
+    visited_sitemaps: set[str] = set()
+    collected_urls: set[str] = set()
+    root_response_received = False
+    root_status_code = 0
+    root_is_xml = False
+
+    while pending_sitemaps and len(collected_urls) < max_urls:
+        _check_cancelled(stop_check)
+        current_sitemap = pending_sitemaps.popleft()
+        if current_sitemap in visited_sitemaps:
+            continue
+        visited_sitemaps.add(current_sitemap)
+
+        if not _is_internal_url(current_sitemap, root_host):
+            continue
+
+        fetch = _fetch_url(session, current_sitemap, stop_check)
+        response = fetch.response
+        if current_sitemap == normalized_root_sitemap:
+            root_response_received = bool(response)
+            root_status_code = int(getattr(response, "status_code", 0) or 0) if response else 0
+            root_is_xml = _is_xml_response(response)
+
+        if not response:
+            continue
+
+        status_code = int(getattr(response, "status_code", 0) or 0)
+        if status_code != 200:
+            continue
+
+        if not _is_xml_response(response):
+            continue
+
+        xml_text = _prepare_response_text(response)
+        is_sitemap_index, loc_values = _extract_loc_values_from_xml(xml_text)
+
+        if is_sitemap_index:
+            for loc in loc_values:
+                nested_sitemap = _normalize_url(loc)
+                if not nested_sitemap:
+                    continue
+                if not _is_internal_url(nested_sitemap, root_host):
+                    continue
+                nested_path = (urlparse(nested_sitemap).path or "").lower()
+                if not nested_path.endswith(".xml"):
+                    continue
+                if nested_sitemap not in visited_sitemaps:
+                    pending_sitemaps.append(nested_sitemap)
+            continue
+
+        for loc in loc_values:
+            candidate = _normalize_url(loc)
+            if not candidate:
+                continue
+            if not _is_internal_url(candidate, root_host):
+                continue
+            if _should_skip_url(candidate):
+                continue
+            collected_urls.add(candidate)
+            if len(collected_urls) >= max_urls:
+                break
+
+    return SitemapURLResult(
+        response_received=root_response_received,
+        status_code=root_status_code,
+        is_xml=root_is_xml,
+        urls=sorted(collected_urls),
+    )
+
+
+def _create_issue(page: SEOPage, issue_type: str, severity: str, recommendation: Optional[str] = None) -> None:
     SEOIssue.objects.create(
         page=page,
         issue_type=issue_type,
         severity=severity,
-        recommendation=recommendation,
+        recommendation=_extract_text(recommendation) or get_issue_recommendation(issue_type),
     )
 
 
@@ -274,7 +386,6 @@ def _analyze_page_content(
             page,
             "bad_status",
             SEOIssue.Severity.HIGH,
-            f"Page returned HTTP {status_code}. Fix server or routing response and ensure the page returns HTTP 200.",
         )
 
     history = list(getattr(response, "history", []) or []) if response is not None else []
@@ -283,7 +394,6 @@ def _analyze_page_content(
             page,
             "redirect",
             SEOIssue.Severity.LOW,
-            "Page URL resolves through a redirect. Link directly to the final canonical URL to reduce crawl overhead.",
         )
 
     if elapsed_seconds > SLOW_RESPONSE_SECONDS:
@@ -291,7 +401,6 @@ def _analyze_page_content(
             page,
             "slow_response",
             SEOIssue.Severity.MEDIUM,
-            f"Page response time is {elapsed_seconds:.2f}s (>2s). Improve backend performance, caching, or CDN delivery.",
         )
 
     if size_bytes > MAX_PAGE_BYTES:
@@ -300,7 +409,6 @@ def _analyze_page_content(
             page,
             "large_page_size",
             SEOIssue.Severity.MEDIUM,
-            f"Page size is {size_mb:.2f}MB (>2MB). Compress assets and reduce HTML/JS payload size.",
         )
 
     if status_code != 200:
@@ -315,21 +423,18 @@ def _analyze_page_content(
             page,
             "missing_title",
             SEOIssue.Severity.HIGH,
-            "Title tag is missing. Add a unique title around 50-60 characters with the main page intent.",
         )
     elif len(title) < 15:
         _create_issue(
             page,
             "title_too_short",
             SEOIssue.Severity.MEDIUM,
-            "Title is too short (<15 chars). Expand it to describe the page topic with useful keywords.",
         )
     elif len(title) > 65:
         _create_issue(
             page,
             "title_too_long",
             SEOIssue.Severity.MEDIUM,
-            "Title is too long (>65 chars). Shorten it so search engines can display it without truncation.",
         )
 
     description = page.description or ""
@@ -338,21 +443,18 @@ def _analyze_page_content(
             page,
             "missing_description",
             SEOIssue.Severity.MEDIUM,
-            "Meta description is missing. Add a unique 120-160 character summary to improve snippet quality.",
         )
     elif len(description) < 50:
         _create_issue(
             page,
             "description_too_short",
             SEOIssue.Severity.LOW,
-            "Meta description is too short (<50 chars). Expand it with a concise summary and user benefit.",
         )
     elif len(description) > 160:
         _create_issue(
             page,
             "description_too_long",
             SEOIssue.Severity.LOW,
-            "Meta description is too long (>160 chars). Shorten it to avoid truncation in search snippets.",
         )
 
     h1_values = _extract_h1_values(soup)
@@ -361,21 +463,18 @@ def _analyze_page_content(
             page,
             "missing_h1",
             SEOIssue.Severity.MEDIUM,
-            "H1 heading is missing. Add one clear H1 that reflects the page topic.",
         )
     if len(h1_values) > 1:
         _create_issue(
             page,
             "multiple_h1",
             SEOIssue.Severity.MEDIUM,
-            "More than one H1 was found. Keep a single H1 and use H2-H6 for the content structure.",
         )
     if any(len(h1) > 70 for h1 in h1_values):
         _create_issue(
             page,
             "long_h1",
             SEOIssue.Severity.LOW,
-            "H1 is too long (>70 chars). Shorten the main heading so it stays readable and focused.",
         )
 
     if _heading_hierarchy_gap(soup):
@@ -383,7 +482,6 @@ def _analyze_page_content(
             page,
             "heading_hierarchy_gap",
             SEOIssue.Severity.LOW,
-            "Heading hierarchy skips levels (for example H1 to H3). Use sequential heading levels for structure.",
         )
 
     if page.word_count < 300 and status_code == 200:
@@ -391,7 +489,6 @@ def _analyze_page_content(
             page,
             "low_word_count",
             SEOIssue.Severity.LOW,
-            "Page has low text content (<300 words). Add more useful content to better cover the topic.",
         )
 
     missing_alt = 0
@@ -407,14 +504,12 @@ def _analyze_page_content(
             page,
             "image_missing_alt",
             SEOIssue.Severity.LOW,
-            f"{missing_alt} image(s) have no alt attribute. Add descriptive alt text for informative images.",
         )
     if empty_alt:
         _create_issue(
             page,
             "image_empty_alt",
             SEOIssue.Severity.LOW,
-            f"{empty_alt} image(s) have an empty alt attribute. Fill alt text unless the image is purely decorative.",
         )
 
     if not _has_canonical(soup):
@@ -422,7 +517,6 @@ def _analyze_page_content(
             page,
             "missing_canonical",
             SEOIssue.Severity.LOW,
-            "Canonical link tag is missing. Add a canonical URL to reduce duplicate-content ambiguity.",
         )
 
     if not _extract_meta_content(soup, "robots"):
@@ -430,7 +524,6 @@ def _analyze_page_content(
             page,
             "missing_meta_robots",
             SEOIssue.Severity.LOW,
-            "Meta robots tag is missing. Add a robots meta tag only if you need explicit index/follow directives.",
         )
 
     if not _extract_meta_content(soup, "viewport"):
@@ -438,7 +531,6 @@ def _analyze_page_content(
             page,
             "missing_viewport",
             SEOIssue.Severity.LOW,
-            "Viewport meta tag is missing. Add viewport settings for correct mobile rendering.",
         )
 
     if not _has_meta_charset(soup):
@@ -446,7 +538,6 @@ def _analyze_page_content(
             page,
             "missing_charset",
             SEOIssue.Severity.LOW,
-            "Charset meta tag is missing. Add <meta charset=\"utf-8\"> in the page head.",
         )
 
 
@@ -467,7 +558,6 @@ def _apply_duplicate_title_checks(audit: SiteSEOAudit) -> None:
                 page,
                 "duplicate_title",
                 SEOIssue.Severity.MEDIUM,
-                "Title duplicates another page title. Make each title unique for the page intent and target query.",
             )
 
 
@@ -493,7 +583,6 @@ def _analyze_robots_and_sitemap(
             anchor_page,
             "missing_robots_txt",
             SEOIssue.Severity.LOW,
-            "robots.txt could not be fetched. Add a robots.txt file and declare sitemap location if available.",
         )
     else:
         robots_status = int(getattr(robots_result.response, "status_code", 0) or 0)
@@ -502,7 +591,6 @@ def _analyze_robots_and_sitemap(
                 anchor_page,
                 "missing_robots_txt",
                 SEOIssue.Severity.LOW,
-                f"robots.txt returned HTTP {robots_status}. Publish a valid robots.txt file at /robots.txt.",
             )
         else:
             robots_text = _prepare_response_text(robots_result.response)
@@ -527,14 +615,12 @@ def _analyze_robots_and_sitemap(
                     anchor_page,
                     "robots_disallow_all",
                     SEOIssue.Severity.HIGH,
-                    "robots.txt blocks the whole site for User-agent: *. Remove 'Disallow: /' for public pages.",
                 )
             if not sitemap_candidates:
                 _create_issue(
                     anchor_page,
                     "robots_missing_sitemap",
                     SEOIssue.Severity.LOW,
-                    "robots.txt does not declare a sitemap. Add a Sitemap directive with the sitemap.xml URL.",
                 )
 
     if not sitemap_candidates:
@@ -550,43 +636,45 @@ def _analyze_robots_and_sitemap(
         sitemap_url = _normalize_url(urljoin(root_base, "/sitemap.xml"))
 
     _check_cancelled(stop_check)
-    sitemap_result = _fetch_url(session, sitemap_url, stop_check)
-    if not sitemap_result.response:
+    sitemap_parse_result = _collect_urls_from_sitemap(
+        session,
+        sitemap_url=sitemap_url,
+        root_host=root_host,
+        stop_check=stop_check,
+        max_urls=MAX_SITEMAP_URLS_DEFAULT,
+    )
+    if not sitemap_parse_result.response_received:
         _create_issue(
             anchor_page,
             "missing_sitemap",
             SEOIssue.Severity.MEDIUM,
-            "sitemap.xml could not be fetched. Publish a sitemap.xml file with important page URLs.",
         )
         return
 
-    sitemap_status = int(getattr(sitemap_result.response, "status_code", 0) or 0)
+    sitemap_status = int(sitemap_parse_result.status_code or 0)
     if sitemap_status != 200:
         _create_issue(
             anchor_page,
             "bad_sitemap_status",
             SEOIssue.Severity.MEDIUM,
-            f"sitemap.xml returned HTTP {sitemap_status}. Ensure sitemap.xml is publicly accessible with HTTP 200.",
         )
         return
 
-    sitemap_text = _prepare_response_text(sitemap_result.response)
-    sitemap_soup = BeautifulSoup(sitemap_text, "xml")
-    loc_values: set[str] = set()
-    for loc_tag in sitemap_soup.find_all("loc"):
-        loc_text = _extract_text(loc_tag.get_text(" ", strip=True))
-        if not loc_text:
-            continue
-        normalized = _normalize_url(loc_text)
-        if normalized and _is_internal_url(normalized, root_host) and not _should_skip_url(normalized):
-            loc_values.add(normalized)
+    if not sitemap_parse_result.is_xml:
+        _create_issue(
+            anchor_page,
+            "missing_sitemap",
+            SEOIssue.Severity.MEDIUM,
+        )
+        return
+
+    loc_values = set(sitemap_parse_result.urls)
 
     if not loc_values:
         _create_issue(
             anchor_page,
             "missing_sitemap",
             SEOIssue.Severity.MEDIUM,
-            "sitemap.xml is empty or contains no internal URLs. Add page URLs to the sitemap.",
         )
         return
 
@@ -597,10 +685,6 @@ def _analyze_robots_and_sitemap(
                 anchor_page,
                 "sitemap_mismatch",
                 SEOIssue.Severity.LOW,
-                (
-                    f"Sitemap contains {len(loc_values)} URL(s), crawled {len(crawled_urls)} page(s), "
-                    f"overlap is {overlap_count}. Align sitemap entries with real internal pages."
-                ),
             )
 
 
@@ -643,25 +727,55 @@ def crawl_site_audit(
 ) -> SiteSEOAudit:
     start_url = _build_start_url(audit.domain)
     if not start_url:
-        raise ValueError("Audit domain is empty.")
+        raise ValueError("Не указан домен для SEO-аудита.")
 
-    max_pages = max_pages or MAX_PAGES_DEFAULT
+    link_crawl_limit = max_pages or MAX_PAGES_DEFAULT
+    sitemap_crawl_limit = min(max_pages or MAX_SITEMAP_URLS_DEFAULT, MAX_SITEMAP_URLS_DEFAULT)
     root_host = urlparse(start_url).hostname or audit.domain
     local_session = session or requests.Session()
     local_session.headers.setdefault("User-Agent", "TrackNode SEO Audit/1.0 (+https://tracknode.local)")
 
     _check_cancelled(stop_check)
 
-    # Re-running the same audit should replace previous crawl data, not append duplicate pages/issues.
+    # Повторный запуск аудита должен заменять старые результаты, а не дублировать страницы и ошибки.
     audit.pages.all().delete()
+    audit.used_sitemap = False
+    audit.sitemap_urls_count = 0
+    audit.save(update_fields=["used_sitemap", "sitemap_urls_count"])
 
-    queue: deque[str] = deque([_normalize_url(start_url)])
-    queued: set[str] = {queue[0]}
+    sitemap_seed_url = _normalize_url(urljoin(start_url, "/sitemap.xml"))
+    sitemap_urls_result = _collect_urls_from_sitemap(
+        local_session,
+        sitemap_url=sitemap_seed_url,
+        root_host=root_host,
+        stop_check=stop_check,
+        max_urls=sitemap_crawl_limit,
+    )
+
+    crawl_uses_sitemap = bool(
+        sitemap_urls_result.response_received
+        and sitemap_urls_result.status_code == 200
+        and sitemap_urls_result.is_xml
+        and sitemap_urls_result.urls
+    )
+    if crawl_uses_sitemap:
+        audit.used_sitemap = True
+        audit.sitemap_urls_count = len(sitemap_urls_result.urls)
+        audit.save(update_fields=["used_sitemap", "sitemap_urls_count"])
+        logger.info("Sitemap найден, обнаружено %s URL", len(sitemap_urls_result.urls))
+        queue: deque[str] = deque(sitemap_urls_result.urls[:sitemap_crawl_limit])
+        crawl_limit = sitemap_crawl_limit
+    else:
+        logger.info("Sitemap не найден, fallback на обход ссылок")
+        queue = deque([_normalize_url(start_url)])
+        crawl_limit = link_crawl_limit
+
+    queued: set[str] = set(queue)
     visited: set[str] = set()
     page_by_url: dict[str, SEOPage] = {}
     crawled_urls: set[str] = set()
 
-    while queue and len(visited) < max_pages:
+    while queue and len(visited) < crawl_limit:
         _check_cancelled(stop_check)
         requested_url = queue.popleft()
         queued.discard(requested_url)
@@ -693,7 +807,6 @@ def crawl_site_audit(
                 page,
                 "network_error",
                 SEOIssue.Severity.HIGH,
-                f"Page could not be fetched ({fetch.error or 'network error'}). Check DNS, SSL, firewall, or server availability.",
             )
             continue
 
@@ -751,11 +864,11 @@ def crawl_site_audit(
             soup=soup,
         )
 
-        if soup and status_code == 200:
+        if (not crawl_uses_sitemap) and soup and status_code == 200:
             for link in _extract_internal_links(soup, target_url, root_host):
                 if link in visited or link in queued:
                     continue
-                if len(visited) + len(queue) >= max_pages:
+                if len(visited) + len(queue) >= crawl_limit:
                     break
                 queue.append(link)
                 queued.add(link)

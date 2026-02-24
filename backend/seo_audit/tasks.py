@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import logging
 
 from celery import states
@@ -14,12 +15,12 @@ logger = logging.getLogger(__name__)
 def run_site_audit_task(self, audit_id: int) -> None:
     audit = SiteSEOAudit.objects.filter(id=audit_id).first()
     if not audit:
-        logger.warning("seo_audit.task audit not found audit_id=%s", audit_id)
+        logger.warning("seo_audit.task аудит не найден audit_id=%s", audit_id)
         return
 
     task_id = str(getattr(self.request, "id", "") or "")
     logger.info(
-        "seo_audit.task started audit_id=%s client_id=%s domain=%s task_id=%s",
+        "seo_audit.task запуск audit_id=%s client_id=%s domain=%s task_id=%s",
         audit.id,
         audit.client_id,
         audit.domain,
@@ -32,7 +33,7 @@ def run_site_audit_task(self, audit_id: int) -> None:
         audit.finished_at = timezone.now()
         audit.save(update_fields=["celery_task_id", "status", "finished_at"])
         logger.info(
-            "seo_audit.task stopped before run audit_id=%s client_id=%s domain=%s task_id=%s",
+            "seo_audit.task остановлен до старта audit_id=%s client_id=%s domain=%s task_id=%s",
             audit.id,
             audit.client_id,
             audit.domain,
@@ -55,12 +56,12 @@ def run_site_audit_task(self, audit_id: int) -> None:
         try:
             recalculate_audit_score(audit)
         except Exception:
-            logger.exception("seo_audit.task partial score recalc failed audit_id=%s", audit.id)
+            logger.exception("seo_audit.task не удалось пересчитать частичный score audit_id=%s", audit.id)
         audit.status = SiteSEOAudit.Status.STOPPED
         audit.finished_at = timezone.now()
         audit.save(update_fields=["status", "finished_at"])
         logger.info(
-            "seo_audit.task stopped audit_id=%s client_id=%s domain=%s task_id=%s score=%s pages_count=%s",
+            "seo_audit.task остановлен audit_id=%s client_id=%s domain=%s task_id=%s score=%s pages_count=%s",
             audit.id,
             audit.client_id,
             audit.domain,
@@ -71,7 +72,7 @@ def run_site_audit_task(self, audit_id: int) -> None:
         self.update_state(state=states.REVOKED)
         return
     except Exception:
-        logger.exception("seo_audit.task failed audit_id=%s domain=%s task_id=%s", audit.id, audit.domain, task_id)
+        logger.exception("seo_audit.task ошибка audit_id=%s domain=%s task_id=%s", audit.id, audit.domain, task_id)
         audit.status = SiteSEOAudit.Status.ERROR
         audit.finished_at = timezone.now()
         audit.save(update_fields=["status", "finished_at"])
@@ -83,7 +84,7 @@ def run_site_audit_task(self, audit_id: int) -> None:
         audit.finished_at = timezone.now()
         audit.save(update_fields=["status", "finished_at"])
         logger.info(
-            "seo_audit.task stopped after crawl audit_id=%s client_id=%s domain=%s task_id=%s",
+            "seo_audit.task остановлен после обхода audit_id=%s client_id=%s domain=%s task_id=%s",
             audit.id,
             audit.client_id,
             audit.domain,
@@ -96,7 +97,7 @@ def run_site_audit_task(self, audit_id: int) -> None:
     audit.finished_at = timezone.now()
     audit.save(update_fields=["status", "finished_at"])
     logger.info(
-        "seo_audit.task completed audit_id=%s client_id=%s domain=%s task_id=%s score=%s pages_count=%s",
+        "seo_audit.task завершён audit_id=%s client_id=%s domain=%s task_id=%s score=%s pages_count=%s",
         audit.id,
         audit.client_id,
         audit.domain,
