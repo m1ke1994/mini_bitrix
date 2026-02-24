@@ -110,11 +110,12 @@
 </template>
 
 <script setup>
-import { reactive, ref } from "vue";
-import { useRouter } from "vue-router";
+import { reactive, ref, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import { useAuthStore } from "../stores/auth";
 
 const auth = useAuthStore();
+const route = useRoute();
 const router = useRouter();
 
 const isRegister = ref(false);
@@ -134,11 +135,23 @@ const registerForm = reactive({
   password: "",
 });
 
-function toggleMode() {
-  isRegister.value = !isRegister.value;
+function syncModeWithRoute(path) {
+  isRegister.value = String(path || "").startsWith("/register");
   error.value = "";
   showLoginPassword.value = false;
   showRegisterPassword.value = false;
+}
+
+watch(
+  () => route.path,
+  (path) => {
+    syncModeWithRoute(path);
+  },
+  { immediate: true }
+);
+
+function toggleMode() {
+  router.push(isRegister.value ? "/login" : "/register");
 }
 
 function validateLoginForm() {
