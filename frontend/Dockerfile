@@ -1,4 +1,4 @@
-FROM node:20-alpine
+FROM node:20-alpine AS deps
 
 WORKDIR /app
 
@@ -8,9 +8,25 @@ ENV NPM_CONFIG_FETCH_RETRY_MINTIMEOUT=20000
 ENV NPM_CONFIG_FETCH_RETRY_MAXTIMEOUT=120000
 ENV NPM_CONFIG_NETWORK_TIMEOUT=300000
 
-COPY frontend/package.json /app/package.json
-RUN npm config set registry ${NPM_REGISTRY} && npm install --no-audit --no-fund --verbose
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm config set registry ${NPM_REGISTRY} && npm ci --ignore-scripts --no-audit --no-fund
 
-COPY frontend /app
+FROM node:20-alpine AS builder
 
-CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "9003"]
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY frontend/ ./
+ENV NODE_ENV=production
+RUN npm run postinstall && npm run build
+
+FROM node:20-alpine AS runner
+
+WORKDIR /app
+ENV NODE_ENV=production
+ENV HOST=0.0.0.0
+ENV PORT=9003
+ENV NITRO_HOST=0.0.0.0
+ENV NITRO_PORT=9003
+COPY --from=builder /app/.output ./.output
+EXPOSE 9003
+CMD ["node", ".output/server/index.mjs"]
