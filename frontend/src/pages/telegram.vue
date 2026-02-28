@@ -4,18 +4,31 @@
 
 <script setup>
 import PublicFeaturePage from "~/views/PublicFeaturePage.vue";
+import { getPublicSeoContent } from "~/content/publicSeoContent";
+import { createFaqSchema, createServiceSchema, getCanonicalUrl } from "~/seo";
+
+const telegramFaqSchema = createFaqSchema(getPublicSeoContent("/telegram")?.faqItems || []);
+const telegramServiceSchema = createServiceSchema({
+  name: "Telegram-уведомления TrackNode",
+  description:
+    "Мгновенные уведомления о заявках с указанием страницы отправки, времени и контекста для ускорения обработки лидов.",
+  path: "/telegram",
+});
 
 definePageMeta({
   publicPage: true,
   pageHeading: "Telegram-уведомления",
   pageText:
-    "Настройте быстрые уведомления о событиях в Telegram, чтобы команда сразу реагировала на новые обращения и изменения статусов.",
+    "Получайте мгновенные уведомления о заявках в Telegram с контекстом обращения, чтобы команда быстрее отвечала клиентам и не теряла лиды.",
   seo: {
-    title: "Telegram-уведомления TrackNode — мгновенные оповещения по заявкам",
+    title: "Telegram-уведомления TrackNode для заявок и лидов сайта",
     description:
-      "Подключите Telegram-уведомления в TrackNode и получайте сообщения о новых заявках, оплатах и статусах без задержек.",
-    keywords: "telegram уведомления, уведомления о заявках, TrackNode",
+      "TrackNode отправляет Telegram-уведомления о каждой заявке с временем и страницей отправки формы, чтобы команда быстрее отвечала клиентам и не теряла лиды.",
+    keywords:
+      "уведомления в Telegram, отслеживание лидов, учет заявок, конверсия сайта, аналитика сайта, TrackNode",
+    canonical: getCanonicalUrl("/telegram"),
     ogType: "website",
+    schema: [telegramServiceSchema, telegramFaqSchema].filter(Boolean),
   },
 });
 </script>

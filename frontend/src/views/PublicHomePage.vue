@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <main class="public-page">
     <section class="hero">
       <p class="label">TrackNode</p>
@@ -12,25 +12,32 @@
         <router-link to="/register" class="btn ghost">Создать аккаунт</router-link>
       </div>
 
-      <section class="seo-block" aria-label="Описание сервиса TrackNode">
-        <h2>Что дает TrackNode бизнесу</h2>
-        <p>
-          TrackNode помогает бизнесу вести аналитику сайтов и учет заявок в одном интерфейсе без перегруженных CRM-модулей и сложной
-          настройки. Сервис аналитики показывает, откуда пришел клиент, какие страницы он просмотрел, где оставил заявку и на каком этапе
-          теряется интерес. Вы видите путь пользователя от первого визита до обращения, сравниваете источники трафика и контролируете
-          качество лидов в ежедневной работе команды. Это удобно для собственников, маркетологов и менеджеров по продажам, которым нужна
-          прозрачная аналитика воронки продаж и быстрые действия по данным, а не ручные отчеты в таблицах.
-        </p>
-        <p>
-          Платформа подходит для малого и среднего бизнеса: помогает настроить отслеживание конверсии по ключевым страницам, оценить
-          эффективность рекламы, вовремя реагировать на заявки и получать уведомления в Telegram. При этом данные остаются в одном кабинете,
-          а отчеты читаются без технической подготовки. Если вам нужен инструмент, который объединяет аналитику сайтов, учет заявок и
-          контроль результата по воронке, TrackNode закрывает эти задачи без смены текущих процессов.
-        </p>
-      </section>
+      <SeoContentBlock
+        :section-title="seoContent.sectionTitle"
+        :paragraphs="seoContent.paragraphs"
+        :highlights-title="seoContent.highlightsTitle"
+        :highlights="seoContent.highlights"
+        :faq-title="seoContent.faqTitle"
+        :faq-items="seoContent.faqItems"
+        aria-label="Расширенное описание сервиса аналитики TrackNode"
+      />
     </section>
   </main>
 </template>
+
+<script setup>
+import SeoContentBlock from "~/components/SeoContentBlock.vue";
+import { getPublicSeoContent } from "~/content/publicSeoContent";
+
+const seoContent = getPublicSeoContent("/") || {
+  sectionTitle: "",
+  paragraphs: [],
+  highlightsTitle: "",
+  highlights: [],
+  faqTitle: "",
+  faqItems: [],
+};
+</script>
 
 <style scoped>
 .public-page {
@@ -93,28 +100,6 @@ h1 {
   color: #1e40af;
 }
 
-.seo-block {
-  margin: 2.5rem auto 0;
-  max-width: 52rem;
-  padding: 1.1rem 1.25rem;
-  border: 1px solid rgba(37, 99, 235, 0.12);
-  border-radius: 1rem;
-  background: rgba(255, 255, 255, 0.8);
-  text-align: left;
-}
-
-.seo-block h2 {
-  margin: 0;
-  font-size: 1.05rem;
-  color: #111827;
-}
-
-.seo-block p {
-  margin: 0.85rem 0 0;
-  color: #374151;
-  line-height: 1.55;
-}
-
 @media (max-width: 640px) {
   .actions {
     width: 100%;
@@ -123,10 +108,6 @@ h1 {
 
   .btn {
     text-align: center;
-  }
-
-  .seo-block {
-    padding: 1rem;
   }
 }
 </style>

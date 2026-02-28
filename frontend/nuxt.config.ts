@@ -12,14 +12,64 @@ export default defineNuxtConfig({
       apiBase: process.env.VITE_API_BASE || process.env.VITE_API_BASE_URL || "/",
     },
   },
+  nitro: {
+    compressPublicAssets: true,
+  },
   routeRules: {
-    "/dashboard": { ssr: false },
-    "/dashboard/**": { ssr: false },
+    "/": {
+      ssr: true,
+      headers: {
+        "Cache-Control": "public, s-maxage=900, stale-while-revalidate=3600",
+      },
+    },
+    "/about": {
+      ssr: true,
+      headers: {
+        "Cache-Control": "public, s-maxage=900, stale-while-revalidate=3600",
+      },
+    },
+    "/analitika": {
+      ssr: true,
+      headers: {
+        "Cache-Control": "public, s-maxage=900, stale-while-revalidate=3600",
+      },
+    },
+    "/otchety": {
+      ssr: true,
+      headers: {
+        "Cache-Control": "public, s-maxage=900, stale-while-revalidate=3600",
+      },
+    },
+    "/tarify": {
+      ssr: true,
+      headers: {
+        "Cache-Control": "public, s-maxage=900, stale-while-revalidate=3600",
+      },
+    },
+    "/telegram": {
+      ssr: true,
+      headers: {
+        "Cache-Control": "public, s-maxage=900, stale-while-revalidate=3600",
+      },
+    },
+    "/dashboard": {
+      ssr: false,
+      headers: {
+        "Cache-Control": "no-store",
+        "X-Robots-Tag": "noindex, nofollow",
+      },
+    },
+    "/dashboard/**": {
+      ssr: false,
+      headers: {
+        "Cache-Control": "no-store",
+        "X-Robots-Tag": "noindex, nofollow",
+      },
+    },
     "/settings": { ssr: false },
     "/account": { ssr: false },
     "/integration": { ssr: false },
     "/reports": { ssr: false },
-    "/about": { ssr: false },
     "/instructions": { ssr: false },
   },
   app: {

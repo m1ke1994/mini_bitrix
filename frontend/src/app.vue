@@ -5,18 +5,25 @@
 </template>
 
 <script setup>
-const SITE_NAME = "TrackNode";
-const BASE_URL = "https://tracknode.ru";
-const DEFAULT_TITLE = "Аналитика сайтов и учет заявок — сервис отслеживания лидов | TrackNode";
-const DEFAULT_DESCRIPTION =
-  "Сервис аналитики сайтов и учета заявок. Отслеживайте лиды, конверсию и путь клиента. Аналитика воронки продаж и Telegram-уведомления в одном кабинете.";
-const DEFAULT_KEYWORDS =
-  "аналитика сайтов, сервис аналитики, учет заявок, аналитика воронки продаж, отслеживание конверсии, TrackNode";
-const DEFAULT_IMAGE = `${BASE_URL}/og-preview.jpg`;
-const DEFAULT_OG_IMAGE_ALT = "аналитика сайтов интерфейс";
-const DEFAULT_TWITTER_IMAGE_ALT = "учет заявок дашборд";
+import {
+  BASE_URL,
+  DEFAULT_DESCRIPTION,
+  DEFAULT_IMAGE,
+  DEFAULT_KEYWORDS,
+  DEFAULT_OG_IMAGE_ALT,
+  DEFAULT_TITLE,
+  DEFAULT_TWITTER_IMAGE_ALT,
+  SITE_NAME,
+  getCanonicalUrl,
+} from "~/seo";
 
 const route = useRoute();
+
+function normalizeSchema(schema) {
+  if (!schema) return [];
+  if (Array.isArray(schema)) return schema.filter(Boolean);
+  return [schema];
+}
 
 useHead(() => {
   const meta = route.meta || {};
@@ -25,19 +32,10 @@ useHead(() => {
   const title = seo.title || DEFAULT_TITLE;
   const description = seo.description || DEFAULT_DESCRIPTION;
   const keywords = seo.keywords || DEFAULT_KEYWORDS;
-  const canonical = seo.canonical || `${BASE_URL}${route.path || "/"}`;
+  const canonical = seo.canonical || getCanonicalUrl(route.path || "/");
   const noindex = Boolean(meta.noindex || seo.noindex);
   const robots = noindex ? "noindex,nofollow" : "index,follow";
-  const schema = seo.schema || null;
-
-  const scripts = schema
-    ? [
-        {
-          type: "application/ld+json",
-          children: JSON.stringify(schema),
-        },
-      ]
-    : [];
+  const schemaList = normalizeSchema(seo.schema);
 
   return {
     title,
@@ -51,19 +49,25 @@ useHead(() => {
       { property: "og:description", content: seo.ogDescription || description },
       { property: "og:url", content: seo.ogUrl || canonical },
       { property: "og:type", content: seo.ogType || "website" },
+      { property: "og:site_name", content: SITE_NAME },
       { property: "og:image", content: seo.ogImage || DEFAULT_IMAGE },
-      {
-        property: "og:image:alt",
-        content: seo.ogImageAlt || DEFAULT_OG_IMAGE_ALT,
-      },
+      { property: "og:image:alt", content: seo.ogImageAlt || DEFAULT_OG_IMAGE_ALT },
       { name: "twitter:card", content: seo.twitterCard || "summary_large_image" },
+      { name: "twitter:title", content: seo.twitterTitle || title },
+      { name: "twitter:description", content: seo.twitterDescription || description },
+      { name: "twitter:image", content: seo.twitterImage || DEFAULT_IMAGE },
       {
         name: "twitter:image:alt",
         content: seo.twitterImageAlt || DEFAULT_TWITTER_IMAGE_ALT,
       },
     ],
-    link: [{ rel: "canonical", href: canonical }],
-    script: scripts,
+    link: [{ rel: "canonical", href: canonical }, { rel: "home", href: BASE_URL }],
+    script: schemaList.map((entry, index) => ({
+      key: `ld-json-${index}`,
+      type: "application/ld+json",
+      children: JSON.stringify(entry),
+    })),
   };
 });
 </script>
+

@@ -16,10 +16,10 @@
 </template>
 
 <script setup>
-import { onMounted } from "vue";
-import LeadsChart from "../components/LeadsChart.vue";
+import { defineAsyncComponent, onMounted } from "vue";
 import { useAnalyticsSummary } from "../composables/useAnalyticsSummary";
 
+const LeadsChart = defineAsyncComponent(() => import("../components/LeadsChart.vue"));
 const { summary, error, loadSummary } = useAnalyticsSummary();
 
 async function manualRefresh() {

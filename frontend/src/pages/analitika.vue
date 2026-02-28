@@ -4,18 +4,31 @@
 
 <script setup>
 import PublicFeaturePage from "~/views/PublicFeaturePage.vue";
+import { getPublicSeoContent } from "~/content/publicSeoContent";
+import { createFaqSchema, createServiceSchema, getCanonicalUrl } from "~/seo";
+
+const analitikaFaqSchema = createFaqSchema(getPublicSeoContent("/analitika")?.faqItems || []);
+const analitikaServiceSchema = createServiceSchema({
+  name: "Аналитика сайта TrackNode",
+  description:
+    "Сервис для контроля трафика, лидов, поведения пользователя на сайте и конверсии по ключевым страницам.",
+  path: "/analitika",
+});
 
 definePageMeta({
   publicPage: true,
   pageHeading: "Аналитика сайтов",
   pageText:
-    "Собирайте данные по визитам, источникам и событиям в одном интерфейсе. TrackNode помогает видеть реальную эффективность маркетинга и сайта.",
+    "TrackNode показывает источники трафика, путь пользователя, динамику заявок и конверсию, чтобы находить точки роста и вовремя усиливать эффективные каналы.",
   seo: {
-    title: "Аналитика сайтов TrackNode — контроль трафика, лидов и конверсии",
+    title: "Аналитика сайта TrackNode: трафик, лиды и конверсия",
     description:
-      "Аналитика TrackNode показывает источники трафика, динамику заявок и конверсию страниц, чтобы быстро находить точки роста.",
-    keywords: "аналитика сайта, веб-аналитика, конверсия, лиды, TrackNode",
+      "Аналитика сайта в TrackNode помогает контролировать источники трафика, поведение на сайте, отслеживание лидов и конверсию страниц для роста заявок и продаж.",
+    keywords:
+      "аналитика сайта, анализ сайтов, отслеживание лидов, источники трафика, поведение пользователя на сайте, конверсия",
+    canonical: getCanonicalUrl("/analitika"),
     ogType: "website",
+    schema: [analitikaServiceSchema, analitikaFaqSchema].filter(Boolean),
   },
 });
 </script>
