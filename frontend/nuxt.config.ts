@@ -78,9 +78,13 @@ export default defineNuxtConfig({
         lang: "ru",
       },
       viewport: "width=device-width, initial-scale=1",
+      meta: [{ name: "theme-color", content: "#2ba8d8" }],
       link: [
         { rel: "icon", type: "image/svg+xml", href: "/favicon.svg" },
         { rel: "icon", type: "image/png", href: "/favicon.png" },
+        { rel: "apple-touch-icon", href: "/apple-touch-icon.png" },
+        { rel: "manifest", href: "/manifest.webmanifest" },
+        { rel: "mask-icon", href: "/safari-pinned-tab.svg", color: "#2ba8d8" },
       ],
     },
   },

@@ -17,7 +17,14 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY frontend/ ./
 ENV NODE_ENV=production
-RUN npm run postinstall && npm run build
+RUN set -eux; \
+    ls -la node_modules/.bin | head -n 50 || true; \
+    ls -la node_modules/.bin/nuxt || true; \
+    stat node_modules/.bin/nuxt || true; \
+    chmod +x node_modules/.bin/nuxt || true; \
+    chmod +x node_modules/nuxt/bin/nuxt.mjs || true; \
+    node ./node_modules/nuxt/bin/nuxt.mjs prepare; \
+    node ./node_modules/nuxt/bin/nuxt.mjs build
 
 FROM node:20-alpine AS runner
 

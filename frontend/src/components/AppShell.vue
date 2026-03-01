@@ -122,6 +122,13 @@ watch(
   { immediate: true }
 );
 
+watch(
+  () => route.fullPath,
+  () => {
+    isMenuOpen.value = false;
+  }
+);
+
 onBeforeUnmount(() => {
   if (typeof document === "undefined") return;
   document.body.classList.remove("menu-open");

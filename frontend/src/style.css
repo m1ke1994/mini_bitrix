@@ -15,6 +15,11 @@
   --radius-sm: 2px;
   --radius-md: 4px;
   --shadow-soft: 0 2px 8px rgba(0, 0, 0, 0.06);
+  --layout-sidebar-w: 260px;
+  --layout-header-h: 56px;
+  --layout-mobile-header-row-h: 56px;
+  --layout-safe-top: env(safe-area-inset-top, 0px);
+  --layout-mobile-header-h: calc(var(--layout-mobile-header-row-h) + var(--layout-safe-top));
   font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
   color: var(--color-text);
   background: var(--color-bg);
@@ -28,10 +33,22 @@ body {
   margin: 0;
   background: var(--color-bg);
   color: var(--color-text);
+  overflow-x: hidden;
 }
 
 body.menu-open {
   overflow: hidden;
+}
+
+body.menu-open .content-body {
+  overflow: hidden;
+}
+
+html,
+body,
+#app,
+#__nuxt {
+  min-height: 100%;
 }
 
 a {
@@ -152,7 +169,9 @@ button:disabled:hover {
 
 .shell {
   min-height: 100vh;
+  min-height: 100dvh;
   background: var(--color-bg);
+  overflow-x: hidden;
 }
 
 .mobile-header {
@@ -168,7 +187,7 @@ button:disabled:hover {
   top: 0;
   left: 0;
   bottom: 0;
-  width: 260px;
+  width: var(--layout-sidebar-w);
   background: var(--color-sidebar);
   color: #ffffff;
   padding: 16px;
@@ -177,6 +196,7 @@ button:disabled:hover {
   gap: 12px;
   overflow-y: auto;
   overflow-x: hidden;
+  z-index: 20;
 }
 
 .logo {
@@ -259,15 +279,19 @@ button:disabled:hover {
 }
 
 .content {
-  margin-left: 260px;
+  margin-left: var(--layout-sidebar-w);
   min-width: 0;
   min-height: 100vh;
+  min-height: 100dvh;
+  height: 100vh;
+  height: 100dvh;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .content-header {
-  min-height: 56px;
+  min-height: var(--layout-header-h);
   border-bottom: 1px solid var(--color-border);
   background: var(--color-surface);
   padding: 0 20px;
@@ -275,6 +299,10 @@ button:disabled:hover {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  flex-shrink: 0;
 }
 
 .content-title {
@@ -361,6 +389,7 @@ button:disabled:hover {
   min-height: 0;
   padding: 20px;
   overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .page h1 {
@@ -739,32 +768,44 @@ button:disabled:hover {
     align-items: center;
     justify-content: space-between;
     gap: 10px;
-    padding: 12px 14px;
+    height: var(--layout-mobile-header-h);
+    padding: var(--layout-safe-top) 14px 0;
     background: var(--color-sidebar);
     color: #fff;
-    position: sticky;
+    position: fixed;
     top: 0;
-    z-index: 30;
+    left: 0;
+    right: 0;
+    z-index: 70;
   }
 
   .mobile-logo {
     margin: 0;
     font-size: 16px;
+    flex: 1;
+    min-width: 0;
+    text-align: center;
   }
 
   .mobile-overlay {
     display: block;
     position: fixed;
-    inset: 0;
+    top: var(--layout-mobile-header-h);
+    left: 0;
+    right: 0;
+    bottom: 0;
     background: rgba(17, 24, 39, 0.45);
-    z-index: 20;
+    z-index: 50;
   }
 
   .sidebar {
+    top: var(--layout-mobile-header-h);
+    bottom: 0;
+    height: auto;
     width: min(82vw, 300px);
     transform: translateX(-110%);
     transition: transform 0.2s ease;
-    z-index: 25;
+    z-index: 60;
   }
 
   .sidebar.open {
@@ -773,7 +814,9 @@ button:disabled:hover {
 
   .content {
     margin-left: 0;
-    min-height: calc(100vh - 60px);
+    min-height: 100dvh;
+    height: 100dvh;
+    padding-top: var(--layout-mobile-header-h);
   }
 
   .content-header {
