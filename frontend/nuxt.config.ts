@@ -14,6 +14,12 @@ export default defineNuxtConfig({
   },
   nitro: {
     compressPublicAssets: true,
+    publicAssets: [
+      {
+        dir: "landing_dist",
+        baseURL: "/",
+      },
+    ],
   },
   routeRules: {
     "/": {

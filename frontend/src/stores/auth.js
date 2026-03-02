@@ -1,63 +1,19 @@
-﻿import { defineStore } from "pinia";
+import { defineStore } from "pinia";
 import api from "../services/api";
+import {
+  AUTH_STORAGE_KEY_LIST,
+  clearAuthStorage,
+  getRefreshToken,
+  normalizeToken,
+  readAuthStorage,
+  writeAuthStorage,
+} from "../services/authStorage";
 
-const AUTH_STORAGE_KEYS = {
-  accessToken: "accessToken",
-  refreshToken: "refreshToken",
-  userEmail: "userEmail",
-  clientId: "clientId",
-};
-
-const AUTH_STORAGE_KEY_LIST = Object.values(AUTH_STORAGE_KEYS);
 const SUBSCRIPTION_CACHE_KEY = "tracknode:subscription-status:v1";
 const JWT_EXP_LEEWAY_MS = 30_000;
 
 let authInitPromise = null;
 let storageSyncAttached = false;
-
-function canUseWebStorage() {
-  return typeof window !== "undefined" && typeof window.localStorage !== "undefined";
-}
-
-function getStoredValue(key) {
-  if (!canUseWebStorage()) return "";
-  try {
-    return String(window.localStorage.getItem(key) || "");
-  } catch {
-    return "";
-  }
-}
-
-function setStoredValue(key, value) {
-  if (!canUseWebStorage()) return;
-
-  const normalized = value ? String(value) : "";
-  try {
-    if (normalized) {
-      window.localStorage.setItem(key, normalized);
-    } else {
-      window.localStorage.removeItem(key);
-    }
-  } catch {
-    // Ignore storage write errors.
-  }
-}
-
-function readAuthFromStorage() {
-  return {
-    accessToken: getStoredValue(AUTH_STORAGE_KEYS.accessToken),
-    refreshToken: getStoredValue(AUTH_STORAGE_KEYS.refreshToken),
-    userEmail: getStoredValue(AUTH_STORAGE_KEYS.userEmail),
-    clientId: getStoredValue(AUTH_STORAGE_KEYS.clientId),
-  };
-}
-
-function persistAuthToStorage(authState) {
-  setStoredValue(AUTH_STORAGE_KEYS.accessToken, authState.accessToken);
-  setStoredValue(AUTH_STORAGE_KEYS.refreshToken, authState.refreshToken);
-  setStoredValue(AUTH_STORAGE_KEYS.userEmail, authState.userEmail);
-  setStoredValue(AUTH_STORAGE_KEYS.clientId, authState.clientId);
-}
 
 function clearSubscriptionCache() {
   if (typeof window === "undefined" || typeof window.sessionStorage === "undefined") return;
@@ -131,9 +87,9 @@ export const useAuthStore = defineStore("auth", {
   },
   actions: {
     hydrateFromStorage() {
-      const stored = readAuthFromStorage();
-      this.accessToken = stored.accessToken;
-      this.refreshToken = stored.refreshToken;
+      const stored = readAuthStorage();
+      this.accessToken = normalizeToken(stored.accessToken);
+      this.refreshToken = normalizeToken(stored.refreshToken);
       this.userEmail = stored.userEmail;
       this.clientId = stored.clientId;
 
@@ -141,7 +97,7 @@ export const useAuthStore = defineStore("auth", {
         const restored = buildUserStateFromToken(this.accessToken, stored);
         this.userEmail = restored.userEmail;
         this.clientId = restored.clientId;
-        persistAuthToStorage({
+        writeAuthStorage({
           accessToken: this.accessToken,
           refreshToken: this.refreshToken,
           userEmail: this.userEmail,
@@ -151,12 +107,12 @@ export const useAuthStore = defineStore("auth", {
     },
 
     setAuthState({ accessToken = "", refreshToken = "", userEmail = "", clientId = "" } = {}) {
-      this.accessToken = accessToken ? String(accessToken) : "";
-      this.refreshToken = refreshToken ? String(refreshToken) : "";
+      this.accessToken = normalizeToken(accessToken);
+      this.refreshToken = normalizeToken(refreshToken);
       this.userEmail = userEmail ? String(userEmail) : "";
       this.clientId = clientId ? String(clientId) : "";
 
-      persistAuthToStorage({
+      writeAuthStorage({
         accessToken: this.accessToken,
         refreshToken: this.refreshToken,
         userEmail: this.userEmail,
@@ -169,24 +125,21 @@ export const useAuthStore = defineStore("auth", {
       this.refreshToken = "";
       this.userEmail = "";
       this.clientId = "";
-      persistAuthToStorage({
-        accessToken: "",
-        refreshToken: "",
-        userEmail: "",
-        clientId: "",
-      });
+      clearAuthStorage();
       clearSubscriptionCache();
     },
 
     applyAuth(access, refresh, email, clientId = "") {
-      const restoredFromToken = buildUserStateFromToken(access, {
+      const normalizedAccessToken = normalizeToken(access);
+      const normalizedRefreshToken = normalizeToken(refresh);
+      const restoredFromToken = buildUserStateFromToken(normalizedAccessToken, {
         userEmail: email,
         clientId,
       });
 
       this.setAuthState({
-        accessToken: access,
-        refreshToken: refresh,
+        accessToken: normalizedAccessToken,
+        refreshToken: normalizedRefreshToken,
         userEmail: restoredFromToken.userEmail,
         clientId: restoredFromToken.clientId,
       });
@@ -194,25 +147,28 @@ export const useAuthStore = defineStore("auth", {
     },
 
     async refreshAccessToken() {
-      if (!this.refreshToken) {
+      const refreshToken = normalizeToken(this.refreshToken || getRefreshToken());
+      if (!refreshToken) {
         throw new Error("NO_REFRESH_TOKEN");
       }
 
+      this.refreshToken = refreshToken;
+
       const response = await api.post(
         "/api/auth/refresh/",
-        { refresh: this.refreshToken },
+        { refresh: refreshToken },
         {
           _skipAuthRetry: true,
           _skipUnauthorizedLogout: true,
         }
       );
 
-      const nextAccessToken = String(response.data?.access || "");
+      const nextAccessToken = normalizeToken(response.data?.access || "");
       if (!nextAccessToken) {
         throw new Error("NO_ACCESS_TOKEN_IN_REFRESH_RESPONSE");
       }
 
-      this.applyAuth(nextAccessToken, this.refreshToken, this.userEmail, this.clientId);
+      this.applyAuth(nextAccessToken, refreshToken, this.userEmail, this.clientId);
       return nextAccessToken;
     },
 
@@ -231,6 +187,14 @@ export const useAuthStore = defineStore("auth", {
         this.hydrateFromStorage();
 
         if (!this.accessToken) {
+          if (this.refreshToken) {
+            try {
+              await this.refreshAccessToken();
+            } catch {
+              this.clearAuth();
+            }
+          }
+
           this.isInitialized = true;
           return;
         }
@@ -276,7 +240,7 @@ export const useAuthStore = defineStore("auth", {
 
       window.addEventListener("storage", (event) => {
         if (event.storageArea !== window.localStorage) return;
-        if (!AUTH_STORAGE_KEY_LIST.includes(String(event.key || ""))) return;
+        if (event.key && !AUTH_STORAGE_KEY_LIST.includes(String(event.key))) return;
 
         this.hydrateFromStorage();
         this.isInitialized = true;
