@@ -10,8 +10,8 @@
           <span />
         </div>
 
-        <p class="hero-demo__toolbar-title">{{ demo.title }}</p>
-        <span class="hero-demo__badge">{{ demo.badge }}</span>
+        <p class="hero-demo__toolbar-title">{{ resolvedDemo.title }}</p>
+        <span class="hero-demo__badge">{{ resolvedDemo.badge }}</span>
       </div>
 
       <div class="hero-demo__screen">
@@ -25,12 +25,12 @@
 
         <article class="hero-demo__card hero-demo__card--conversion" :class="{ 'is-pop': isAccented }">
           <div class="hero-demo__card-head">
-            <p class="hero-demo__label">{{ demo.conversion.title }}</p>
-            <span class="hero-demo__trend">{{ demo.conversion.growth }}</span>
+            <p class="hero-demo__label">{{ resolvedDemo.conversion.title }}</p>
+            <span class="hero-demo__trend">{{ resolvedDemo.conversion.growth }}</span>
           </div>
 
           <p class="hero-demo__value">{{ frame.conversion.toFixed(2) }}%</p>
-          <p class="hero-demo__period">{{ demo.conversion.period }}</p>
+          <p class="hero-demo__period">{{ resolvedDemo.conversion.period }}</p>
 
           <div class="hero-demo__chart-wrap">
             <svg viewBox="0 0 220 80" class="hero-demo__chart">
@@ -80,17 +80,17 @@
         </article>
 
         <article class="hero-demo__card hero-demo__card--visits">
-          <p class="hero-demo__label">{{ demo.visits.title }}</p>
+          <p class="hero-demo__label">{{ resolvedDemo.visits.title }}</p>
           <p class="hero-demo__metric">{{ (frame.visits / 1000).toFixed(1) }}K</p>
 
           <div class="hero-demo__meter">
             <span :style="{ width: `${visitsMeterWidth}%` }" />
           </div>
-          <p class="hero-demo__metric-trend">{{ demo.visits.growth }}</p>
+          <p class="hero-demo__metric-trend">{{ resolvedDemo.visits.growth }}</p>
         </article>
 
         <article class="hero-demo__card hero-demo__card--leads">
-          <p class="hero-demo__label">{{ demo.leads.title }}</p>
+          <p class="hero-demo__label">{{ resolvedDemo.leads.title }}</p>
           <p class="hero-demo__metric">{{ frame.leads }}</p>
 
           <ul class="hero-demo__bars" aria-hidden="true">
@@ -98,7 +98,7 @@
               <span :style="{ height: `${height}%` }" />
             </li>
           </ul>
-          <p class="hero-demo__metric-trend">{{ demo.leads.growth }}</p>
+          <p class="hero-demo__metric-trend">{{ resolvedDemo.leads.growth }}</p>
         </article>
       </div>
     </div>
@@ -110,12 +110,47 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 
-defineProps({
+const DEFAULT_DEMO = {
+  title: "Dashboard preview",
+  badge: "LIVE PREVIEW",
+  conversion: {
+    title: "Конверсия",
+    period: "за последние 7 дней",
+    growth: "+7.5%",
+  },
+  visits: {
+    title: "Визиты",
+    growth: "+3.2%",
+  },
+  leads: {
+    title: "Заявки",
+    growth: "+12%",
+  },
+};
+
+const props = defineProps({
   demo: {
     type: Object,
-    required: true,
+    default: () => ({}),
   },
 });
+
+const resolvedDemo = computed(() => ({
+  title: props.demo?.title || DEFAULT_DEMO.title,
+  badge: props.demo?.badge || DEFAULT_DEMO.badge,
+  conversion: {
+    ...DEFAULT_DEMO.conversion,
+    ...(props.demo?.conversion || {}),
+  },
+  visits: {
+    ...DEFAULT_DEMO.visits,
+    ...(props.demo?.visits || {}),
+  },
+  leads: {
+    ...DEFAULT_DEMO.leads,
+    ...(props.demo?.leads || {}),
+  },
+}));
 
 const START_CONVERSION = 8.03;
 const END_CONVERSION = 8.61;

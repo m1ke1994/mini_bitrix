@@ -1,5 +1,5 @@
 <template>
-  <section class="relative z-10 mx-auto mt-8 w-full max-w-full overflow-hidden px-4 sm:max-w-[1280px] sm:px-0 lg:mt-9">
+  <section class="relative z-10 mx-auto mt-12 w-full max-w-full overflow-hidden px-4 sm:max-w-[1280px] sm:px-0 lg:mt-14">
     <div class="grid items-center gap-7 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)] lg:gap-8">
       <div class="order-1 min-w-0">
         <h1 class="max-w-full text-[34px] font-semibold leading-[1.08] tracking-[-0.02em] text-[#1f273a] sm:max-w-[560px] sm:text-[49px] lg:text-[62px]">
@@ -57,6 +57,8 @@
 </template>
 
 <script setup>
+import HeroConversionDemo from "./HeroConversionDemo.vue";
+
 defineProps({
   hero: {
     type: Object,
