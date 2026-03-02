@@ -91,6 +91,28 @@ export default defineNuxtConfig({
       },
     },
 
+    "/auth": {
+      ssr: false,
+      headers: {
+        "Cache-Control": "no-store",
+        "X-Robots-Tag": "noindex, nofollow",
+      },
+    },
+    "/login": {
+      ssr: false,
+      headers: {
+        "Cache-Control": "no-store",
+        "X-Robots-Tag": "noindex, nofollow",
+      },
+    },
+    "/register": {
+      ssr: false,
+      headers: {
+        "Cache-Control": "no-store",
+        "X-Robots-Tag": "noindex, nofollow",
+      },
+    },
+
     // Если это тоже разделы кабинета — оставляем SPA
     "/settings": {
       ssr: false,

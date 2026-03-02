@@ -11,6 +11,7 @@ import {
 } from "./authStorage";
 
 const AUTH_ENDPOINTS = ["/api/auth/login/", "/api/auth/register/", "/api/auth/logout/", "/api/auth/refresh/"];
+const CABINET_PATHS = ["/dashboard", "/settings", "/account", "/integration", "/reports", "/instructions"];
 
 let refreshRequestPromise = null;
 
@@ -95,12 +96,26 @@ function getCurrentRoutePath() {
   return `${window.location.pathname}${window.location.search || ""}`;
 }
 
+function normalizeClientPath(path) {
+  const normalizedPath = String(path || "/").trim();
+  if (!normalizedPath) return "/";
+  if (normalizedPath === "/") return "/";
+  if (normalizedPath.endsWith("/")) return normalizedPath.slice(0, -1);
+  return normalizedPath;
+}
+
+function isCabinetPath(path) {
+  return CABINET_PATHS.some((basePath) => path === basePath || path.startsWith(`${basePath}/`));
+}
+
 function redirectToLogin() {
   if (!import.meta.client || typeof window === "undefined") return;
 
   const loginPath = getLoginRedirectPath();
-  const currentPath = String(window.location.pathname || "");
-  if (currentPath === loginPath || currentPath === `${loginPath}/`) return;
+  const normalizedCurrentPath = normalizeClientPath(window.location.pathname);
+  const normalizedLoginPath = normalizeClientPath(loginPath);
+  if (normalizedCurrentPath === normalizedLoginPath) return;
+  if (!isCabinetPath(normalizedCurrentPath)) return;
 
   window.location.assign(loginPath);
 }
