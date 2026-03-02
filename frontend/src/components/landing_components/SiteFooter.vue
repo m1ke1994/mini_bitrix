@@ -9,80 +9,54 @@
 
       <div class="footer-top">
         <section class="footer-brand">
-          <a href="/" class="footer-logo">
-            <img src="/brand/logo.svg" alt="TrackNode" />
-            <span>TrackNode</span>
+          <a :href="footer.brand.href" class="footer-logo">
+            <img :src="footer.brand.logoSrc" :alt="footer.brand.name" />
+            <span>{{ footer.brand.name }}</span>
           </a>
 
-          <p class="footer-copy">© 2026 TrackNode. Все права защищены.</p>
+          <p class="footer-copy">{{ footer.copyright }}</p>
 
           <p class="footer-legal">
-            <a href="#">Политика конфиденциальности</a>
-            <span>|</span>
-            <a href="#">Условия пользования</a>
+            <template v-for="(link, index) in footer.legalLinks" :key="link.label">
+              <a :href="link.href">{{ link.label }}</a>
+              <span v-if="index < footer.legalLinks.length - 1">|</span>
+            </template>
           </p>
         </section>
 
-        <section class="footer-menus" aria-label="Навигация футера">
-          <div class="footer-column">
-            <h3>Продукт</h3>
+        <section class="footer-menus" aria-label="��������� ������">
+          <div v-for="column in footer.columns" :key="column.title" class="footer-column">
+            <h3>{{ column.title }}</h3>
             <ul>
-              <li><a href="#features">Возможности</a></li>
-              <li><a href="#how">Как это работает</a></li>
-              <li><a href="#pricing">Тарифы</a></li>
-              <li>
-                <a href="https://tracknot.ru" target="_blank" rel="noopener">
-                  Открыть приложение
+              <li v-for="link in column.links" :key="`${column.title}-${link.label}`">
+                <a :href="link.href" :target="link.target || null" :rel="link.rel || null">
+                  {{ link.label }}
                 </a>
               </li>
             </ul>
           </div>
-
-          <div class="footer-column">
-            <h3>Ресурсы</h3>
-            <ul>
-              <li><a href="#reviews">Отзывы</a></li>
-              <li><a href="#faq">FAQ</a></li>
-              <li><a href="#footer-contacts">Поддержка</a></li>
-              <li><a href="#footer-contacts">Документация</a></li>
-            </ul>
-          </div>
-
-          <div class="footer-column">
-            <h3>Компания</h3>
-            <ul>
-              <li><a href="#footer-contacts">Контакты</a></li>
-              <li><a href="#footer-contacts">Партнёрам</a></li>
-              <li><a href="#footer-contacts">Вакансии</a></li>
-              <li><a href="#footer-contacts">О нас</a></li>
-            </ul>
-          </div>
         </section>
 
-        <section class="footer-contacts" aria-label="Контакты">
-          <h3>Контакты</h3>
+        <section class="footer-contacts" aria-label="��������">
+          <h3>{{ footer.contacts.title }}</h3>
           <ul>
-            <li>
-              <span class="footer-contact-label">Telegram</span>
-              <a href="https://t.me/M1ke994" target="_blank" rel="noopener">@M1ke994</a>
-            </li>
-            <li>
-              <span class="footer-contact-label">Email</span>
-              <a href="mailto:tishechkin1994@gmail.com">tishechkin1994@gmail.com</a>
-            </li>
-            <li>
-              <span class="footer-contact-label">Телефон</span>
-              <a href="tel:+79017800504">+7-901-780-05-04</a>
-            </li>
-            <li>
-              <span class="footer-contact-label">Адрес</span>
-              <span>Россия, Москва, ул. Ленинградская, 15</span>
+            <li v-for="item in footer.contacts.items" :key="item.label">
+              <span class="footer-contact-label">{{ item.label }}</span>
+              <a v-if="item.href" :href="item.href">{{ item.value }}</a>
+              <span v-else>{{ item.value }}</span>
             </li>
           </ul>
 
-          <div class="footer-socials" aria-label="Социальные сети">
-            <a href="https://t.me/M1ke994" target="_blank" rel="noopener" aria-label="Telegram">
-              <svg viewBox="0 0 20 20" fill="none">
+          <div class="footer-socials" aria-label="���������� ����">
+            <a
+              v-for="social in footer.contacts.socials"
+              :key="social.label"
+              :href="social.href"
+              target="_blank"
+              rel="noopener"
+              :aria-label="social.label"
+            >
+              <svg v-if="social.icon === 'telegram'" viewBox="0 0 20 20" fill="none">
                 <path
                   d="M17.5 3.7L15.1 15.2C14.95 15.9 14.55 16.08 13.95 15.74L10.45 13.16L8.72 14.83C8.54 15.02 8.39 15.16 8.04 15.16L8.3 11.52L14.88 5.56C15.17 5.31 14.82 5.16 14.45 5.42L6.31 10.56L2.8 9.47C2.04 9.22 2.02 8.7 2.96 8.34L16.55 3.1C17.18 2.86 17.73 3.24 17.5 3.7Z"
                   stroke="currentColor"
@@ -90,9 +64,7 @@
                   stroke-linejoin="round"
                 />
               </svg>
-            </a>
-            <a href="https://example.com" target="_blank" rel="noopener" aria-label="VK">
-              <svg viewBox="0 0 20 20" fill="none">
+              <svg v-else-if="social.icon === 'vk'" viewBox="0 0 20 20" fill="none">
                 <path
                   d="M3.9 6.2H6.1C6.22 6.2 6.34 6.3 6.37 6.42C6.61 7.54 7.08 8.6 7.77 9.53C8.6 10.66 9.53 11.34 10.06 11.45C10.2 11.48 10.33 11.37 10.33 11.23V6.58C10.33 6.37 10.5 6.2 10.71 6.2H12.55C12.76 6.2 12.93 6.37 12.93 6.58V9.02C12.93 9.19 13.14 9.27 13.26 9.15C14.08 8.31 14.68 7.28 15 6.16C15.03 6.05 15.14 5.97 15.26 5.97H17.08C17.35 5.97 17.55 6.23 17.46 6.49C16.98 7.88 16.23 9.16 15.24 10.25C15.16 10.34 15.16 10.48 15.24 10.56C16.26 11.61 17.06 12.85 17.59 14.22C17.69 14.49 17.49 14.78 17.2 14.78H15.31C15.2 14.78 15.09 14.72 15.04 14.62C14.54 13.58 13.84 12.65 12.99 11.87C12.87 11.76 12.67 11.84 12.67 12V14.36C12.67 14.57 12.5 14.74 12.29 14.74H11.18C7.3 14.74 4.41 12.14 3.58 6.59C3.55 6.37 3.72 6.2 3.9 6.2Z"
                   stroke="currentColor"
@@ -100,9 +72,7 @@
                   stroke-linejoin="round"
                 />
               </svg>
-            </a>
-            <a href="https://example.com" target="_blank" rel="noopener" aria-label="YouTube">
-              <svg viewBox="0 0 20 20" fill="none">
+              <svg v-else viewBox="0 0 20 20" fill="none">
                 <rect x="2.7" y="5.4" width="14.6" height="9.2" rx="2.5" stroke="currentColor" stroke-width="1.3" />
                 <path d="M8.4 8.1L12.8 10L8.4 11.9V8.1Z" fill="currentColor" />
               </svg>
@@ -112,17 +82,26 @@
       </div>
 
       <div class="footer-bottom">
-        <p>© 2026 TrackNode. Все права защищены.</p>
+        <p>{{ footer.copyright }}</p>
         <p>
-          <a href="#">Политика конфиденциальности</a>
-          <span>|</span>
-          <a href="#">Условия пользования</a>
+          <template v-for="(link, index) in footer.legalLinks" :key="`bottom-${link.label}`">
+            <a :href="link.href">{{ link.label }}</a>
+            <span v-if="index < footer.legalLinks.length - 1">|</span>
+          </template>
         </p>
       </div>
     </div>
   </footer>
 </template>
 
+<script setup>
+defineProps({
+  footer: {
+    type: Object,
+    required: true,
+  },
+});
+</script>
 <style scoped>
 .site-footer {
   position: relative;
@@ -498,3 +477,4 @@
   }
 }
 </style>
+

@@ -6,8 +6,8 @@
 
       <div class="relative z-10 flex h-full min-w-0 flex-col gap-3 p-3.5 sm:p-5">
         <div class="flex min-w-0 flex-wrap items-center justify-between gap-2">
-          <p class="min-w-0 max-w-full break-words text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500 sm:text-[12px]">Dashboard preview</p>
-          <span class="shrink-0 rounded-full bg-white/75 px-3 py-1 text-[11px] font-medium text-slate-700 backdrop-blur">LIVE PREVIEW</span>
+          <p class="min-w-0 max-w-full break-words text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500 sm:text-[12px]">{{ demo.title }}</p>
+          <span class="shrink-0 rounded-full bg-white/75 px-3 py-1 text-[11px] font-medium text-slate-700 backdrop-blur">{{ demo.badge }}</span>
         </div>
 
         <div class="grid min-w-0 flex-1 auto-rows-[minmax(0,1fr)] grid-cols-12 gap-3">
@@ -17,11 +17,11 @@
           >
             <div class="flex min-w-0 items-start justify-between gap-3">
               <div class="min-w-0">
-                <p class="text-[14px] font-semibold text-slate-700">Конверсия</p>
+                <p class="text-[14px] font-semibold text-slate-700">{{ demo.conversion.title }}</p>
                 <p class="mt-1 text-[30px] font-bold tracking-[-0.02em] text-slate-900 sm:text-[38px]">{{ frame.conversion.toFixed(2) }}%</p>
-                <p class="mt-1 text-[12px] text-slate-500">за последние 7 дней</p>
+                <p class="mt-1 text-[12px] text-slate-500">{{ demo.conversion.period }}</p>
               </div>
-              <span class="shrink-0 rounded-full border border-emerald-200/90 bg-emerald-50/95 px-2.5 py-1 text-[12px] font-semibold text-emerald-700">+7.5%</span>
+              <span class="shrink-0 rounded-full border border-emerald-200/90 bg-emerald-50/95 px-2.5 py-1 text-[12px] font-semibold text-emerald-700">{{ demo.conversion.growth }}</span>
             </div>
 
             <div class="mt-3 h-[136px] sm:h-[150px]">
@@ -72,20 +72,20 @@
           </section>
 
           <section class="col-span-6 min-w-0 rounded-2xl border border-white/80 bg-white/70 p-3 shadow-[0_10px_22px_rgba(15,23,42,0.08)] backdrop-blur-sm lg:col-span-4">
-            <p class="text-[12px] font-medium text-slate-500">Визиты</p>
+            <p class="text-[12px] font-medium text-slate-500">{{ demo.visits.title }}</p>
             <p class="mt-2 text-[24px] font-bold tracking-[-0.02em] text-slate-900">{{ (frame.visits / 1000).toFixed(1) }}K</p>
             <p class="mt-1 inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 animate-[pulse_5.8s_ease-in-out_infinite]">
-              <span aria-hidden="true">↗</span>
-              +3.2%
+              <span aria-hidden="true">↑</span>
+              {{ demo.visits.growth }}
             </p>
           </section>
 
           <section class="col-span-6 min-w-0 rounded-2xl border border-white/80 bg-white/70 p-3 shadow-[0_10px_22px_rgba(15,23,42,0.08)] backdrop-blur-sm lg:col-span-4">
-            <p class="text-[12px] font-medium text-slate-500">Заявки</p>
+            <p class="text-[12px] font-medium text-slate-500">{{ demo.leads.title }}</p>
             <p class="mt-2 text-[24px] font-bold tracking-[-0.02em] text-slate-900">{{ frame.leads }}</p>
             <p class="mt-1 inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 animate-[pulse_6.1s_ease-in-out_infinite]">
-              <span aria-hidden="true">↗</span>
-              +12%
+              <span aria-hidden="true">↑</span>
+              {{ demo.leads.growth }}
             </p>
           </section>
         </div>
@@ -96,6 +96,13 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
+
+defineProps({
+  demo: {
+    type: Object,
+    required: true,
+  },
+});
 
 const START_CONVERSION = 8.0;
 const END_CONVERSION = 8.6;

@@ -37,7 +37,7 @@
         <div class="relative mx-auto w-full max-w-full overflow-hidden sm:max-w-[900px]">
           <div class="pointer-events-none absolute inset-x-0 -top-4 bottom-2 rounded-[28px] bg-[radial-gradient(circle_at_78%_36%,rgba(158,207,255,0.55)_0%,rgba(158,207,255,0)_62%),radial-gradient(circle_at_14%_72%,rgba(189,214,255,0.46)_0%,rgba(189,214,255,0)_58%)] blur-[22px] sm:-left-10 sm:-right-6 sm:-top-6 sm:inset-x-auto sm:rounded-[40px] sm:blur-[34px] lg:-left-14 lg:-right-8 lg:-top-7 lg:rounded-[46px] lg:blur-[36px]" />
 
-          <HeroConversionDemo />
+          <HeroConversionDemo :demo="demo" />
 
           <div class="mx-auto mt-2 h-[9px] w-[90%] rounded-b-[18px] bg-gradient-to-b from-[#dbe4f3] to-[#b8c7df] shadow-[0_10px_20px_rgba(41,61,98,0.25)]" />
         </div>
@@ -65,6 +65,10 @@ defineProps({
     required: true,
   },
   trust: {
+    type: Object,
+    required: true,
+  },
+  demo: {
     type: Object,
     required: true,
   },

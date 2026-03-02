@@ -1,5 +1,6 @@
-Ôªøimport { defineStore } from "pinia";
+import { defineStore } from "pinia";
 import api from "../services/api";
+import { hasToken, normalizeToken } from "../utils/authToken";
 
 const AUTH_STORAGE_KEYS = {
   accessToken: "accessToken",
@@ -45,8 +46,8 @@ function setStoredValue(key, value) {
 
 function readAuthFromStorage() {
   return {
-    accessToken: getStoredValue(AUTH_STORAGE_KEYS.accessToken),
-    refreshToken: getStoredValue(AUTH_STORAGE_KEYS.refreshToken),
+    accessToken: normalizeToken(getStoredValue(AUTH_STORAGE_KEYS.accessToken)),
+    refreshToken: normalizeToken(getStoredValue(AUTH_STORAGE_KEYS.refreshToken)),
     userEmail: getStoredValue(AUTH_STORAGE_KEYS.userEmail),
     clientId: getStoredValue(AUTH_STORAGE_KEYS.clientId),
   };
@@ -127,7 +128,7 @@ export const useAuthStore = defineStore("auth", {
     isInitializing: false,
   }),
   getters: {
-    isAuthenticated: (state) => Boolean(state.accessToken),
+    isAuthenticated: (state) => hasToken(state.accessToken),
   },
   actions: {
     hydrateFromStorage() {
@@ -151,8 +152,8 @@ export const useAuthStore = defineStore("auth", {
     },
 
     setAuthState({ accessToken = "", refreshToken = "", userEmail = "", clientId = "" } = {}) {
-      this.accessToken = accessToken ? String(accessToken) : "";
-      this.refreshToken = refreshToken ? String(refreshToken) : "";
+      this.accessToken = normalizeToken(accessToken);
+      this.refreshToken = normalizeToken(refreshToken);
       this.userEmail = userEmail ? String(userEmail) : "";
       this.clientId = clientId ? String(clientId) : "";
 
@@ -194,20 +195,20 @@ export const useAuthStore = defineStore("auth", {
     },
 
     async refreshAccessToken() {
-      if (!this.refreshToken) {
+      if (!hasToken(this.refreshToken)) {
         throw new Error("NO_REFRESH_TOKEN");
       }
 
       const response = await api.post(
         "/api/auth/refresh/",
-        { refresh: this.refreshToken },
+        { refresh: normalizeToken(this.refreshToken) },
         {
           _skipAuthRetry: true,
           _skipUnauthorizedLogout: true,
         }
       );
 
-      const nextAccessToken = String(response.data?.access || "");
+      const nextAccessToken = normalizeToken(response.data?.access);
       if (!nextAccessToken) {
         throw new Error("NO_ACCESS_TOKEN_IN_REFRESH_RESPONSE");
       }
@@ -299,7 +300,7 @@ export const useAuthStore = defineStore("auth", {
         const tokens = response.data?.tokens || {};
         this.applyAuth(tokens.access, tokens.refresh, email, response.data?.user?.client_id || "");
       } catch (error) {
-        this.error = extractErrorMessage(error, "–û—à–∏–±–∫–∞ —Ä–µ–≥–∏—Å—Ç—Ä–∞—Ü–∏–∏.");
+        this.error = extractErrorMessage(error, "Œ¯Ë·Í‡ Â„ËÒÚ‡ˆËË.");
         throw error;
       }
     },
@@ -310,7 +311,7 @@ export const useAuthStore = defineStore("auth", {
         const response = await api.post("/api/auth/login/", { email, password });
         this.applyAuth(response.data.access, response.data.refresh, email, response.data?.client_id || "");
       } catch (error) {
-        this.error = extractErrorMessage(error, "–û—à–∏–±–∫–∞ –≤—Ö–æ–¥–∞.");
+        this.error = extractErrorMessage(error, "Œ¯Ë·Í‡ ‚ıÓ‰‡.");
         throw error;
       }
     },
@@ -337,3 +338,6 @@ export const useAuthStore = defineStore("auth", {
     },
   },
 });
+
+
+

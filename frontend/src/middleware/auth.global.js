@@ -2,6 +2,7 @@ import { primeSubscriptionStatus } from "~/composables/useSubscriptionStatus";
 import { useAuthStore } from "~/stores/auth";
 
 const AUTH_PATHS = new Set(["/auth", "/login", "/register"]);
+const APP_AUTH_PATHS = new Set(["/app/auth", "/app/login", "/app/register"]);
 
 export default defineNuxtRouteMiddleware(async (to) => {
   const auth = useAuthStore();
@@ -11,17 +12,19 @@ export default defineNuxtRouteMiddleware(async (to) => {
   }
 
   const isPublic = to.matched.some((record) => record.meta?.publicPage === true);
-  const isAuthPage = AUTH_PATHS.has(String(to.path || ""));
+  const toPath = String(to.path || "");
+  const isAuthPage = AUTH_PATHS.has(toPath) || APP_AUTH_PATHS.has(toPath);
+  const isDashboardPage = toPath.startsWith("/app/dashboard") || toPath.startsWith("/dashboard");
 
   if (!isPublic && !auth.isAuthenticated) {
-    return navigateTo("/login");
+    return navigateTo("/app/login");
   }
 
   if (isAuthPage && auth.isAuthenticated) {
-    return navigateTo("/dashboard");
+    return navigateTo("/app/dashboard");
   }
 
-  if (import.meta.client && auth.isAuthenticated && String(to.path || "").startsWith("/dashboard")) {
+  if (import.meta.client && auth.isAuthenticated && isDashboardPage) {
     primeSubscriptionStatus();
   }
 });

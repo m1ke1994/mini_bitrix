@@ -7,6 +7,10 @@ export default defineEventHandler(() => {
     "Disallow: /dashboard",
     "Disallow: /dashboard/",
     "Disallow: /dashboard/*",
+    "Disallow: /app",
+    "Disallow: /app*",
+    "Disallow: /app/",
+    "Disallow: /app/*",
     "",
     `Sitemap: ${SITE_URL}/sitemap.xml`,
   ].join("\n");

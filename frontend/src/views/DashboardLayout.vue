@@ -22,15 +22,15 @@
         </div>
       </div>
       <nav class="dashboard-subnav">
-        <router-link to="/dashboard" exact-active-class="active">Обзор</router-link>
-        <router-link to="/dashboard/dynamics" class="sub-item">Динамика по дням</router-link>
-        <router-link to="/dashboard/unique" class="sub-item">Уникальные пользователи</router-link>
-        <router-link to="/dashboard/engagement" class="sub-item">Вовлечённость</router-link>
-        <router-link to="/dashboard/sources" class="sub-item">Топ источников</router-link>
-        <router-link to="/dashboard/clicks" class="sub-item">Топ кликов</router-link>
-        <router-link to="/dashboard/pages-conversion" class="sub-item">Конверсия по страницам</router-link>
-        <router-link to="/dashboard/seo" class="sub-item">SEO аудит</router-link>
-        <router-link to="/dashboard/devices" class="sub-item">Устройства</router-link>
+        <router-link to="/app/dashboard" exact-active-class="active">Обзор</router-link>
+        <router-link to="/app/dashboard/dynamics" class="sub-item">Динамика по дням</router-link>
+        <router-link to="/app/dashboard/unique" class="sub-item">Уникальные пользователи</router-link>
+        <router-link to="/app/dashboard/engagement" class="sub-item">Вовлечённость</router-link>
+        <router-link to="/app/dashboard/sources" class="sub-item">Топ источников</router-link>
+        <router-link to="/app/dashboard/clicks" class="sub-item">Топ кликов</router-link>
+        <router-link to="/app/dashboard/pages-conversion" class="sub-item">Конверсия по страницам</router-link>
+        <router-link to="/app/dashboard/seo" class="sub-item">SEO аудит</router-link>
+        <router-link to="/app/dashboard/devices" class="sub-item">Устройства</router-link>
       </nav>
       <div class="dashboard-view">
         <div v-if="subscriptionChecking" class="subscription-inline-skeleton" aria-hidden="true"></div>

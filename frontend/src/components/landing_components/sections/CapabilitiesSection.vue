@@ -49,9 +49,12 @@
 
 <script setup>
 import { h } from "vue";
-import { siteData } from "~/assets/data";
-
-const capabilities = siteData.capabilities;
+defineProps({
+  capabilities: {
+    type: Object,
+    required: true,
+  },
+});
 
 const iconMap = {
   telegram: () =>

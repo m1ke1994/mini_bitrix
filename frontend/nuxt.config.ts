@@ -1,5 +1,8 @@
 export default defineNuxtConfig({
   srcDir: "src/",
+  dir: {
+    public: "../public",
+  },
   ssr: true,
   devServer: {
     host: "0.0.0.0",
@@ -60,6 +63,20 @@ export default defineNuxtConfig({
       },
     },
     "/dashboard/**": {
+      ssr: false,
+      headers: {
+        "Cache-Control": "no-store",
+        "X-Robots-Tag": "noindex, nofollow",
+      },
+    },
+    "/app": {
+      ssr: false,
+      headers: {
+        "Cache-Control": "no-store",
+        "X-Robots-Tag": "noindex, nofollow",
+      },
+    },
+    "/app/**": {
       ssr: false,
       headers: {
         "Cache-Control": "no-store",

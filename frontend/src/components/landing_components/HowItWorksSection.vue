@@ -8,10 +8,8 @@
 
     <div class="how-content">
       <header class="how-header">
-        <h2 class="how-title">Как это работает</h2>
-        <p class="how-subtitle">
-          Внесите сайт в два простых шага и получите аналитику и уведомления.
-        </p>
+        <h2 class="how-title">{{ how.title }}</h2>
+        <p class="how-subtitle">{{ how.subtitle }}</p>
       </header>
 
       <div class="how-grid">
@@ -55,14 +53,11 @@
 
           <template v-if="currentModal.type === 'example'">
             <img
-              src="/Hero/hero.gif"
-              alt="Пример аналитики TrackNode"
+              :src="currentModal.image"
+              :alt="currentModal.imageAlt || currentModal.title"
               class="how-modal-gif"
             />
-            <p class="how-modal-text">
-              TrackNode показывает ключевые метрики в одном интерфейсе: посещения, источники, события и заявки.
-              Команда сразу видит, где растёт конверсия, а где нужны доработки, и быстрее принимает решения.
-            </p>
+            <p class="how-modal-text">{{ currentModal.text }}</p>
           </template>
 
           <template v-else>
@@ -77,67 +72,25 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, toRef } from "vue";
 
-const steps = [
-  {
-    id: "step-1",
-    number: "1",
-    title: "Добавляете сайт",
-    description: "Введите адрес сайта и создайте проект в TrackNode.",
-    image: "/how/step-1.png",
-    alt: "Добавление сайта",
+const props = defineProps({
+  how: {
+    type: Object,
+    required: true,
   },
-  {
-    id: "step-2",
-    number: "2",
-    title: "Устанавливаете код",
-    description: "Установите линейный код отслеживания или интеграцию.",
-    image: "/how/step-2.png",
-    alt: "Установка кода отслеживания",
-  },
-  {
-    id: "step-3",
-    number: "3",
-    title: "Смотрите аналитику",
-    description: "Отслеживайте посещения и уведомления о заявках.",
-    image: "/how/step-3.png",
-    alt: "Просмотр аналитики",
-  },
-];
+});
 
-const modalData = {
-  "step-1": {
-    type: "steps",
-    title: "Добавляете сайт",
-    steps: [
-      "Откройте TrackNode и нажмите «Создать проект».",
-      "Укажите домен сайта и рабочий часовой пояс.",
-      "Выберите Telegram-канал для уведомлений о заявках.",
-      "Проверьте параметры проекта и сохраните настройки.",
-    ],
-  },
-  "step-2": {
-    type: "steps",
-    title: "Устанавливаете код",
-    steps: [
-      "Скопируйте трекинг-код из карточки проекта.",
-      "Добавьте код перед закрывающим тегом </head> на сайте.",
-      "Если используете CMS, подключите код через шаблон или модуль.",
-      "Опубликуйте изменения и выполните тестовый визит.",
-      "Убедитесь, что данные начали поступать в дашборд.",
-    ],
-  },
-  "step-3": {
-    type: "example",
-    title: "Пример",
-  },
-};
+const how = toRef(props, "how");
+const steps = computed(() => how.value?.steps || []);
+const modalData = computed(() => how.value?.modals || {});
 
 const activeModal = ref("");
-const currentModal = computed(() => (activeModal.value ? modalData[activeModal.value] : null));
+const currentModal = computed(() => (activeModal.value ? modalData.value[activeModal.value] : null));
 
 function openModal(id) {
+  if (!modalData.value[id]) return;
+
   activeModal.value = id;
   document.body.style.overflow = "hidden";
 }
@@ -663,3 +616,4 @@ onBeforeUnmount(() => {
   }
 }
 </style>
+

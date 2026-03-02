@@ -136,7 +136,7 @@ const registerForm = reactive({
 });
 
 function syncModeWithRoute(path) {
-  isRegister.value = String(path || "").startsWith("/register");
+  isRegister.value = String(path || "").endsWith("/register");
   error.value = "";
   showLoginPassword.value = false;
   showRegisterPassword.value = false;
@@ -150,8 +150,13 @@ watch(
   { immediate: true }
 );
 
+function getAuthPrefix(path) {
+  return String(path || "").startsWith("/app") ? "/app" : "";
+}
+
 function toggleMode() {
-  router.push(isRegister.value ? "/login" : "/register");
+  const prefix = getAuthPrefix(route.path);
+  router.push(`${prefix}${isRegister.value ? "/login" : "/register"}`);
 }
 
 function validateLoginForm() {
@@ -185,7 +190,7 @@ async function handleLogin() {
   error.value = "";
   try {
     await auth.login(String(loginForm.email).trim(), loginForm.password);
-    router.push("/dashboard");
+    router.push("/app/dashboard");
   } catch (_) {
     error.value = auth.error || "Ошибка входа.";
   } finally {
@@ -198,7 +203,7 @@ async function handleRegister() {
   error.value = "";
   try {
     await auth.register(registerForm.email, registerForm.password, registerForm.companyName);
-    router.push("/dashboard");
+    router.push("/app/dashboard");
   } catch (_) {
     error.value = auth.error || "Ошибка регистрации.";
   } finally {
@@ -449,3 +454,4 @@ async function handleRegister() {
   }
 }
 </style>
+

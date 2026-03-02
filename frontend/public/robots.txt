@@ -3,5 +3,9 @@ Allow: /
 Disallow: /dashboard
 Disallow: /dashboard/
 Disallow: /dashboard/*
+Disallow: /app
+Disallow: /app*
+Disallow: /app/
+Disallow: /app/*
 
 Sitemap: https://tracknode.ru/sitemap.xml

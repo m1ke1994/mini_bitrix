@@ -16,7 +16,7 @@
         </p>
       </article>
 
-      <h3 class="faq-list-title">Р§Р°СЃС‚С‹Рµ РІРѕРїСЂРѕСЃС‹ Рѕ СЃРµСЂРІРёСЃРµ</h3>
+      <h3 class="faq-list-title">{{ faq.listTitle || "Частые вопросы о сервисе" }}</h3>
 
       <div class="faq-list" role="list">
         <article
@@ -52,9 +52,12 @@
 
 <script setup>
 import { ref } from "vue";
-import { siteData } from "~/assets/data";
-
-const faq = siteData.faq;
+defineProps({
+  faq: {
+    type: Object,
+    required: true,
+  },
+});
 const openIndex = ref(0);
 
 function toggle(index) {
@@ -362,3 +365,4 @@ function toggle(index) {
   }
 }
 </style>
+

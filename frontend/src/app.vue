@@ -27,6 +27,12 @@ function normalizeSchema(schema) {
 
 useHead(() => {
   const meta = route.meta || {};
+  if (meta.disableGlobalSeo) {
+    return {
+      link: [{ rel: "home", href: BASE_URL }],
+    };
+  }
+
   const seo = meta.seo || {};
 
   const title = seo.title || DEFAULT_TITLE;
@@ -70,4 +76,3 @@ useHead(() => {
   };
 });
 </script>
-

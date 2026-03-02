@@ -3,7 +3,7 @@
     <section class="wrap">
       <h1>{{ heading }}</h1>
       <p>{{ text }}</p>
-      <router-link to="/register" class="cta">Попробовать TrackNode</router-link>
+      <router-link to="/app/register" class="cta">Попробовать TrackNode</router-link>
 
       <SeoContentBlock
         v-if="seoContent"
@@ -72,3 +72,4 @@ p {
   font-weight: 700;
 }
 </style>
+

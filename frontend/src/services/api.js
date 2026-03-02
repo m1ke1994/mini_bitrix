@@ -1,6 +1,7 @@
 import { $fetch } from "ofetch";
 import { useRuntimeConfig } from "#imports";
 import { useAuthStore } from "../stores/auth";
+import { hasToken, normalizeToken } from "../utils/authToken";
 
 const AUTH_ENDPOINTS = ["/api/auth/login/", "/api/auth/register/", "/api/auth/logout/", "/api/auth/refresh/"];
 
@@ -13,7 +14,7 @@ function canUseWebStorage() {
 function getStoredAccessToken() {
   if (!canUseWebStorage()) return "";
   try {
-    return String(window.localStorage.getItem("accessToken") || "");
+    return normalizeToken(window.localStorage.getItem("accessToken"));
   } catch {
     return "";
   }
@@ -22,7 +23,7 @@ function getStoredAccessToken() {
 function hasRefreshTokenInStorage() {
   if (!canUseWebStorage()) return false;
   try {
-    return Boolean(window.localStorage.getItem("refreshToken"));
+    return hasToken(window.localStorage.getItem("refreshToken"));
   } catch {
     return false;
   }
@@ -34,11 +35,12 @@ function isAuthEndpointRequest(config) {
 }
 
 function setAuthorizationHeader(config, token) {
-  if (!token) return config;
+  const normalizedToken = normalizeToken(token);
+  if (!normalizedToken) return config;
 
   const nextConfig = config;
   nextConfig.headers = { ...(nextConfig.headers || {}) };
-  nextConfig.headers.Authorization = `Bearer ${token}`;
+  nextConfig.headers.Authorization = `Bearer ${normalizedToken}`;
   return nextConfig;
 }
 
@@ -134,14 +136,18 @@ async function executeRawRequest(requestConfig) {
 
 async function dispatchRequest(initialConfig) {
   const auth = useAuthStore();
-  const token = auth.accessToken || getStoredAccessToken();
-  const requestConfig = setAuthorizationHeader(
-    {
-      ...initialConfig,
-      headers: { ...(initialConfig?.headers || {}) },
-    },
-    token
-  );
+  const token = normalizeToken(auth.accessToken) || getStoredAccessToken();
+  const requestConfigBase = {
+    ...initialConfig,
+    headers: { ...(initialConfig?.headers || {}) },
+  };
+  const existingAuthorization = String(requestConfigBase.headers?.Authorization || "");
+  if (!hasToken(token) && /bearer\s+(undefined|null)/i.test(existingAuthorization)) {
+    delete requestConfigBase.headers.Authorization;
+  }
+  const requestConfig = isAuthEndpointRequest(initialConfig)
+    ? requestConfigBase
+    : setAuthorizationHeader(requestConfigBase, token);
 
   try {
     return await executeRawRequest(requestConfig);
@@ -162,14 +168,14 @@ async function dispatchRequest(initialConfig) {
       !isAuthEndpoint &&
       !requestConfig._retry &&
       !requestConfig._skipAuthRetry &&
-      Boolean(auth.refreshToken || hasRefreshTokenInStorage());
+      Boolean(normalizeToken(auth.refreshToken) || hasRefreshTokenInStorage());
 
     if (canRetryWithRefresh) {
       try {
         refreshRequestPromise ||= auth.refreshAccessToken();
         await refreshRequestPromise;
 
-        const nextToken = auth.accessToken || getStoredAccessToken();
+        const nextToken = normalizeToken(auth.accessToken) || getStoredAccessToken();
         if (nextToken) {
           return await dispatchRequest({
             ...requestConfig,

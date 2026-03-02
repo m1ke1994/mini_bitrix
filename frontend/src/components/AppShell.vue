@@ -42,7 +42,7 @@
       </nav>
 
       <div class="nav-secondary">
-        <router-link to="/instructions" active-class="" exact-active-class="router-link-active" @click="isMenuOpen = false">
+        <router-link to="/app/instructions" active-class="" exact-active-class="router-link-active" @click="isMenuOpen = false">
           Инструкции по подключению
         </router-link>
         <router-link to="/about" active-class="" exact-active-class="router-link-active" @click="isMenuOpen = false">
@@ -97,20 +97,23 @@ const isMenuOpen = ref(false);
 const isRefreshing = ref(false);
 
 const userLabel = computed(() => auth.userEmail || "Пользователь");
-const isDashboardRoute = computed(() => String(route.path || "").startsWith("/dashboard"));
+const isDashboardRoute = computed(() => {
+  const path = String(route.path || "");
+  return path.startsWith("/app/dashboard") || path.startsWith("/dashboard");
+});
 
 const mainNavItems = [
-  { to: "/dashboard", label: "Обзор" },
-  { to: "/dashboard/dynamics", label: "Динамика по дням" },
-  { to: "/dashboard/sources", label: "Топ источников" },
-  { to: "/dashboard/unique", label: "Уникальные пользователи" },
-  { to: "/dashboard/clicks", label: "Топ кликов" },
-  { to: "/dashboard/pages-conversion", label: "Конверсия по страницам" },
-  { to: "/dashboard/devices", label: "Устройства" },
-  { to: "/reports", label: "Отчёт PDF" },
-  { to: "/integration", label: "Интеграции" },
-  { to: "/settings", label: "Настройки" },
-  { to: "/account", label: "Аккаунт" },
+  { to: "/app/dashboard", label: "Обзор" },
+  { to: "/app/dashboard/dynamics", label: "Динамика по дням" },
+  { to: "/app/dashboard/sources", label: "Топ источников" },
+  { to: "/app/dashboard/unique", label: "Уникальные пользователи" },
+  { to: "/app/dashboard/clicks", label: "Топ кликов" },
+  { to: "/app/dashboard/pages-conversion", label: "Конверсия по страницам" },
+  { to: "/app/dashboard/devices", label: "Устройства" },
+  { to: "/app/reports", label: "Отчёт PDF" },
+  { to: "/app/integration", label: "Интеграции" },
+  { to: "/app/settings", label: "Настройки" },
+  { to: "/app/account", label: "Аккаунт" },
 ];
 
 watch(
@@ -137,7 +140,7 @@ onBeforeUnmount(() => {
 async function logout() {
   await auth.logout();
   isMenuOpen.value = false;
-  router.push("/auth");
+  router.push("/app/login");
 }
 
 async function manualRefresh() {

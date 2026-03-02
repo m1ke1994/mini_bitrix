@@ -5,7 +5,7 @@
     <div class="mx-auto w-full max-w-[1400px] px-3 py-2 sm:px-6 sm:py-2.5 lg:px-8">
       <div class="mx-auto flex w-full max-w-[1280px] items-center justify-between gap-2 rounded-[18px] border border-[#dee5f2] bg-white/95 px-3 py-2.5 shadow-[0_12px_36px_rgba(34,51,90,0.08)] backdrop-blur sm:px-4">
         <a href="#top" class="flex min-w-fit items-center gap-2.5 pr-2" @click.prevent="scrollTo('#top')">
-          <img src="/brand/logo.svg" alt="TrackNode" class="h-8 w-8" />
+          <img :src="brand.logoSrc || '/landing_media/brand/logo.svg'" :alt="brand.name" class="h-8 w-8" />
           <span class="text-[22px] font-semibold tracking-[-0.02em] text-[#1f2738]">{{ brand.name }}</span>
         </a>
 
@@ -77,11 +77,15 @@
           </nav>
 
           <div class="mobile-menu-actions">
-            <a href="https://tracknot.ru" target="_blank" rel="noopener" @click="closeMobileMenu">
-              Войти
-            </a>
-            <a href="https://tracknot.ru" target="_blank" rel="noopener" @click="closeMobileMenu">
-              Зарегистрироваться
+            <a
+              v-for="action in mobileActions"
+              :key="action.label"
+              :href="action.href"
+              :target="action.target || null"
+              :rel="action.rel || null"
+              @click="closeMobileMenu"
+            >
+              {{ action.label }}
             </a>
           </div>
         </aside>
@@ -105,6 +109,10 @@ defineProps({
   headerCta: {
     type: Object,
     required: true,
+  },
+  mobileActions: {
+    type: Array,
+    default: () => [],
   },
 });
 
@@ -321,3 +329,4 @@ onBeforeUnmount(() => {
   box-shadow: 0 10px 20px rgba(47, 106, 255, 0.28);
 }
 </style>
+

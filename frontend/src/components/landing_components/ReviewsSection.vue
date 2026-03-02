@@ -12,8 +12,8 @@
 
       <div class="reviews-grid">
         <article
-          v-for="review in reviews.items"
-          :key="review.company"
+          v-for="(review, index) in reviews.items"
+          :key="`${review.projectTitle}-${review.date}-${index}`"
           class="review-card"
         >
           <div class="review-stars" aria-label="Рейтинг 5 из 5">
@@ -27,9 +27,9 @@
 
           <h3 class="review-project-title">{{ review.projectTitle }}</h3>
 
-          <p class="review-company">{{ review.company }}</p>
+          <p class="review-company">{{ review.company || review.projectTitle }}</p>
           <p class="review-role">{{ review.description }}</p>
-          <p class="review-date">Дата: {{ review.date }}</p>
+          <p class="review-date">{{ reviews.dateLabel || "����" }}: {{ review.date }}</p>
           <p class="review-text">{{ review.text }}</p>
         </article>
       </div>
@@ -38,9 +38,12 @@
 </template>
 
 <script setup>
-import { siteData } from "~/assets/data";
-
-const reviews = siteData.reviews;
+defineProps({
+  reviews: {
+    type: Object,
+    required: true,
+  },
+});
 </script>
 
 <style scoped>
@@ -297,3 +300,4 @@ const reviews = siteData.reviews;
 
 }
 </style>
+

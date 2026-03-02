@@ -17,7 +17,7 @@
           class="pricing-card"
           :class="{ 'pricing-card--featured': plan.featured }"
         >
-          <span v-if="plan.featured" class="pricing-badge">Р РµРєРѕРјРµРЅРґСѓРµРј</span>
+          <span v-if="plan.featured" class="pricing-badge">{{ pricing.featuredLabel || "Рекомендуем" }}</span>
 
           <h3 class="pricing-card-title">{{ plan.name }}</h3>
           <p class="pricing-card-price">{{ plan.price }}</p>
@@ -40,7 +40,14 @@
             </li>
           </ul>
 
-          <a href="https://t.me/M1ke994" target="_blank" rel="noopener" class="pricing-cta">РЎРІСЏР·Р°С‚СЊСЃСЏ</a>
+          <a
+            :href="pricing.contactCta?.href || '#'"
+            :target="pricing.contactCta?.target || null"
+            :rel="pricing.contactCta?.rel || null"
+            class="pricing-cta"
+          >
+            {{ pricing.contactCta?.label || "Связаться" }}
+          </a>
         </article>
       </div>
     </div>
@@ -48,9 +55,12 @@
 </template>
 
 <script setup>
-import { siteData } from "~/assets/data";
-
-const pricing = siteData.pricing;
+defineProps({
+  pricing: {
+    type: Object,
+    required: true,
+  },
+});
 </script>
 
 <style scoped>
@@ -381,3 +391,4 @@ const pricing = siteData.pricing;
   }
 }
 </style>
+
