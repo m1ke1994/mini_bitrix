@@ -1,19 +1,32 @@
 import { $fetch } from "ofetch";
 import { useRuntimeConfig } from "#imports";
 import { useAuthStore } from "../stores/auth";
-import {
-  buildAuthorizationHeader,
-  debugAuth,
-  getAccessToken,
-  getRefreshToken,
-  maskToken,
-  normalizeToken,
-} from "./authStorage";
 
 const AUTH_ENDPOINTS = ["/api/auth/login/", "/api/auth/register/", "/api/auth/logout/", "/api/auth/refresh/"];
-const CABINET_PATHS = ["/dashboard", "/settings", "/account", "/integration", "/reports", "/instructions"];
 
 let refreshRequestPromise = null;
+
+function canUseWebStorage() {
+  return typeof window !== "undefined" && typeof window.localStorage !== "undefined";
+}
+
+function getStoredAccessToken() {
+  if (!canUseWebStorage()) return "";
+  try {
+    return String(window.localStorage.getItem("accessToken") || "");
+  } catch {
+    return "";
+  }
+}
+
+function hasRefreshTokenInStorage() {
+  if (!canUseWebStorage()) return false;
+  try {
+    return Boolean(window.localStorage.getItem("refreshToken"));
+  } catch {
+    return false;
+  }
+}
 
 function isAuthEndpointRequest(config) {
   const url = String(config?.url || "");
@@ -21,22 +34,11 @@ function isAuthEndpointRequest(config) {
 }
 
 function setAuthorizationHeader(config, token) {
-  const nextConfig = {
-    ...config,
-    headers: { ...(config?.headers || {}) },
-  };
+  if (!token) return config;
 
-  const authorizationHeader = buildAuthorizationHeader(token);
-  if (!authorizationHeader) {
-    delete nextConfig.headers.Authorization;
-    return nextConfig;
-  }
-
-  nextConfig.headers.Authorization = authorizationHeader;
-  debugAuth("Authorization header attached", {
-    url: String(nextConfig.url || ""),
-    token: maskToken(token),
-  });
+  const nextConfig = config;
+  nextConfig.headers = { ...(nextConfig.headers || {}) };
+  nextConfig.headers.Authorization = `Bearer ${token}`;
   return nextConfig;
 }
 
@@ -61,63 +63,6 @@ function getApiBaseUrl() {
   }
 
   return process.env.VITE_API_BASE || process.env.VITE_API_BASE_URL || "http://localhost:9000";
-}
-
-function getAppBaseUrl() {
-  try {
-    const config = useRuntimeConfig();
-    const runtimeBase = String(config?.app?.baseURL || "").trim();
-    if (runtimeBase) return runtimeBase;
-  } catch {
-    // Runtime config is not available outside Nuxt app context; fall back to client config.
-  }
-
-  try {
-    const clientRuntimeBase = String(globalThis?.__NUXT__?.config?.app?.baseURL || "").trim();
-    if (clientRuntimeBase) return clientRuntimeBase;
-  } catch {
-    // Ignore global lookup errors.
-  }
-
-  return "/";
-}
-
-function getLoginRedirectPath() {
-  const baseUrl = getAppBaseUrl();
-  const normalizedBaseUrl = `/${String(baseUrl || "/").replace(/^\/+|\/+$/g, "")}`.replace(/\/$/, "");
-  if (!normalizedBaseUrl || normalizedBaseUrl === "/") {
-    return "/login";
-  }
-  return `${normalizedBaseUrl}/login`;
-}
-
-function getCurrentRoutePath() {
-  if (!import.meta.client || typeof window === "undefined") return "server";
-  return `${window.location.pathname}${window.location.search || ""}`;
-}
-
-function normalizeClientPath(path) {
-  const normalizedPath = String(path || "/").trim();
-  if (!normalizedPath) return "/";
-  if (normalizedPath === "/") return "/";
-  if (normalizedPath.endsWith("/")) return normalizedPath.slice(0, -1);
-  return normalizedPath;
-}
-
-function isCabinetPath(path) {
-  return CABINET_PATHS.some((basePath) => path === basePath || path.startsWith(`${basePath}/`));
-}
-
-function redirectToLogin() {
-  if (!import.meta.client || typeof window === "undefined") return;
-
-  const loginPath = getLoginRedirectPath();
-  const normalizedCurrentPath = normalizeClientPath(window.location.pathname);
-  const normalizedLoginPath = normalizeClientPath(loginPath);
-  if (normalizedCurrentPath === normalizedLoginPath) return;
-  if (!isCabinetPath(normalizedCurrentPath)) return;
-
-  window.location.assign(loginPath);
 }
 
 function normalizeError(error, requestConfig) {
@@ -189,64 +134,54 @@ async function executeRawRequest(requestConfig) {
 
 async function dispatchRequest(initialConfig) {
   const auth = useAuthStore();
-  const token = normalizeToken(auth.accessToken || getAccessToken());
-  const requestConfig = setAuthorizationHeader(initialConfig, token);
+  const token = auth.accessToken || getStoredAccessToken();
+  const requestConfig = setAuthorizationHeader(
+    {
+      ...initialConfig,
+      headers: { ...(initialConfig?.headers || {}) },
+    },
+    token
+  );
 
   try {
     return await executeRawRequest(requestConfig);
   } catch (rawError) {
     const error = normalizeError(rawError, requestConfig);
-    const status = Number(error?.response?.status || 0);
-    const isUnauthorizedStatus = status === 401 || status === 403;
+    const status = error?.response?.status;
 
-    if (!isUnauthorizedStatus) {
+    if (status !== 401) {
       return Promise.reject(error);
     }
-
-    debugAuth("Unauthorized API response", {
-      status,
-      url: String(requestConfig.url || ""),
-      route: getCurrentRoutePath(),
-    });
 
     if (requestConfig._skipUnauthorizedLogout) {
       return Promise.reject(error);
     }
 
     const isAuthEndpoint = isAuthEndpointRequest(requestConfig);
-    const refreshToken = normalizeToken(auth.refreshToken || getRefreshToken());
     const canRetryWithRefresh =
       !isAuthEndpoint &&
       !requestConfig._retry &&
       !requestConfig._skipAuthRetry &&
-      Boolean(refreshToken);
+      Boolean(auth.refreshToken || hasRefreshTokenInStorage());
 
     if (canRetryWithRefresh) {
       try {
-        if (!auth.refreshToken && refreshToken) {
-          auth.refreshToken = refreshToken;
-        }
-
         refreshRequestPromise ||= auth.refreshAccessToken();
         await refreshRequestPromise;
 
-        const nextToken = normalizeToken(auth.accessToken || getAccessToken());
+        const nextToken = auth.accessToken || getStoredAccessToken();
         if (nextToken) {
           return await dispatchRequest({
             ...requestConfig,
             _retry: true,
             headers: {
               ...(requestConfig.headers || {}),
-              Authorization: buildAuthorizationHeader(nextToken),
+              Authorization: `Bearer ${nextToken}`,
             },
           });
         }
       } catch (_) {
-        debugAuth("Refresh flow failed", {
-          status,
-          url: String(requestConfig.url || ""),
-          route: getCurrentRoutePath(),
-        });
+        // Fall through to local cleanup.
       } finally {
         refreshRequestPromise = null;
       }
@@ -255,7 +190,6 @@ async function dispatchRequest(initialConfig) {
     if (!isAuthEndpoint) {
       auth.clearAuth();
       auth.isInitialized = true;
-      redirectToLogin();
     }
 
     return Promise.reject(error);

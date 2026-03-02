@@ -1,5 +1,5 @@
 const SITE_URL = "https://tracknode.ru";
-const PUBLIC_PATHS = ["/"];
+const PUBLIC_PATHS = ["/", "/about", "/analitika", "/otchety", "/tarify", "/telegram"];
 
 export default defineEventHandler(() => {
   const lastmod = new Date().toISOString().split("T")[0];

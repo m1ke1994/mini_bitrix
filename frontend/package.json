@@ -6,8 +6,6 @@
   "scripts": {
     "dev": "nuxt dev",
     "build": "nuxt build",
-    "build:landing": "npm --prefix ../nuxt run generate",
-    "build:full": "npm run build:landing && npm run build",
     "preview": "nuxt preview",
     "postinstall": "nuxt prepare"
   },
