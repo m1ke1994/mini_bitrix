@@ -1,7 +1,12 @@
-<script setup>
-definePageMeta({
-  noindex: true,
-});
+<template>
+  <PublicHomePage />
+</template>
 
-await navigateTo("/dashboard");
+<script setup>
+import PublicHomePage from "~/views/PublicHomePage.vue";
+
+definePageMeta({
+  layout: "app",
+  publicPage: true,
+});
 </script>
