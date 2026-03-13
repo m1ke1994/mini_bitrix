@@ -1,3 +1,6 @@
+const tracknodeTrackerSrc = process.env.NUXT_PUBLIC_TRACKNODE_TRACKER_SRC || "https://tracknode.ru/tracker.js";
+const tracknodeApiKey = process.env.NUXT_PUBLIC_TRACKNODE_API_KEY || "";
+
 export default defineNuxtConfig({
   srcDir: "src/",
   dir: {
@@ -13,8 +16,8 @@ export default defineNuxtConfig({
   runtimeConfig: {
     public: {
       apiBase: process.env.VITE_API_BASE || process.env.VITE_API_BASE_URL || "/",
-      tracknodeTrackerSrc: process.env.NUXT_PUBLIC_TRACKNODE_TRACKER_SRC || "",
-      tracknodeApiKey: process.env.NUXT_PUBLIC_TRACKNODE_API_KEY || "",
+      tracknodeTrackerSrc,
+      tracknodeApiKey,
     },
   },
   nitro: {
@@ -104,6 +107,15 @@ export default defineNuxtConfig({
         { rel: "apple-touch-icon", href: "/apple-touch-icon.png" },
         { rel: "manifest", href: "/manifest.webmanifest" },
         { rel: "mask-icon", href: "/safari-pinned-tab.svg", color: "#2ba8d8" },
+      ],
+      script: [
+        {
+          id: "tracknode-tracker-script",
+          key: "tracknode-tracker-script",
+          src: tracknodeTrackerSrc,
+          async: true,
+          "data-api-key": tracknodeApiKey,
+        },
       ],
     },
   },
