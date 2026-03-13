@@ -100,7 +100,10 @@ export default defineNuxtConfig({
         lang: "ru",
       },
       viewport: "width=device-width, initial-scale=1",
-      meta: [{ name: "theme-color", content: "#2ba8d8" }],
+      meta: [
+        { name: "theme-color", content: "#2ba8d8" },
+        { name: "tracknode-config-test", content: "nuxt-config-active" },
+      ],
       link: [
         { rel: "icon", type: "image/svg+xml", href: "/favicon.svg" },
         { rel: "icon", type: "image/png", href: "/favicon.png" },

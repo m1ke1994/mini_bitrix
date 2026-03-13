@@ -1,9 +1,5 @@
 <template>
-<<<<<<< HEAD
   <main id="top" class="public-home-main min-h-screen bg-[#eef1f8] px-3 pb-5 sm:px-6 sm:pb-8 lg:px-8">
-=======
-  <main id="top" class="min-h-screen bg-[#eef1f8] px-3 pb-5 pt-[122px] sm:px-6 sm:pb-8 sm:pt-[132px] lg:px-8 lg:pt-[142px]">
->>>>>>> e9839d9f8c07e04f670e899bb47f25a639b68896
     <div class="relative mx-auto w-full max-w-[1400px] overflow-hidden rounded-[30px] border border-white/70 bg-[#f7f9fe] px-4 pb-10 pt-4 shadow-[0_26px_60px_rgba(36,52,87,0.12)] sm:px-6 lg:px-9 lg:pb-14 lg:pt-6">
       <div class="pointer-events-none absolute -left-[14%] bottom-[-14%] h-[430px] w-[430px] rounded-full bg-[radial-gradient(circle,rgba(203,218,255,0.5)_0%,rgba(203,218,255,0)_70%)] blur-2xl" />
       <div class="pointer-events-none absolute -right-[12%] top-[10%] h-[560px] w-[560px] rounded-full bg-[radial-gradient(circle,rgba(146,195,255,0.56)_0%,rgba(146,195,255,0)_72%)] blur-2xl" />
@@ -40,7 +36,6 @@ import ReviewsSection from "~/components/landing_components/ReviewsSection.vue";
 import FAQSection from "~/components/landing_components/FAQSection.vue";
 import SiteFooter from "~/components/landing_components/SiteFooter.vue";
 import { getLandingData } from "~/data/landing";
-<<<<<<< HEAD
 
 const landing = getLandingData();
 </script>
@@ -62,8 +57,3 @@ const landing = getLandingData();
   }
 }
 </style>
-=======
-
-const landing = getLandingData();
-</script>
->>>>>>> e9839d9f8c07e04f670e899bb47f25a639b68896

@@ -42,6 +42,10 @@ FROM node:20-alpine AS build
 
 WORKDIR /app
 ENV NODE_ENV=production
+ARG NUXT_PUBLIC_TRACKNODE_TRACKER_SRC=https://tracknode.ru/tracker.js
+ARG NUXT_PUBLIC_TRACKNODE_API_KEY=
+ENV NUXT_PUBLIC_TRACKNODE_TRACKER_SRC=${NUXT_PUBLIC_TRACKNODE_TRACKER_SRC} \
+    NUXT_PUBLIC_TRACKNODE_API_KEY=${NUXT_PUBLIC_TRACKNODE_API_KEY}
 
 # Забираем node_modules из deps
 COPY --from=deps /app/node_modules ./node_modules

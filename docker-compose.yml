@@ -146,6 +146,8 @@ services:
       dockerfile: Dockerfile
       args:
         NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmjs.org/}
+        NUXT_PUBLIC_TRACKNODE_TRACKER_SRC: ${NUXT_PUBLIC_TRACKNODE_TRACKER_SRC:-https://tracknode.ru/tracker.js}
+        NUXT_PUBLIC_TRACKNODE_API_KEY: ${NUXT_PUBLIC_TRACKNODE_API_KEY:-}
     env_file:
       - .env
     environment:
