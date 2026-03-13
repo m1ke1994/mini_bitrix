@@ -60,6 +60,8 @@ Run tests inside backend container:
 ## Frontend
 
 Frontend now starts with `docker-compose up --build` (service `frontend` on `http://localhost:9003`).
+If PWA icons/manifest do not refresh, open DevTools -> Application -> Service Workers -> `Unregister`, then hard reload.
+Also clear Application -> Storage -> `Clear site data` for a full icon/cache reset.
 
 ## External Website Integration
 
