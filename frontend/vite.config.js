@@ -1,43 +1,33 @@
-import { defineConfig } from "vite";
+﻿import { defineConfig } from "vite";
 import vue from "@vitejs/plugin-vue";
 import { VitePWA } from "vite-plugin-pwa";
+import { visualizer } from "rollup-plugin-visualizer";
 
-export default defineConfig({
-  plugins: [
+export default defineConfig(({ mode }) => {
+  const plugins = [
     vue(),
     VitePWA({
       registerType: "autoUpdate",
       injectRegister: "auto",
-      includeAssets: ["favicon.svg", "favicon.png", "og-preview.jpg", "robots.txt", "sitemap.xml"],
-      manifest: {
-        name: "TrackNode",
-        short_name: "TrackNode",
-        description: "SaaS аналитика сайтов и система отслеживания заявок",
-        start_url: "/",
-        scope: "/",
-        display: "standalone",
-        background_color: "#ffffff",
-        theme_color: "#1e3a8a",
-        orientation: "portrait",
-        icons: [
-          {
-            src: "/favicon.png",
-            sizes: "512x512",
-            type: "image/png",
-            purpose: "any maskable",
-          },
-          {
-            src: "/favicon.svg",
-            sizes: "any",
-            type: "image/svg+xml",
-            purpose: "any",
-          },
-        ],
-      },
+      includeAssets: [
+        "favicon.svg",
+        "favicon.png",
+        "apple-touch-icon.png",
+        "safari-pinned-tab.svg",
+        "manifest.webmanifest",
+        "pwa-192x192.png",
+        "pwa-512x512.png",
+        "og-preview.jpg",
+        "robots.txt",
+        "sitemap.xml",
+      ],
+      manifest: false,
       workbox: {
         cleanupOutdatedCaches: true,
         clientsClaim: true,
         skipWaiting: true,
+        navigationPreload: true,
+        globIgnores: ["**/bundle-stats.html"],
         navigateFallback: "/index.html",
         navigateFallbackDenylist: [/^\/api\//, /^\/dashboard(\/|$)/, /^\/settings(\/|$)/],
         runtimeCaching: [
@@ -78,10 +68,25 @@ export default defineConfig({
         enabled: false,
       },
     }),
-  ],
-  server: {
-    host: true,
-    port: 9003,
-    allowedHosts: ["tracknode.ru"],
-  },
+  ];
+
+  if (mode === "analyze") {
+    plugins.push(
+      visualizer({
+        filename: "dist/bundle-stats.html",
+        open: false,
+        gzipSize: true,
+        brotliSize: true,
+      })
+    );
+  }
+
+  return {
+    plugins,
+    server: {
+      host: true,
+      port: 9003,
+      allowedHosts: ["tracknode.ru"],
+    },
+  };
 });

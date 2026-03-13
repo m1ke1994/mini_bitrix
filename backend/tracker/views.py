@@ -1,5 +1,5 @@
 import logging
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urljoin, urlparse
 
 from django.utils import timezone
 from rest_framework import permissions, status
@@ -19,6 +19,8 @@ from tracker.serializers import (
     VisitEndSerializer,
     VisitStartSerializer,
 )
+from tracker.services.bot_filter import detect_bot_visit
+from tracker.tasks import send_tracker_form_submit_notification_task
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +109,18 @@ def _pageview_payload_from_url(url: str):
     }
 
 
+def _compose_page_url(page: str, origin: str, fallback: str = "https://tracker.local/") -> str:
+    raw_page = (page or "").strip()
+    if raw_page:
+        parsed = urlparse(raw_page)
+        if parsed.scheme and parsed.netloc:
+            return raw_page
+    base = _safe_url(origin, fallback=fallback)
+    if not raw_page:
+        return base
+    return urljoin(base, raw_page)
+
+
 class TrackBaseAPIView(APIView):
     permission_classes = [permissions.AllowAny]
 
@@ -117,8 +131,27 @@ class TrackBaseAPIView(APIView):
             raise PermissionDenied("Invalid token.")
         return site
 
-    def get_or_create_visit(self, site, session_id, request, started_at=None, referrer="", visitor_id=""):
+    def get_or_create_visit(self, site, session_id, request, started_at=None, referrer="", visitor_id="", tracked_url=None, bot_source=""):
         context = _extract_visit_context(request)
+        bot_check = detect_bot_visit(
+            site_id=site.id,
+            ip_address=context.get("ip_address"),
+            user_agent=context.get("user_agent"),
+            tracked_url=tracked_url,
+        )
+        if bot_check.is_bot:
+            logger.debug(
+                "track.bot_detected source=%s site_id=%s session_id=%s ip=%s user_agent=%s reasons=%s request_count_5s=%s unique_urls_10s=%s url=%s",
+                bot_source or "unknown",
+                site.id,
+                session_id,
+                context.get("ip_address"),
+                (context.get("user_agent") or "")[:512],
+                ",".join(bot_check.reasons),
+                bot_check.request_count_5s,
+                bot_check.unique_urls_10s,
+                (tracked_url or "")[:512],
+            )
         visit = (
             Visit.objects.filter(site=site, session_id=session_id)
             .order_by("-started_at")
@@ -139,6 +172,9 @@ class TrackBaseAPIView(APIView):
                 if current != field_value:
                     setattr(visit, field_name, field_value)
                     updates.append(field_name)
+            if bot_check.is_bot and not visit.is_bot:
+                visit.is_bot = True
+                updates.append("is_bot")
             if updates:
                 visit.save(update_fields=updates)
             return visit
@@ -147,6 +183,7 @@ class TrackBaseAPIView(APIView):
             visitor_id=visitor_id or "",
             session_id=session_id,
             ip_address=context["ip_address"],
+            is_bot=bot_check.is_bot,
             user_agent=context["user_agent"],
             device_type=context["device_type"],
             os=context["os"],
@@ -176,6 +213,8 @@ class VisitStartView(TrackBaseAPIView):
             started_at=serializer.get_started_at(),
             referrer=serializer.validated_data.get("referrer") or "",
             visitor_id=serializer.validated_data.get("visitor_id") or "",
+            tracked_url=(request.data.get("url") or ""),
+            bot_source="visit_start",
         )
         client = _client_by_token(serializer.validated_data["token"])
         if client:
@@ -217,6 +256,8 @@ class PageViewCreateView(TrackBaseAPIView):
             serializer.validated_data["session_id"],
             request,
             visitor_id=serializer.validated_data.get("visitor_id") or "",
+            tracked_url=serializer.validated_data["url"],
+            bot_source="pageview",
         )
         pageview = PageView.objects.create(
             visit=visit,
@@ -266,23 +307,40 @@ class EventCreateView(TrackBaseAPIView):
         serializer.is_valid(raise_exception=True)
 
         site = self.get_site(serializer.validated_data["token"])
+        payload = serializer.validated_data.get("payload") or {}
         visit = self.get_or_create_visit(
             site,
             serializer.validated_data["session_id"],
             request,
             visitor_id=serializer.validated_data.get("visitor_id") or "",
+            tracked_url=(payload.get("url") or payload.get("page_url") or ""),
+            bot_source="event",
         )
+        event_type = serializer.validated_data["type"]
+        duration_seconds = 0
+        if event_type == "time_on_page":
+            try:
+                duration_seconds = int(payload.get("duration_seconds") or 0)
+            except (TypeError, ValueError):
+                duration_seconds = 0
+            if duration_seconds <= 0:
+                logger.info(
+                    "track.event ignored invalid time_on_page duration visit_id=%s session_id=%s payload=%s",
+                    visit.id,
+                    serializer.validated_data["session_id"],
+                    payload,
+                )
+                return Response({"ok": True, "ignored": True}, status=status.HTTP_200_OK)
+
         event = Event.objects.create(
             visit=visit,
-            type=serializer.validated_data["type"],
-            payload=serializer.validated_data.get("payload") or {},
+            type=event_type,
+            payload=payload,
             timestamp=serializer.get_timestamp(),
         )
         client = _client_by_token(serializer.validated_data["token"])
         if client:
             try:
-                event_type = serializer.validated_data["type"]
-                payload = serializer.validated_data.get("payload") or {}
                 if event_type == "form_submit":
                     latest_page_view = (
                         AnalyticsPageView.objects.filter(
@@ -322,6 +380,33 @@ class EventCreateView(TrackBaseAPIView):
                         element_id=((payload.get("id") or "")[:255]),
                         element_class=((payload.get("class") or "")[:255]),
                     )
+                elif event_type == "time_on_page":
+                    latest_page_view = (
+                        AnalyticsPageView.objects.filter(
+                            client=client,
+                            session_id=serializer.validated_data["session_id"],
+                        )
+                        .order_by("-created_at")
+                        .first()
+                    )
+                    page = ((payload.get("page") or payload.get("path") or "").strip() or "/")
+                    page_url = _compose_page_url(
+                        page=page,
+                        origin=(
+                            payload.get("url")
+                            or payload.get("page_url")
+                            or (latest_page_view.url if latest_page_view else "")
+                            or request.headers.get("Origin")
+                        ),
+                    )
+                    AnalyticsEvent.objects.create(
+                        client=client,
+                        visitor_id=serializer.validated_data.get("visitor_id") or "",
+                        event_type=AnalyticsEvent.EventType.TIME_ON_PAGE,
+                        element_id=page[:255],
+                        page_url=page_url,
+                        duration_seconds=duration_seconds,
+                    )
             except Exception:
                 logger.exception(
                     "track.event failed to mirror analytics event type=%s visit_id=%s client_id=%s",
@@ -329,6 +414,16 @@ class EventCreateView(TrackBaseAPIView):
                     visit.id,
                     client.id,
                 )
+
+            if event_type == "form_submit":
+                try:
+                    send_tracker_form_submit_notification_task.delay(event.id, client.id)
+                except Exception:
+                    logger.exception(
+                        "track.event failed to enqueue telegram form-submit notify event_id=%s client_id=%s",
+                        event.id,
+                        client.id,
+                    )
         logger.info(
             "track.event created event_id=%s visit_id=%s type=%s visitor_id=%s session_id=%s",
             event.id,
@@ -381,7 +476,7 @@ class TrackStatsView(TrackBaseAPIView):
             return Response(
                 {
                     "sites_total": Site.objects.count(),
-                    "visits_total": Visit.objects.count(),
+                    "visits_total": Visit.objects.filter(is_bot=False).count(),
                     "pageviews_total": PageView.objects.count(),
                     "events_total": Event.objects.count(),
                 },
@@ -389,7 +484,7 @@ class TrackStatsView(TrackBaseAPIView):
             )
 
         site = self.get_site(token)
-        visits = Visit.objects.filter(site=site)
+        visits = Visit.objects.filter(site=site, is_bot=False)
         return Response(
             {
                 "site_id": site.id,

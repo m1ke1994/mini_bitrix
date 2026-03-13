@@ -1,77 +1,59 @@
 <template>
-  <main class="public-page">
-    <section class="hero">
-      <p class="label">TrackNode</p>
-      <h1>SaaS аналитика сайтов и воронка лидогенерации</h1>
-      <p class="lead">
-        Отслеживайте заявки, путь клиента и результат рекламы в одном кабинете. Подключение без сложной интеграции,
-        отчёты и Telegram-уведомления в реальном времени.
-      </p>
-      <div class="actions">
-        <router-link to="/login" class="btn primary">Войти</router-link>
-        <router-link to="/register" class="btn ghost">Создать аккаунт</router-link>
-      </div>
-    </section>
+  <main id="top" class="public-home-main min-h-screen bg-[#eef1f8] px-3 pb-5 sm:px-6 sm:pb-8 lg:px-8">
+    <div class="relative mx-auto w-full max-w-[1400px] overflow-hidden rounded-[30px] border border-white/70 bg-[#f7f9fe] px-4 pb-10 pt-4 shadow-[0_26px_60px_rgba(36,52,87,0.12)] sm:px-6 lg:px-9 lg:pb-14 lg:pt-6">
+      <div class="pointer-events-none absolute -left-[14%] bottom-[-14%] h-[430px] w-[430px] rounded-full bg-[radial-gradient(circle,rgba(203,218,255,0.5)_0%,rgba(203,218,255,0)_70%)] blur-2xl" />
+      <div class="pointer-events-none absolute -right-[12%] top-[10%] h-[560px] w-[560px] rounded-full bg-[radial-gradient(circle,rgba(146,195,255,0.56)_0%,rgba(146,195,255,0)_72%)] blur-2xl" />
+      <UpHeader
+        :brand="landing.homepage.brand"
+        :nav="landing.homepage.nav"
+        :header-cta="landing.homepage.headerCta"
+        :mobile-actions="landing.homepage.mobileActions"
+      />
+      <Hero :hero="landing.homepage.hero" :trust="landing.homepage.trust" :demo="landing.heroDemo" />
+    </div>
+
+    <div class="mx-auto mt-5 w-full max-w-[1400px] overflow-hidden rounded-[30px] border border-white/70 bg-[#f4f7fd] shadow-[0_22px_52px_rgba(36,52,87,0.1)]">
+      <CapabilitiesSection :capabilities="landing.site.capabilities" />
+    </div>
+
+    <HowItWorksSection :how="landing.how" />
+
+    <PricingSection :pricing="landing.site.pricing" />
+    <ReviewsSection :reviews="landing.site.reviews" />
+    <FAQSection :faq="landing.site.faq" />
+
+    <SiteFooter :footer="landing.footer" />
   </main>
 </template>
 
+<script setup>
+import UpHeader from "~/components/landing_components/UpHeader.vue";
+import Hero from "~/components/landing_components/Hero.vue";
+import CapabilitiesSection from "~/components/landing_components/sections/CapabilitiesSection.vue";
+import HowItWorksSection from "~/components/landing_components/HowItWorksSection.vue";
+import PricingSection from "~/components/landing_components/PricingSection.vue";
+import ReviewsSection from "~/components/landing_components/ReviewsSection.vue";
+import FAQSection from "~/components/landing_components/FAQSection.vue";
+import SiteFooter from "~/components/landing_components/SiteFooter.vue";
+import { getLandingData } from "~/data/landing";
+
+const landing = getLandingData();
+</script>
+
 <style scoped>
-.public-page {
-  min-height: 100vh;
-  display: grid;
-  place-items: center;
-  padding: 2rem 1rem;
-  background: radial-gradient(circle at top right, #f5f9ff 0%, #ffffff 40%, #eff6ff 100%);
+.public-home-main {
+  padding-top: 90px !important;
 }
 
-.hero {
-  width: 100%;
-  max-width: 60rem;
-  text-align: center;
+@media (min-width: 640px) {
+  .public-home-main {
+    padding-top: 50px !important;
+  }
 }
 
-.label {
-  margin: 0 0 0.5rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: #1e40af;
-}
-
-h1 {
-  margin: 0;
-  font-size: clamp(2rem, 6vw, 3.5rem);
-  line-height: 1.1;
-  color: #111827;
-}
-
-.lead {
-  margin: 1.25rem auto 0;
-  max-width: 44rem;
-  color: #374151;
-  font-size: 1.05rem;
-}
-
-.actions {
-  margin-top: 1.8rem;
-  display: inline-flex;
-  gap: 0.8rem;
-}
-
-.btn {
-  text-decoration: none;
-  border-radius: 999px;
-  padding: 0.72rem 1.1rem;
-  font-weight: 700;
-}
-
-.btn.primary {
-  background: #2563eb;
-  color: #ffffff;
-}
-
-.btn.ghost {
-  border: 1px solid #2563eb;
-  color: #1e40af;
+@media (min-width: 1024px) {
+  .public-home-main {
+    padding-top: 100px !important;
+  }
 }
 </style>

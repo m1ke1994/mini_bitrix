@@ -1,8 +1,11 @@
 User-agent: *
 Allow: /
-Disallow: /settings
 Disallow: /dashboard
-Disallow: /login
-Disallow: /register
+Disallow: /dashboard/
+Disallow: /dashboard/*
+Disallow: /app
+Disallow: /app*
+Disallow: /app/
+Disallow: /app/*
 
 Sitemap: https://tracknode.ru/sitemap.xml

@@ -8,12 +8,14 @@ class Event(models.Model):
         VISIT = "visit", "Visit"
         CLICK = "click", "Click"
         FORM_SUBMIT = "form_submit", "Form submit"
+        TIME_ON_PAGE = "time_on_page", "Time on page"
 
     client = models.ForeignKey(Client, on_delete=models.CASCADE, related_name="events", verbose_name="Client")
     visitor_id = models.CharField(max_length=64, blank=True, default="", db_index=True, verbose_name="Visitor ID")
     event_type = models.CharField(max_length=20, choices=EventType.choices, verbose_name="Event type")
     element_id = models.CharField(max_length=255, null=True, blank=True, verbose_name="Element ID")
     page_url = models.URLField(max_length=1000, verbose_name="Page URL")
+    duration_seconds = models.PositiveIntegerField(default=0, verbose_name="Duration (sec)")
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="Created at")
 
     class Meta:

@@ -3,7 +3,18 @@
     <section class="wrap">
       <h1>{{ heading }}</h1>
       <p>{{ text }}</p>
-      <router-link to="/register" class="cta">Попробовать TrackNode</router-link>
+      <router-link to="/app/register" class="cta">Попробовать TrackNode</router-link>
+
+      <SeoContentBlock
+        v-if="seoContent"
+        :section-title="seoContent.sectionTitle"
+        :paragraphs="seoContent.paragraphs"
+        :highlights-title="seoContent.highlightsTitle"
+        :highlights="seoContent.highlights"
+        :faq-title="seoContent.faqTitle"
+        :faq-items="seoContent.faqItems"
+        :aria-label="`SEO-блок страницы ${heading}`"
+      />
     </section>
   </main>
 </template>
@@ -11,6 +22,8 @@
 <script setup>
 import { computed } from "vue";
 import { useRoute } from "vue-router";
+import SeoContentBlock from "~/components/SeoContentBlock.vue";
+import { getPublicSeoContent } from "~/content/publicSeoContent";
 
 const route = useRoute();
 
@@ -20,6 +33,7 @@ const text = computed(
     route.meta.pageText ||
     "TrackNode помогает бизнесу анализировать трафик, заявки и конверсию в единой SaaS-платформе.",
 );
+const seoContent = computed(() => getPublicSeoContent(route.path));
 </script>
 
 <style scoped>
@@ -58,3 +72,4 @@ p {
   font-weight: 700;
 }
 </style>
+

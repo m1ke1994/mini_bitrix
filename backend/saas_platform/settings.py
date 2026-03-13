@@ -47,6 +47,7 @@ INSTALLED_APPS = [
     "clients",
     "leads",
     "analytics_app",
+    "seo_audit",
     "tracker",
     "telegram_logs",
     "reports",

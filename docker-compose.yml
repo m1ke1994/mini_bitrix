@@ -141,21 +141,31 @@ services:
       - saas_net
 
   frontend:
-    image: node:20
-    working_dir: /app
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmjs.org/}
     env_file:
       - .env
     environment:
       NPM_CONFIG_REGISTRY: ${NPM_REGISTRY:-https://registry.npmjs.org/}
-    volumes:
-      - ./frontend:/app
-      - frontend_node_modules:/app/node_modules
-    command: sh -c "npm install && npm run dev -- --host 0.0.0.0 --port 9003"
+      HOST: 0.0.0.0
+      PORT: 9003
+      NITRO_HOST: 0.0.0.0
+      NITRO_PORT: 9003
+      NUXT_PUBLIC_API_BASE: ${VITE_API_BASE_URL:-/}
     ports:
       - "9003:9003"
     depends_on:
       web:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:9003/"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
     restart: unless-stopped
     networks:
       - saas_net
