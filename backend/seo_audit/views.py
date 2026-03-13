@@ -96,6 +96,12 @@ class SEOAuditDetailView(APIView):
                     "pages_count": int(audit.pages_count or 0),
                     "used_sitemap": bool(getattr(audit, "used_sitemap", False)),
                     "sitemap_urls_count": int(getattr(audit, "sitemap_urls_count", 0) or 0),
+                    "pages_with_speed_issues": int(getattr(audit, "pages_with_speed_issues", 0) or 0),
+                    "pages_with_indexing_issues": int(getattr(audit, "pages_with_indexing_issues", 0) or 0),
+                    "has_robots_txt": bool(getattr(audit, "has_robots_txt", False)),
+                    "has_sitemap_xml": bool(getattr(audit, "has_sitemap_xml", False)),
+                    "avg_ttfb_ms": int(getattr(audit, "avg_ttfb_ms", 0) or 0),
+                    "avg_performance_score": int(getattr(audit, "avg_performance_score", 0) or 0),
                     "created_at": audit.created_at,
                     "finished_at": audit.finished_at,
                 }
@@ -135,6 +141,22 @@ class SEOAuditDetailView(APIView):
                 "used_sitemap": bool(audit_payload.get("used_sitemap", getattr(audit, "used_sitemap", False))),
                 "sitemap_urls_count": int(
                     audit_payload.get("sitemap_urls_count", getattr(audit, "sitemap_urls_count", 0)) or 0
+                ),
+                "pages_with_speed_issues": int(
+                    audit_payload.get("pages_with_speed_issues", getattr(audit, "pages_with_speed_issues", 0)) or 0
+                ),
+                "pages_with_indexing_issues": int(
+                    audit_payload.get(
+                        "pages_with_indexing_issues",
+                        getattr(audit, "pages_with_indexing_issues", 0),
+                    )
+                    or 0
+                ),
+                "has_robots_txt": bool(audit_payload.get("has_robots_txt", getattr(audit, "has_robots_txt", False))),
+                "has_sitemap_xml": bool(audit_payload.get("has_sitemap_xml", getattr(audit, "has_sitemap_xml", False))),
+                "avg_ttfb_ms": int(audit_payload.get("avg_ttfb_ms", getattr(audit, "avg_ttfb_ms", 0)) or 0),
+                "avg_performance_score": int(
+                    audit_payload.get("avg_performance_score", getattr(audit, "avg_performance_score", 0)) or 0
                 ),
                 "created_at": audit_payload.get("created_at", audit.created_at),
                 "pages": pages_payload,

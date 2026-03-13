@@ -9,6 +9,7 @@ from urllib.parse import urljoin, urlparse, urlunparse
 
 import requests
 from bs4 import BeautifulSoup
+from django.db.models import Avg
 
 from seo_audit.models import SEOIssue, SEOPage, SiteSEOAudit
 from seo_audit.services.messages import get_issue_recommendation
@@ -20,9 +21,41 @@ MAX_SITEMAP_URLS_DEFAULT = 200
 REQUEST_TIMEOUT_SECONDS = 8
 SLOW_RESPONSE_SECONDS = 2.0
 MAX_PAGE_BYTES = 2 * 1024 * 1024
+MAX_RESOURCE_FETCH_BUDGET = 600
 SKIP_FILE_EXTENSIONS = (".pdf", ".jpg", ".jpeg", ".png", ".svg", ".zip", ".doc", ".docx", ".xls", ".xlsx")
 HEADING_TAG_RE = re.compile(r"^h[1-6]$")
 WORD_RE = re.compile(r"[A-Za-z0-9\u0400-\u04FF]+")
+
+SPEED_ISSUE_TYPES = {
+    "slow_response",
+    "large_page_size",
+    "slow_ttfb",
+    "large_html_size",
+    "too_many_js",
+    "too_many_css",
+    "too_many_images",
+    "heavy_js_payload",
+    "heavy_css_payload",
+    "heavy_images_payload",
+    "heavy_page_payload",
+}
+
+INDEXING_ISSUE_TYPES = {
+    "missing_robots_txt",
+    "robots_disallow_all",
+    "robots_missing_sitemap",
+    "missing_sitemap",
+    "bad_sitemap_status",
+    "sitemap_mismatch",
+    "missing_canonical",
+    "invalid_canonical",
+    "canonical_conflict",
+    "page_noindex",
+    "page_nofollow",
+    "blocked_by_robots",
+    "sitemap_page_missing",
+    "missing_meta_robots",
+}
 
 
 class AuditCancelledError(Exception):
@@ -35,6 +68,7 @@ class FetchResult:
     response: Optional[requests.Response]
     error: Optional[str]
     elapsed_seconds: float
+    ttfb_ms: int
     size_bytes: int
 
 
@@ -44,6 +78,25 @@ class SitemapURLResult:
     status_code: int
     is_xml: bool
     urls: list[str]
+
+
+@dataclass
+class RobotsRule:
+    allow: bool
+    path: str
+
+
+@dataclass
+class IndexingContext:
+    anchor_page: SEOPage
+    has_robots_txt: bool
+    has_sitemap_xml: bool
+    robots_disallow_all: bool
+    robots_rules: list[RobotsRule]
+    sitemap_urls: set[str]
+    sitemap_response_received: bool
+    sitemap_status_code: int
+    sitemap_is_xml: bool
 
 
 def _check_cancelled(stop_check: Optional[Callable[[], bool]]) -> None:
@@ -68,6 +121,15 @@ def _normalize_url(raw_url: str) -> str:
         if not path:
             path = "/"
     return urlunparse((scheme, netloc, path, "", "", ""))
+
+
+def _normalize_resource_url(raw_url: str, base_url: str) -> str:
+    absolute = urljoin(base_url, str(raw_url or "").strip())
+    parsed = urlparse(absolute)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        return ""
+    path = parsed.path or "/"
+    return urlunparse((parsed.scheme.lower(), parsed.netloc.lower(), path, "", parsed.query, ""))
 
 
 def _is_internal_url(url: str, root_host: str) -> bool:
@@ -122,6 +184,25 @@ def _extract_h1_values(soup: Optional[BeautifulSoup]) -> list[str]:
     return [_extract_text(tag.get_text(" ", strip=True)) for tag in soup.find_all("h1")]
 
 
+def _extract_canonical_url(soup: Optional[BeautifulSoup], page_url: str) -> tuple[str, bool]:
+    if not soup:
+        return "", False
+    tag = soup.find(
+        "link",
+        attrs={"rel": lambda v: "canonical" in [str(x).lower() for x in (v if isinstance(v, list) else [v])]},
+    )
+    if not tag:
+        return "", False
+    href = _extract_text(tag.get("href"))
+    if not href:
+        return "", False
+    absolute = urljoin(page_url, href)
+    parsed = urlparse(absolute)
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        return href, False
+    return _normalize_url(absolute), True
+
+
 def _count_words(text: str) -> int:
     return len(WORD_RE.findall(text or ""))
 
@@ -157,6 +238,18 @@ def _prepare_response_text(response: requests.Response) -> str:
             return bytes(content).decode("utf-8", errors="replace")
 
 
+def _extract_ttfb_ms(response: Optional[requests.Response], elapsed_seconds: float) -> int:
+    if response is None:
+        return int(max(0, round(elapsed_seconds * 1000)))
+    elapsed = getattr(response, "elapsed", None)
+    if elapsed is not None:
+        try:
+            return int(max(0, round(float(elapsed.total_seconds()) * 1000)))
+        except Exception:
+            pass
+    return int(max(0, round(elapsed_seconds * 1000)))
+
+
 def _fetch_url(session: requests.Session, url: str, stop_check: Optional[Callable[[], bool]]) -> FetchResult:
     _check_cancelled(stop_check)
     started = time.monotonic()
@@ -168,11 +261,19 @@ def _fetch_url(session: requests.Session, url: str, stop_check: Optional[Callabl
             response=response,
             error=None,
             elapsed_seconds=elapsed,
+            ttfb_ms=_extract_ttfb_ms(response, elapsed),
             size_bytes=_response_size_bytes(response),
         )
     except requests.RequestException as exc:
         elapsed = time.monotonic() - started
-        return FetchResult(url=url, response=None, error=str(exc), elapsed_seconds=elapsed, size_bytes=0)
+        return FetchResult(
+            url=url,
+            response=None,
+            error=str(exc),
+            elapsed_seconds=elapsed,
+            ttfb_ms=int(max(0, round(elapsed * 1000))),
+            size_bytes=0,
+        )
 
 
 def _response_content_type(response: Optional[requests.Response]) -> str:
@@ -295,6 +396,16 @@ def _get_anchor_page(audit: SiteSEOAudit, page_by_url: dict[str, SEOPage], start
         url=start_key,
         defaults={
             "status_code": 0,
+            "ttfb_ms": 0,
+            "html_size_bytes": 0,
+            "js_files_count": 0,
+            "css_files_count": 0,
+            "images_count": 0,
+            "total_js_bytes": 0,
+            "total_css_bytes": 0,
+            "total_image_bytes": 0,
+            "performance_score": 0,
+            "speed_status": SEOPage.SpeedStatus.UNKNOWN,
             "title": "",
             "title_length": 0,
             "description": "",
@@ -302,6 +413,11 @@ def _get_anchor_page(audit: SiteSEOAudit, page_by_url: dict[str, SEOPage], start
             "h1": "",
             "h1_count": 0,
             "word_count": 0,
+            "meta_robots": "",
+            "canonical_url": "",
+            "indexability_status": SEOPage.IndexabilityStatus.UNKNOWN,
+            "in_sitemap": False,
+            "blocked_by_robots": False,
         },
     )
     page_by_url[start_key] = page
@@ -344,17 +460,6 @@ def _has_meta_charset(soup: Optional[BeautifulSoup]) -> bool:
     return "charset=" in content
 
 
-def _has_canonical(soup: Optional[BeautifulSoup]) -> bool:
-    if not soup:
-        return False
-    return bool(
-        soup.find(
-            "link",
-            attrs={"rel": lambda v: "canonical" in [str(x).lower() for x in (v if isinstance(v, list) else [v])]},
-        )
-    )
-
-
 def _heading_hierarchy_gap(soup: Optional[BeautifulSoup]) -> bool:
     if not soup:
         return False
@@ -370,6 +475,219 @@ def _heading_hierarchy_gap(soup: Optional[BeautifulSoup]) -> bool:
     return False
 
 
+def _extract_resource_urls(soup: Optional[BeautifulSoup], page_url: str) -> tuple[list[str], list[str], list[str]]:
+    if not soup:
+        return [], [], []
+
+    js_urls: list[str] = []
+    css_urls: list[str] = []
+    image_urls: list[str] = []
+
+    for tag in soup.find_all("script", src=True):
+        src = _normalize_resource_url(tag.get("src"), page_url)
+        if src:
+            js_urls.append(src)
+
+    for tag in soup.find_all("link", href=True):
+        rel_values = tag.get("rel")
+        rel_list = [str(item).strip().lower() for item in (rel_values if isinstance(rel_values, list) else [rel_values])]
+        if "stylesheet" not in rel_list:
+            continue
+        href = _normalize_resource_url(tag.get("href"), page_url)
+        if href:
+            css_urls.append(href)
+
+    for tag in soup.find_all("img"):
+        src = _normalize_resource_url(tag.get("src"), page_url)
+        if src:
+            image_urls.append(src)
+        srcset = _extract_text(tag.get("srcset"))
+        if not srcset:
+            continue
+        for part in srcset.split(","):
+            url_part = _extract_text(part.split(" ", 1)[0])
+            candidate = _normalize_resource_url(url_part, page_url)
+            if candidate:
+                image_urls.append(candidate)
+
+    return sorted(set(js_urls)), sorted(set(css_urls)), sorted(set(image_urls))
+
+
+def _safe_content_length(headers: dict) -> Optional[int]:
+    value = str((headers or {}).get("Content-Length") or "").strip()
+    if not value.isdigit():
+        return None
+    try:
+        parsed = int(value)
+    except Exception:
+        return None
+    return max(0, parsed)
+
+
+def _fetch_resource_size_bytes(
+    session: requests.Session,
+    resource_url: str,
+    *,
+    resource_size_cache: dict[str, Optional[int]],
+    resource_fetch_state: dict[str, int],
+    stop_check: Optional[Callable[[], bool]],
+) -> Optional[int]:
+    if resource_url in resource_size_cache:
+        return resource_size_cache[resource_url]
+
+    if resource_fetch_state.get("remaining", 0) <= 0:
+        resource_size_cache[resource_url] = None
+        return None
+
+    _check_cancelled(stop_check)
+    size: Optional[int] = None
+
+    try:
+        resource_fetch_state["remaining"] = max(0, resource_fetch_state["remaining"] - 1)
+        head_response = session.head(resource_url, timeout=REQUEST_TIMEOUT_SECONDS, allow_redirects=True)
+        if int(getattr(head_response, "status_code", 0) or 0) < 400:
+            size = _safe_content_length(getattr(head_response, "headers", {}) or {})
+    except requests.RequestException:
+        size = None
+
+    if size is None and resource_fetch_state.get("remaining", 0) > 0:
+        try:
+            _check_cancelled(stop_check)
+            resource_fetch_state["remaining"] = max(0, resource_fetch_state["remaining"] - 1)
+            response = session.get(resource_url, timeout=REQUEST_TIMEOUT_SECONDS, allow_redirects=True)
+            if int(getattr(response, "status_code", 0) or 0) < 400:
+                size = _response_size_bytes(response)
+        except requests.RequestException:
+            size = None
+
+    resource_size_cache[resource_url] = size
+    return size
+
+
+def _collect_resource_metrics(
+    session: requests.Session,
+    *,
+    soup: Optional[BeautifulSoup],
+    page_url: str,
+    resource_size_cache: dict[str, Optional[int]],
+    resource_fetch_state: dict[str, int],
+    stop_check: Optional[Callable[[], bool]],
+) -> dict[str, int]:
+    js_urls, css_urls, image_urls = _extract_resource_urls(soup, page_url)
+    total_js_bytes = 0
+    total_css_bytes = 0
+    total_image_bytes = 0
+
+    for url in js_urls:
+        size = _fetch_resource_size_bytes(
+            session,
+            url,
+            resource_size_cache=resource_size_cache,
+            resource_fetch_state=resource_fetch_state,
+            stop_check=stop_check,
+        )
+        if size is not None:
+            total_js_bytes += max(0, int(size))
+
+    for url in css_urls:
+        size = _fetch_resource_size_bytes(
+            session,
+            url,
+            resource_size_cache=resource_size_cache,
+            resource_fetch_state=resource_fetch_state,
+            stop_check=stop_check,
+        )
+        if size is not None:
+            total_css_bytes += max(0, int(size))
+
+    for url in image_urls:
+        size = _fetch_resource_size_bytes(
+            session,
+            url,
+            resource_size_cache=resource_size_cache,
+            resource_fetch_state=resource_fetch_state,
+            stop_check=stop_check,
+        )
+        if size is not None:
+            total_image_bytes += max(0, int(size))
+
+    return {
+        "js_files_count": len(js_urls),
+        "css_files_count": len(css_urls),
+        "images_count": len(image_urls),
+        "total_js_bytes": total_js_bytes,
+        "total_css_bytes": total_css_bytes,
+        "total_image_bytes": total_image_bytes,
+    }
+
+
+def _calculate_speed_score(
+    *,
+    ttfb_ms: int,
+    html_size_bytes: int,
+    js_files_count: int,
+    css_files_count: int,
+    images_count: int,
+    total_js_bytes: int,
+    total_css_bytes: int,
+    total_image_bytes: int,
+) -> tuple[int, str]:
+    total_page_payload = html_size_bytes + total_js_bytes + total_css_bytes + total_image_bytes
+    penalty = 0
+
+    if ttfb_ms >= 1800:
+        penalty += 25
+    elif ttfb_ms >= 900:
+        penalty += 12
+
+    if html_size_bytes >= 700 * 1024:
+        penalty += 18
+    elif html_size_bytes >= 250 * 1024:
+        penalty += 8
+
+    if js_files_count >= 20:
+        penalty += 16
+    elif js_files_count >= 12:
+        penalty += 8
+
+    if css_files_count >= 12:
+        penalty += 12
+    elif css_files_count >= 6:
+        penalty += 6
+
+    if images_count >= 60:
+        penalty += 12
+    elif images_count >= 30:
+        penalty += 6
+
+    if total_js_bytes >= 1800 * 1024:
+        penalty += 16
+    elif total_js_bytes >= 900 * 1024:
+        penalty += 8
+
+    if total_css_bytes >= 700 * 1024:
+        penalty += 12
+    elif total_css_bytes >= 300 * 1024:
+        penalty += 6
+
+    if total_image_bytes >= 5 * 1024 * 1024:
+        penalty += 16
+    elif total_image_bytes >= int(2.5 * 1024 * 1024):
+        penalty += 8
+
+    if total_page_payload >= 6 * 1024 * 1024:
+        penalty += 20
+    elif total_page_payload >= 3 * 1024 * 1024:
+        penalty += 10
+
+    score = max(0, 100 - penalty)
+    if score >= 75:
+        return score, SEOPage.SpeedStatus.GOOD
+    if score >= 45:
+        return score, SEOPage.SpeedStatus.WARNING
+    return score, SEOPage.SpeedStatus.CRITICAL
+
+
 def _analyze_page_content(
     page: SEOPage,
     *,
@@ -378,118 +696,103 @@ def _analyze_page_content(
     status_code: int,
     elapsed_seconds: float,
     size_bytes: int,
+    ttfb_ms: int,
     response: Optional[requests.Response],
     soup: Optional[BeautifulSoup],
 ) -> None:
     if status_code != 200:
-        _create_issue(
-            page,
-            "bad_status",
-            SEOIssue.Severity.HIGH,
-        )
+        _create_issue(page, "bad_status", SEOIssue.Severity.HIGH)
 
     history = list(getattr(response, "history", []) or []) if response is not None else []
     if history or (_normalize_url(final_url) and _normalize_url(final_url) != _normalize_url(requested_url)):
-        _create_issue(
-            page,
-            "redirect",
-            SEOIssue.Severity.LOW,
-        )
+        _create_issue(page, "redirect", SEOIssue.Severity.LOW)
 
     if elapsed_seconds > SLOW_RESPONSE_SECONDS:
-        _create_issue(
-            page,
-            "slow_response",
-            SEOIssue.Severity.MEDIUM,
-        )
+        _create_issue(page, "slow_response", SEOIssue.Severity.MEDIUM)
 
     if size_bytes > MAX_PAGE_BYTES:
-        size_mb = size_bytes / (1024 * 1024)
-        _create_issue(
-            page,
-            "large_page_size",
-            SEOIssue.Severity.MEDIUM,
-        )
+        _create_issue(page, "large_page_size", SEOIssue.Severity.MEDIUM)
+
+    if ttfb_ms >= 1800:
+        _create_issue(page, "slow_ttfb", SEOIssue.Severity.HIGH)
+    elif ttfb_ms >= 900:
+        _create_issue(page, "slow_ttfb", SEOIssue.Severity.MEDIUM)
+
+    if page.html_size_bytes >= 700 * 1024:
+        _create_issue(page, "large_html_size", SEOIssue.Severity.MEDIUM)
+    elif page.html_size_bytes >= 250 * 1024:
+        _create_issue(page, "large_html_size", SEOIssue.Severity.LOW)
+
+    if page.js_files_count >= 20:
+        _create_issue(page, "too_many_js", SEOIssue.Severity.MEDIUM)
+    elif page.js_files_count >= 12:
+        _create_issue(page, "too_many_js", SEOIssue.Severity.LOW)
+
+    if page.css_files_count >= 12:
+        _create_issue(page, "too_many_css", SEOIssue.Severity.MEDIUM)
+    elif page.css_files_count >= 6:
+        _create_issue(page, "too_many_css", SEOIssue.Severity.LOW)
+
+    if page.images_count >= 60:
+        _create_issue(page, "too_many_images", SEOIssue.Severity.MEDIUM)
+    elif page.images_count >= 30:
+        _create_issue(page, "too_many_images", SEOIssue.Severity.LOW)
+
+    if page.total_js_bytes >= 1800 * 1024:
+        _create_issue(page, "heavy_js_payload", SEOIssue.Severity.HIGH)
+    elif page.total_js_bytes >= 900 * 1024:
+        _create_issue(page, "heavy_js_payload", SEOIssue.Severity.MEDIUM)
+
+    if page.total_css_bytes >= 700 * 1024:
+        _create_issue(page, "heavy_css_payload", SEOIssue.Severity.MEDIUM)
+    elif page.total_css_bytes >= 300 * 1024:
+        _create_issue(page, "heavy_css_payload", SEOIssue.Severity.LOW)
+
+    if page.total_image_bytes >= 5 * 1024 * 1024:
+        _create_issue(page, "heavy_images_payload", SEOIssue.Severity.MEDIUM)
+    elif page.total_image_bytes >= int(2.5 * 1024 * 1024):
+        _create_issue(page, "heavy_images_payload", SEOIssue.Severity.LOW)
+
+    total_payload = page.html_size_bytes + page.total_js_bytes + page.total_css_bytes + page.total_image_bytes
+    if total_payload >= 6 * 1024 * 1024:
+        _create_issue(page, "heavy_page_payload", SEOIssue.Severity.HIGH)
+    elif total_payload >= 3 * 1024 * 1024:
+        _create_issue(page, "heavy_page_payload", SEOIssue.Severity.MEDIUM)
 
     if status_code != 200:
         return
-
     if not soup:
         return
 
     title = page.title or ""
     if not title:
-        _create_issue(
-            page,
-            "missing_title",
-            SEOIssue.Severity.HIGH,
-        )
+        _create_issue(page, "missing_title", SEOIssue.Severity.HIGH)
     elif len(title) < 15:
-        _create_issue(
-            page,
-            "title_too_short",
-            SEOIssue.Severity.MEDIUM,
-        )
+        _create_issue(page, "title_too_short", SEOIssue.Severity.MEDIUM)
     elif len(title) > 65:
-        _create_issue(
-            page,
-            "title_too_long",
-            SEOIssue.Severity.MEDIUM,
-        )
+        _create_issue(page, "title_too_long", SEOIssue.Severity.MEDIUM)
 
     description = page.description or ""
     if not description:
-        _create_issue(
-            page,
-            "missing_description",
-            SEOIssue.Severity.MEDIUM,
-        )
+        _create_issue(page, "missing_description", SEOIssue.Severity.MEDIUM)
     elif len(description) < 50:
-        _create_issue(
-            page,
-            "description_too_short",
-            SEOIssue.Severity.LOW,
-        )
+        _create_issue(page, "description_too_short", SEOIssue.Severity.LOW)
     elif len(description) > 160:
-        _create_issue(
-            page,
-            "description_too_long",
-            SEOIssue.Severity.LOW,
-        )
+        _create_issue(page, "description_too_long", SEOIssue.Severity.LOW)
 
     h1_values = _extract_h1_values(soup)
     if not h1_values:
-        _create_issue(
-            page,
-            "missing_h1",
-            SEOIssue.Severity.MEDIUM,
-        )
+        _create_issue(page, "missing_h1", SEOIssue.Severity.MEDIUM)
     if len(h1_values) > 1:
-        _create_issue(
-            page,
-            "multiple_h1",
-            SEOIssue.Severity.MEDIUM,
-        )
+        _create_issue(page, "multiple_h1", SEOIssue.Severity.MEDIUM)
     if any(len(h1) > 70 for h1 in h1_values):
-        _create_issue(
-            page,
-            "long_h1",
-            SEOIssue.Severity.LOW,
-        )
+        _create_issue(page, "long_h1", SEOIssue.Severity.LOW)
 
     if _heading_hierarchy_gap(soup):
-        _create_issue(
-            page,
-            "heading_hierarchy_gap",
-            SEOIssue.Severity.LOW,
-        )
+        _create_issue(page, "heading_hierarchy_gap", SEOIssue.Severity.LOW)
 
-    if page.word_count < 300 and status_code == 200:
-        _create_issue(
-            page,
-            "low_word_count",
-            SEOIssue.Severity.LOW,
-        )
+    if page.word_count < 300:
+        _create_issue(page, "low_word_count", SEOIssue.Severity.LOW)
 
     missing_alt = 0
     empty_alt = 0
@@ -500,45 +803,18 @@ def _analyze_page_content(
         if not _extract_text(img.get("alt")):
             empty_alt += 1
     if missing_alt:
-        _create_issue(
-            page,
-            "image_missing_alt",
-            SEOIssue.Severity.LOW,
-        )
+        _create_issue(page, "image_missing_alt", SEOIssue.Severity.LOW)
     if empty_alt:
-        _create_issue(
-            page,
-            "image_empty_alt",
-            SEOIssue.Severity.LOW,
-        )
+        _create_issue(page, "image_empty_alt", SEOIssue.Severity.LOW)
 
-    if not _has_canonical(soup):
-        _create_issue(
-            page,
-            "missing_canonical",
-            SEOIssue.Severity.LOW,
-        )
-
-    if not _extract_meta_content(soup, "robots"):
-        _create_issue(
-            page,
-            "missing_meta_robots",
-            SEOIssue.Severity.LOW,
-        )
+    if not page.meta_robots:
+        _create_issue(page, "missing_meta_robots", SEOIssue.Severity.LOW)
 
     if not _extract_meta_content(soup, "viewport"):
-        _create_issue(
-            page,
-            "missing_viewport",
-            SEOIssue.Severity.LOW,
-        )
+        _create_issue(page, "missing_viewport", SEOIssue.Severity.LOW)
 
     if not _has_meta_charset(soup):
-        _create_issue(
-            page,
-            "missing_charset",
-            SEOIssue.Severity.LOW,
-        )
+        _create_issue(page, "missing_charset", SEOIssue.Severity.LOW)
 
 
 def _apply_duplicate_title_checks(audit: SiteSEOAudit) -> None:
@@ -554,79 +830,105 @@ def _apply_duplicate_title_checks(audit: SiteSEOAudit) -> None:
         if len(duplicates) < 2:
             continue
         for page in duplicates:
-            _create_issue(
-                page,
-                "duplicate_title",
-                SEOIssue.Severity.MEDIUM,
-            )
+            _create_issue(page, "duplicate_title", SEOIssue.Severity.MEDIUM)
 
 
-def _analyze_robots_and_sitemap(
+def _parse_robots_txt(robots_text: str) -> tuple[list[RobotsRule], bool, list[str]]:
+    rules: list[RobotsRule] = []
+    disallow_all = False
+    sitemap_urls: list[str] = []
+    current_ua_is_all = False
+
+    for raw_line in str(robots_text or "").splitlines():
+        line = raw_line.split("#", 1)[0].strip()
+        if not line or ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        key = key.strip().lower()
+        value = value.strip()
+
+        if key == "user-agent":
+            current_ua_is_all = value.lower() == "*"
+            continue
+
+        if key == "sitemap" and value:
+            sitemap_urls.append(value)
+            continue
+
+        if not current_ua_is_all:
+            continue
+
+        if key not in ("allow", "disallow"):
+            continue
+        if key == "disallow" and not value:
+            continue
+        normalized = value.split("*", 1)[0].strip() or "/"
+        if normalized and not normalized.startswith("/"):
+            normalized = f"/{normalized}"
+        allow_rule = key == "allow"
+        rules.append(RobotsRule(allow=allow_rule, path=normalized))
+        if (not allow_rule) and normalized == "/":
+            disallow_all = True
+
+    return rules, disallow_all, sitemap_urls
+
+
+def _is_blocked_by_robots(url: str, rules: list[RobotsRule]) -> bool:
+    if not rules:
+        return False
+    path = urlparse(url).path or "/"
+    matched: Optional[RobotsRule] = None
+    for rule in rules:
+        rule_path = str(rule.path or "").strip()
+        if not rule_path:
+            continue
+        if not path.startswith(rule_path):
+            continue
+        if matched is None or len(rule_path) > len(matched.path):
+            matched = rule
+        elif matched and len(rule_path) == len(matched.path) and rule.allow:
+            matched = rule
+    if matched is None:
+        return False
+    return not bool(matched.allow)
+
+
+def _build_indexing_context(
     audit: SiteSEOAudit,
     session: requests.Session,
     *,
     start_url: str,
     root_host: str,
     page_by_url: dict[str, SEOPage],
-    crawled_urls: set[str],
     stop_check: Optional[Callable[[], bool]],
-) -> None:
+) -> IndexingContext:
     _check_cancelled(stop_check)
     anchor_page = _get_anchor_page(audit, page_by_url, start_url)
     root_base = _normalize_url(start_url)
-
     robots_url = urljoin(root_base, "/robots.txt")
-    robots_result = _fetch_url(session, robots_url, stop_check)
-    sitemap_candidates: list[str] = []
-    if not robots_result.response:
-        _create_issue(
-            anchor_page,
-            "missing_robots_txt",
-            SEOIssue.Severity.LOW,
-        )
-    else:
-        robots_status = int(getattr(robots_result.response, "status_code", 0) or 0)
-        if robots_status != 200:
-            _create_issue(
-                anchor_page,
-                "missing_robots_txt",
-                SEOIssue.Severity.LOW,
-            )
-        else:
-            robots_text = _prepare_response_text(robots_result.response)
-            current_ua_is_all = False
-            disallow_all = False
-            for raw_line in robots_text.splitlines():
-                line = raw_line.split("#", 1)[0].strip()
-                if not line or ":" not in line:
-                    continue
-                key, value = line.split(":", 1)
-                key = key.strip().lower()
-                value = value.strip()
-                if key == "user-agent":
-                    current_ua_is_all = value.lower() == "*"
-                elif key == "disallow" and current_ua_is_all and value == "/":
-                    disallow_all = True
-                elif key == "sitemap" and value:
-                    sitemap_candidates.append(value)
 
-            if disallow_all:
-                _create_issue(
-                    anchor_page,
-                    "robots_disallow_all",
-                    SEOIssue.Severity.HIGH,
-                )
-            if not sitemap_candidates:
-                _create_issue(
-                    anchor_page,
-                    "robots_missing_sitemap",
-                    SEOIssue.Severity.LOW,
-                )
+    has_robots_txt = False
+    robots_disallow_all = False
+    robots_rules: list[RobotsRule] = []
+    sitemap_candidates: list[str] = []
+
+    robots_result = _fetch_url(session, robots_url, stop_check)
+    robots_response = robots_result.response
+    if not robots_response or int(getattr(robots_response, "status_code", 0) or 0) != 200:
+        _create_issue(anchor_page, "missing_robots_txt", SEOIssue.Severity.LOW)
+    else:
+        has_robots_txt = True
+        robots_text = _prepare_response_text(robots_response)
+        robots_rules, robots_disallow_all, sitemap_candidates = _parse_robots_txt(robots_text)
+        if robots_disallow_all:
+            _create_issue(anchor_page, "robots_disallow_all", SEOIssue.Severity.HIGH)
+        if not sitemap_candidates:
+            _create_issue(anchor_page, "robots_missing_sitemap", SEOIssue.Severity.LOW)
 
     if not sitemap_candidates:
         sitemap_candidates = [urljoin(root_base, "/sitemap.xml")]
 
-    sitemap_url = None
+    sitemap_url = ""
     for candidate in sitemap_candidates:
         normalized = _normalize_url(urljoin(root_base, candidate))
         if _is_internal_url(normalized, root_host):
@@ -636,56 +938,109 @@ def _analyze_robots_and_sitemap(
         sitemap_url = _normalize_url(urljoin(root_base, "/sitemap.xml"))
 
     _check_cancelled(stop_check)
-    sitemap_parse_result = _collect_urls_from_sitemap(
+    sitemap_result = _collect_urls_from_sitemap(
         session,
         sitemap_url=sitemap_url,
         root_host=root_host,
         stop_check=stop_check,
         max_urls=MAX_SITEMAP_URLS_DEFAULT,
     )
-    if not sitemap_parse_result.response_received:
-        _create_issue(
-            anchor_page,
-            "missing_sitemap",
-            SEOIssue.Severity.MEDIUM,
+    has_sitemap_xml = bool(
+        sitemap_result.response_received and sitemap_result.status_code == 200 and sitemap_result.is_xml
+    )
+
+    if not sitemap_result.response_received:
+        _create_issue(anchor_page, "missing_sitemap", SEOIssue.Severity.MEDIUM)
+    elif sitemap_result.status_code != 200:
+        _create_issue(anchor_page, "bad_sitemap_status", SEOIssue.Severity.MEDIUM)
+    elif not sitemap_result.is_xml or not sitemap_result.urls:
+        _create_issue(anchor_page, "missing_sitemap", SEOIssue.Severity.MEDIUM)
+
+    sitemap_urls = set(sitemap_result.urls if has_sitemap_xml else [])
+
+    return IndexingContext(
+        anchor_page=anchor_page,
+        has_robots_txt=has_robots_txt,
+        has_sitemap_xml=has_sitemap_xml,
+        robots_disallow_all=robots_disallow_all,
+        robots_rules=robots_rules,
+        sitemap_urls=sitemap_urls,
+        sitemap_response_received=sitemap_result.response_received,
+        sitemap_status_code=sitemap_result.status_code,
+        sitemap_is_xml=sitemap_result.is_xml,
+    )
+
+
+def _is_valid_canonical_url(canonical_url: str) -> bool:
+    parsed = urlparse(str(canonical_url or "").strip())
+    return parsed.scheme in ("http", "https") and bool(parsed.hostname)
+
+
+def _apply_indexing_page_checks(
+    audit: SiteSEOAudit,
+    *,
+    context: IndexingContext,
+    crawled_urls: set[str],
+) -> None:
+    pages = SEOPage.objects.filter(audit=audit).order_by("id")
+    normalized_crawled_urls = {_normalize_url(url) for url in crawled_urls if url}
+
+    if context.has_sitemap_xml and context.sitemap_urls and normalized_crawled_urls:
+        overlap_count = len(normalized_crawled_urls & context.sitemap_urls)
+        if overlap_count < len(normalized_crawled_urls):
+            _create_issue(context.anchor_page, "sitemap_mismatch", SEOIssue.Severity.LOW)
+
+    for page in pages:
+        normalized_page_url = _normalize_url(page.url)
+        in_sitemap = bool(context.has_sitemap_xml and context.sitemap_urls and normalized_page_url in context.sitemap_urls)
+        blocked_by_robots = bool(context.has_robots_txt and _is_blocked_by_robots(page.url, context.robots_rules))
+        meta_robots = str(page.meta_robots or "").strip().lower()
+        tokens = {token.strip() for token in meta_robots.split(",") if token.strip()}
+        has_noindex = "noindex" in tokens or "none" in tokens
+        has_nofollow = "nofollow" in tokens or "none" in tokens
+
+        canonical_url = str(page.canonical_url or "").strip()
+        has_canonical = bool(canonical_url)
+        canonical_valid = bool(has_canonical and _is_valid_canonical_url(canonical_url))
+        canonical_conflict = bool(
+            has_noindex and canonical_valid and _normalize_url(canonical_url) != normalized_page_url
         )
-        return
 
-    sitemap_status = int(sitemap_parse_result.status_code or 0)
-    if sitemap_status != 200:
-        _create_issue(
-            anchor_page,
-            "bad_sitemap_status",
-            SEOIssue.Severity.MEDIUM,
-        )
-        return
+        if page.status_code == 200:
+            if has_noindex:
+                _create_issue(page, "page_noindex", SEOIssue.Severity.MEDIUM)
+            if has_nofollow:
+                _create_issue(page, "page_nofollow", SEOIssue.Severity.LOW)
 
-    if not sitemap_parse_result.is_xml:
-        _create_issue(
-            anchor_page,
-            "missing_sitemap",
-            SEOIssue.Severity.MEDIUM,
-        )
-        return
+            if not has_canonical:
+                _create_issue(page, "missing_canonical", SEOIssue.Severity.LOW)
+            elif not canonical_valid:
+                _create_issue(page, "invalid_canonical", SEOIssue.Severity.MEDIUM)
 
-    loc_values = set(sitemap_parse_result.urls)
+            if canonical_conflict:
+                _create_issue(page, "canonical_conflict", SEOIssue.Severity.MEDIUM)
 
-    if not loc_values:
-        _create_issue(
-            anchor_page,
-            "missing_sitemap",
-            SEOIssue.Severity.MEDIUM,
-        )
-        return
+            if blocked_by_robots:
+                _create_issue(page, "blocked_by_robots", SEOIssue.Severity.HIGH)
 
-    if crawled_urls:
-        overlap_count = len(crawled_urls & loc_values)
-        if overlap_count < len(crawled_urls):
-            _create_issue(
-                anchor_page,
-                "sitemap_mismatch",
-                SEOIssue.Severity.LOW,
-            )
+            if context.has_sitemap_xml and context.sitemap_urls and not in_sitemap:
+                _create_issue(page, "sitemap_page_missing", SEOIssue.Severity.LOW)
+
+        if blocked_by_robots:
+            indexability_status = SEOPage.IndexabilityStatus.BLOCKED
+        elif canonical_conflict:
+            indexability_status = SEOPage.IndexabilityStatus.CONFLICT
+        elif has_noindex:
+            indexability_status = SEOPage.IndexabilityStatus.NOINDEX
+        elif page.status_code == 200:
+            indexability_status = SEOPage.IndexabilityStatus.INDEXABLE
+        else:
+            indexability_status = SEOPage.IndexabilityStatus.UNKNOWN
+
+        page.in_sitemap = in_sitemap
+        page.blocked_by_robots = blocked_by_robots
+        page.indexability_status = indexability_status
+        page.save(update_fields=["in_sitemap", "blocked_by_robots", "indexability_status"])
 
 
 def recalculate_audit_score(audit: SiteSEOAudit) -> dict[str, int]:
@@ -706,9 +1061,39 @@ def recalculate_audit_score(audit: SiteSEOAudit) -> dict[str, int]:
     score -= severity_counts[SEOIssue.Severity.LOW] * 1
     score = max(0, score)
 
+    pages_qs = SEOPage.objects.filter(audit=audit)
+    avg_ttfb = pages_qs.filter(ttfb_ms__gt=0).aggregate(value=Avg("ttfb_ms")).get("value") or 0
+    avg_performance = pages_qs.filter(performance_score__gt=0).aggregate(value=Avg("performance_score")).get("value") or 0
+
+    pages_with_speed_issues = (
+        SEOIssue.objects.filter(page__audit=audit, issue_type__in=SPEED_ISSUE_TYPES)
+        .values("page_id")
+        .distinct()
+        .count()
+    )
+    pages_with_indexing_issues = (
+        SEOIssue.objects.filter(page__audit=audit, issue_type__in=INDEXING_ISSUE_TYPES)
+        .values("page_id")
+        .distinct()
+        .count()
+    )
+
     audit.seo_score = score
-    audit.pages_count = SEOPage.objects.filter(audit=audit).count()
-    audit.save(update_fields=["seo_score", "pages_count"])
+    audit.pages_count = pages_qs.count()
+    audit.avg_ttfb_ms = int(round(avg_ttfb)) if avg_ttfb else 0
+    audit.avg_performance_score = int(round(avg_performance)) if avg_performance else 0
+    audit.pages_with_speed_issues = int(pages_with_speed_issues or 0)
+    audit.pages_with_indexing_issues = int(pages_with_indexing_issues or 0)
+    audit.save(
+        update_fields=[
+            "seo_score",
+            "pages_count",
+            "avg_ttfb_ms",
+            "avg_performance_score",
+            "pages_with_speed_issues",
+            "pages_with_indexing_issues",
+        ]
+    )
 
     return {
         "score": score,
@@ -741,39 +1126,54 @@ def crawl_site_audit(
     audit.pages.all().delete()
     audit.used_sitemap = False
     audit.sitemap_urls_count = 0
-    audit.save(update_fields=["used_sitemap", "sitemap_urls_count"])
+    audit.has_robots_txt = False
+    audit.has_sitemap_xml = False
+    audit.avg_ttfb_ms = 0
+    audit.avg_performance_score = 0
+    audit.pages_with_speed_issues = 0
+    audit.pages_with_indexing_issues = 0
+    audit.save(
+        update_fields=[
+            "used_sitemap",
+            "sitemap_urls_count",
+            "has_robots_txt",
+            "has_sitemap_xml",
+            "avg_ttfb_ms",
+            "avg_performance_score",
+            "pages_with_speed_issues",
+            "pages_with_indexing_issues",
+        ]
+    )
 
-    sitemap_seed_url = _normalize_url(urljoin(start_url, "/sitemap.xml"))
-    sitemap_urls_result = _collect_urls_from_sitemap(
+    page_by_url: dict[str, SEOPage] = {}
+    indexing_context = _build_indexing_context(
+        audit,
         local_session,
-        sitemap_url=sitemap_seed_url,
+        start_url=start_url,
         root_host=root_host,
+        page_by_url=page_by_url,
         stop_check=stop_check,
-        max_urls=sitemap_crawl_limit,
     )
 
-    crawl_uses_sitemap = bool(
-        sitemap_urls_result.response_received
-        and sitemap_urls_result.status_code == 200
-        and sitemap_urls_result.is_xml
-        and sitemap_urls_result.urls
-    )
+    crawl_uses_sitemap = bool(indexing_context.has_sitemap_xml and indexing_context.sitemap_urls)
     if crawl_uses_sitemap:
-        audit.used_sitemap = True
-        audit.sitemap_urls_count = len(sitemap_urls_result.urls)
-        audit.save(update_fields=["used_sitemap", "sitemap_urls_count"])
-        logger.info("Sitemap найден, обнаружено %s URL", len(sitemap_urls_result.urls))
-        queue: deque[str] = deque(sitemap_urls_result.urls[:sitemap_crawl_limit])
+        queue: deque[str] = deque(sorted(indexing_context.sitemap_urls)[:sitemap_crawl_limit])
         crawl_limit = sitemap_crawl_limit
+        audit.used_sitemap = True
     else:
-        logger.info("Sitemap не найден, fallback на обход ссылок")
         queue = deque([_normalize_url(start_url)])
         crawl_limit = link_crawl_limit
 
+    audit.has_robots_txt = bool(indexing_context.has_robots_txt)
+    audit.has_sitemap_xml = bool(indexing_context.has_sitemap_xml)
+    audit.sitemap_urls_count = len(indexing_context.sitemap_urls)
+    audit.save(update_fields=["used_sitemap", "has_robots_txt", "has_sitemap_xml", "sitemap_urls_count"])
+
     queued: set[str] = set(queue)
     visited: set[str] = set()
-    page_by_url: dict[str, SEOPage] = {}
     crawled_urls: set[str] = set()
+    resource_size_cache: dict[str, Optional[int]] = {}
+    resource_fetch_state = {"remaining": MAX_RESOURCE_FETCH_BUDGET}
 
     while queue and len(visited) < crawl_limit:
         _check_cancelled(stop_check)
@@ -793,6 +1193,16 @@ def crawl_site_audit(
                 url=requested_url,
                 defaults={
                     "status_code": 0,
+                    "ttfb_ms": fetch.ttfb_ms,
+                    "html_size_bytes": 0,
+                    "js_files_count": 0,
+                    "css_files_count": 0,
+                    "images_count": 0,
+                    "total_js_bytes": 0,
+                    "total_css_bytes": 0,
+                    "total_image_bytes": 0,
+                    "performance_score": 0,
+                    "speed_status": SEOPage.SpeedStatus.CRITICAL,
                     "title": "",
                     "title_length": 0,
                     "description": "",
@@ -800,14 +1210,17 @@ def crawl_site_audit(
                     "h1": "",
                     "h1_count": 0,
                     "word_count": 0,
+                    "meta_robots": "",
+                    "canonical_url": "",
+                    "indexability_status": SEOPage.IndexabilityStatus.UNKNOWN,
+                    "in_sitemap": bool(indexing_context.sitemap_urls and requested_url in indexing_context.sitemap_urls),
+                    "blocked_by_robots": bool(
+                        indexing_context.has_robots_txt and _is_blocked_by_robots(requested_url, indexing_context.robots_rules)
+                    ),
                 },
             )
             page_by_url[requested_url] = page
-            _create_issue(
-                page,
-                "network_error",
-                SEOIssue.Severity.HIGH,
-            )
+            _create_issue(page, "network_error", SEOIssue.Severity.HIGH)
             continue
 
         response = fetch.response
@@ -821,13 +1234,14 @@ def crawl_site_audit(
         status_code = int(getattr(response, "status_code", 0) or 0)
         content_type = str((getattr(response, "headers", {}) or {}).get("Content-Type") or "").lower()
         is_html = ("html" in content_type) or (not content_type and status_code == 200)
-        html_text = ""
         soup = None
         title = ""
         description = ""
         h1_values: list[str] = []
-        page_text = ""
         word_count = 0
+        meta_robots = ""
+        canonical_url = ""
+        canonical_valid = False
 
         if is_html:
             html_text = _prepare_response_text(response)
@@ -837,9 +1251,42 @@ def crawl_site_audit(
             h1_values = _extract_h1_values(soup)
             page_text = _extract_text(soup.get_text(" ", strip=True))
             word_count = _count_words(page_text)
+            meta_robots = _extract_meta_content(soup, "robots")
+            canonical_url, canonical_valid = _extract_canonical_url(soup, target_url)
+            if canonical_url and not canonical_valid:
+                canonical_url = _extract_text(canonical_url)
+
+        resource_metrics = _collect_resource_metrics(
+            local_session,
+            soup=soup if status_code == 200 else None,
+            page_url=target_url,
+            resource_size_cache=resource_size_cache,
+            resource_fetch_state=resource_fetch_state,
+            stop_check=stop_check,
+        )
+        performance_score, speed_status = _calculate_speed_score(
+            ttfb_ms=fetch.ttfb_ms,
+            html_size_bytes=fetch.size_bytes,
+            js_files_count=resource_metrics["js_files_count"],
+            css_files_count=resource_metrics["css_files_count"],
+            images_count=resource_metrics["images_count"],
+            total_js_bytes=resource_metrics["total_js_bytes"],
+            total_css_bytes=resource_metrics["total_css_bytes"],
+            total_image_bytes=resource_metrics["total_image_bytes"],
+        )
 
         page_defaults = {
             "status_code": status_code,
+            "ttfb_ms": fetch.ttfb_ms,
+            "html_size_bytes": fetch.size_bytes,
+            "js_files_count": resource_metrics["js_files_count"],
+            "css_files_count": resource_metrics["css_files_count"],
+            "images_count": resource_metrics["images_count"],
+            "total_js_bytes": resource_metrics["total_js_bytes"],
+            "total_css_bytes": resource_metrics["total_css_bytes"],
+            "total_image_bytes": resource_metrics["total_image_bytes"],
+            "performance_score": performance_score,
+            "speed_status": speed_status,
             "title": title,
             "title_length": len(title),
             "description": description,
@@ -847,6 +1294,13 @@ def crawl_site_audit(
             "h1": h1_values[0] if h1_values else "",
             "h1_count": len(h1_values),
             "word_count": word_count,
+            "meta_robots": meta_robots,
+            "canonical_url": canonical_url,
+            "indexability_status": SEOPage.IndexabilityStatus.UNKNOWN,
+            "in_sitemap": bool(indexing_context.sitemap_urls and target_url in indexing_context.sitemap_urls),
+            "blocked_by_robots": bool(
+                indexing_context.has_robots_txt and _is_blocked_by_robots(target_url, indexing_context.robots_rules)
+            ),
         }
         page, _ = SEOPage.objects.update_or_create(audit=audit, url=target_url, defaults=page_defaults)
         page_by_url[target_url] = page
@@ -860,6 +1314,7 @@ def crawl_site_audit(
             status_code=status_code,
             elapsed_seconds=fetch.elapsed_seconds,
             size_bytes=fetch.size_bytes,
+            ttfb_ms=fetch.ttfb_ms,
             response=response,
             soup=soup,
         )
@@ -875,15 +1330,7 @@ def crawl_site_audit(
 
     _check_cancelled(stop_check)
     _apply_duplicate_title_checks(audit)
-    _analyze_robots_and_sitemap(
-        audit,
-        local_session,
-        start_url=start_url,
-        root_host=root_host,
-        page_by_url=page_by_url,
-        crawled_urls=crawled_urls,
-        stop_check=stop_check,
-    )
+    _apply_indexing_page_checks(audit, context=indexing_context, crawled_urls=crawled_urls)
     _check_cancelled(stop_check)
     recalculate_audit_score(audit)
     return audit

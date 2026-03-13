@@ -19,6 +19,12 @@ class SiteSEOAudit(models.Model):
     pages_count = models.PositiveIntegerField(default=0)
     used_sitemap = models.BooleanField(default=False)
     sitemap_urls_count = models.PositiveIntegerField(default=0)
+    pages_with_speed_issues = models.PositiveIntegerField(default=0)
+    pages_with_indexing_issues = models.PositiveIntegerField(default=0)
+    has_robots_txt = models.BooleanField(default=False)
+    has_sitemap_xml = models.BooleanField(default=False)
+    avg_ttfb_ms = models.PositiveIntegerField(default=0)
+    avg_performance_score = models.PositiveIntegerField(default=0)
     celery_task_id = models.CharField(max_length=255, null=True, blank=True)
     is_cancelled = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -32,9 +38,36 @@ class SiteSEOAudit(models.Model):
 
 
 class SEOPage(models.Model):
+    class SpeedStatus(models.TextChoices):
+        UNKNOWN = "unknown", "Не определено"
+        GOOD = "good", "Хорошо"
+        WARNING = "warning", "Есть замечания"
+        CRITICAL = "critical", "Критично"
+
+    class IndexabilityStatus(models.TextChoices):
+        UNKNOWN = "unknown", "Не определено"
+        INDEXABLE = "indexable", "Индексируется"
+        NOINDEX = "noindex", "Noindex"
+        BLOCKED = "blocked", "Заблокировано robots.txt"
+        CONFLICT = "conflict", "Конфликт индексации"
+
     audit = models.ForeignKey(SiteSEOAudit, on_delete=models.CASCADE, related_name="pages")
     url = models.TextField()
     status_code = models.PositiveIntegerField(default=0)
+    ttfb_ms = models.PositiveIntegerField(default=0)
+    html_size_bytes = models.PositiveIntegerField(default=0)
+    js_files_count = models.PositiveIntegerField(default=0)
+    css_files_count = models.PositiveIntegerField(default=0)
+    images_count = models.PositiveIntegerField(default=0)
+    total_js_bytes = models.PositiveIntegerField(default=0)
+    total_css_bytes = models.PositiveIntegerField(default=0)
+    total_image_bytes = models.PositiveIntegerField(default=0)
+    performance_score = models.PositiveIntegerField(default=0)
+    speed_status = models.CharField(
+        max_length=16,
+        choices=SpeedStatus.choices,
+        default=SpeedStatus.UNKNOWN,
+    )
     title = models.CharField(max_length=512, blank=True, default="")
     title_length = models.PositiveIntegerField(default=0)
     description = models.TextField(blank=True, default="")
@@ -42,6 +75,15 @@ class SEOPage(models.Model):
     h1 = models.TextField(blank=True, default="")
     h1_count = models.PositiveIntegerField(default=0)
     word_count = models.PositiveIntegerField(default=0)
+    meta_robots = models.CharField(max_length=512, blank=True, default="")
+    canonical_url = models.TextField(blank=True, default="")
+    indexability_status = models.CharField(
+        max_length=24,
+        choices=IndexabilityStatus.choices,
+        default=IndexabilityStatus.UNKNOWN,
+    )
+    in_sitemap = models.BooleanField(default=False)
+    blocked_by_robots = models.BooleanField(default=False)
 
     class Meta:
         ordering = ("url", "id")
@@ -75,7 +117,22 @@ class SEOIssue(models.Model):
         REDIRECT = "redirect", "redirect"
         SLOW_RESPONSE = "slow_response", "slow_response"
         LARGE_PAGE_SIZE = "large_page_size", "large_page_size"
+        SLOW_TTFB = "slow_ttfb", "slow_ttfb"
+        LARGE_HTML_SIZE = "large_html_size", "large_html_size"
+        TOO_MANY_JS = "too_many_js", "too_many_js"
+        TOO_MANY_CSS = "too_many_css", "too_many_css"
+        TOO_MANY_IMAGES = "too_many_images", "too_many_images"
+        HEAVY_JS_PAYLOAD = "heavy_js_payload", "heavy_js_payload"
+        HEAVY_CSS_PAYLOAD = "heavy_css_payload", "heavy_css_payload"
+        HEAVY_IMAGES_PAYLOAD = "heavy_images_payload", "heavy_images_payload"
+        HEAVY_PAGE_PAYLOAD = "heavy_page_payload", "heavy_page_payload"
         MISSING_CANONICAL = "missing_canonical", "missing_canonical"
+        INVALID_CANONICAL = "invalid_canonical", "invalid_canonical"
+        CANONICAL_CONFLICT = "canonical_conflict", "canonical_conflict"
+        PAGE_NOINDEX = "page_noindex", "page_noindex"
+        PAGE_NOFOLLOW = "page_nofollow", "page_nofollow"
+        BLOCKED_BY_ROBOTS = "blocked_by_robots", "blocked_by_robots"
+        SITEMAP_PAGE_MISSING = "sitemap_page_missing", "sitemap_page_missing"
         MISSING_META_ROBOTS = "missing_meta_robots", "missing_meta_robots"
         MISSING_VIEWPORT = "missing_viewport", "missing_viewport"
         MISSING_CHARSET = "missing_charset", "missing_charset"
