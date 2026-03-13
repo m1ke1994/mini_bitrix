@@ -17,18 +17,23 @@
             autocomplete="off"
           />
         </label>
-        <button type="button" class="seo-start-btn" :disabled="starting || !domain" @click="startAudit">
+        <button
+          type="button"
+          class="seo-start-btn"
+          :class="{ 'is-busy': isInProgress }"
+          :disabled="!canStartAudit"
+          @click="startAudit"
+        >
           {{ starting ? "Запуск..." : "Запустить аудит" }}
         </button>
-        <button type="button" class="seo-refresh-btn" :disabled="loading || !auditId" @click="manualRefresh">
-          {{ loading ? "Обновление..." : "Обновить" }}
-        </button>
-      </div>
-      <div v-if="isRunning" class="seo-stop-row">
-        <button type="button" class="seo-stop-btn" :disabled="stopping || !auditId" @click="stopAudit">
+        <button type="button" class="seo-stop-btn" :disabled="!canStopAudit" @click="stopAudit">
           {{ stopping ? "Остановка..." : "Остановить аудит" }}
         </button>
       </div>
+      <p v-if="isInProgress" class="seo-running-indicator" role="status" aria-live="polite">
+        <span class="seo-spinner" aria-hidden="true"></span>
+        {{ runningHint }}
+      </p>
       <p class="muted seo-hint">Аудит обходит до 100 внутренних страниц и выполняется в фоне через Celery.</p>
     </div>
 
@@ -160,6 +165,7 @@ const error = ref("");
 const loading = ref(false);
 const starting = ref(false);
 const stopping = ref(false);
+const bootstrapping = ref(false);
 
 let pollTimer = null;
 
@@ -206,8 +212,21 @@ const scoreValue = computed(() => Number(audit.value?.score ?? audit.value?.seo_
 const errorsCount = computed(
   () => breakdown.value.high_issues + breakdown.value.medium_issues + breakdown.value.low_issues,
 );
-const rawStatus = computed(() => String(audit.value?.status || "idle"));
-const isRunning = computed(() => rawStatus.value === "running");
+const rawStatus = computed(() => String(audit.value?.status || "idle").trim().toLowerCase());
+const isInProgress = computed(() => rawStatus.value === "pending" || rawStatus.value === "running");
+const canStartAudit = computed(
+  () =>
+    Boolean(domain.value) &&
+    !starting.value &&
+    !stopping.value &&
+    !loading.value &&
+    !bootstrapping.value &&
+    !isInProgress.value,
+);
+const canStopAudit = computed(
+  () => Boolean(auditId.value) && !starting.value && !stopping.value && !bootstrapping.value && isInProgress.value,
+);
+const runningHint = computed(() => (rawStatus.value === "pending" ? "Аудит в очереди..." : "Аудит выполняется..."));
 const scoreClass = computed(() => {
   const score = scoreValue.value;
   if (score <= 40) return "seo-score-bad";
@@ -289,14 +308,14 @@ function stopPolling() {
 function schedulePollingIfNeeded() {
   stopPolling();
   if (!auditId.value) return;
-  if (rawStatus.value !== "running") return;
+  if (!isInProgress.value) return;
   pollTimer = setTimeout(() => {
     void loadAudit({ silent: true });
   }, POLL_INTERVAL_MS);
 }
 
 async function startAudit() {
-  if (starting.value || !domain.value) return;
+  if (!canStartAudit.value) return;
   error.value = "";
   starting.value = true;
   stopPolling();
@@ -338,7 +357,7 @@ async function loadAudit({ silent = false } = {}) {
 }
 
 async function stopAudit() {
-  if (!auditId.value || stopping.value) return;
+  if (!canStopAudit.value) return;
   stopping.value = true;
   error.value = "";
   stopPolling();
@@ -381,9 +400,11 @@ defineExpose({ manualRefresh });
 
 onMounted(() => {
   restoreState();
-  if (auditId.value) {
-    void loadAudit({ silent: true });
-  }
+  if (!auditId.value) return;
+  bootstrapping.value = true;
+  void loadAudit({ silent: true }).finally(() => {
+    bootstrapping.value = false;
+  });
 });
 
 onBeforeUnmount(() => {
@@ -397,10 +418,6 @@ onBeforeUnmount(() => {
   grid-template-columns: minmax(16rem, 30rem) auto auto;
   gap: 0.75rem;
   align-items: end;
-}
-
-.seo-stop-row {
-  margin-top: 0.65rem;
 }
 
 .seo-field {
@@ -423,7 +440,6 @@ onBeforeUnmount(() => {
 }
 
 .seo-start-btn,
-.seo-refresh-btn,
 .seo-stop-btn {
   min-height: 2.6rem;
   border-radius: 0.65rem;
@@ -439,8 +455,8 @@ onBeforeUnmount(() => {
   background: linear-gradient(135deg, #0284c7, #2563eb);
 }
 
-.seo-refresh-btn {
-  background: #1E72F1;
+.seo-start-btn.is-busy {
+  background: linear-gradient(135deg, #64748b, #334155);
 }
 
 .seo-stop-btn {
@@ -451,10 +467,27 @@ onBeforeUnmount(() => {
 }
 
 .seo-start-btn:disabled,
-.seo-refresh-btn:disabled,
 .seo-stop-btn:disabled {
   opacity: 0.65;
   cursor: default;
+}
+
+.seo-running-indicator {
+  margin: 0.7rem 0 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: #1d4ed8;
+  font-weight: 600;
+}
+
+.seo-spinner {
+  width: 0.95rem;
+  height: 0.95rem;
+  border-radius: 999px;
+  border: 2px solid #bfdbfe;
+  border-top-color: #1d4ed8;
+  animation: seo-spin 0.9s linear infinite;
 }
 
 .seo-hint {
@@ -562,6 +595,15 @@ onBeforeUnmount(() => {
 
 .seo-score-good {
   color: #15803d;
+}
+
+@keyframes seo-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 @media (max-width: 960px) {

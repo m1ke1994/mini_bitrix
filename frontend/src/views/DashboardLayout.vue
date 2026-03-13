@@ -29,7 +29,6 @@
         <router-link to="/app/dashboard/sources" class="sub-item">Топ источников</router-link>
         <router-link to="/app/dashboard/clicks" class="sub-item">Топ кликов</router-link>
         <router-link to="/app/dashboard/pages-conversion" class="sub-item">Конверсия по страницам</router-link>
-        <router-link to="/app/dashboard/seo" class="sub-item">SEO аудит</router-link>
         <router-link to="/app/dashboard/devices" class="sub-item">Устройства</router-link>
       </nav>
       <div class="dashboard-view">
