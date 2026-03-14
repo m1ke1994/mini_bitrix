@@ -591,8 +591,19 @@ function persistState() {
   try {
     if (auditId.value) {
       window.localStorage.setItem(STORAGE_AUDIT_ID_KEY, String(auditId.value));
+    } else {
+      window.localStorage.removeItem(STORAGE_AUDIT_ID_KEY);
     }
     window.localStorage.setItem(STORAGE_DOMAIN_KEY, String(domain.value || ""));
+  } catch {
+    // Ignore localStorage errors.
+  }
+}
+
+function clearPersistedAuditId() {
+  if (!canUseStorage()) return;
+  try {
+    window.localStorage.removeItem(STORAGE_AUDIT_ID_KEY);
   } catch {
     // Ignore localStorage errors.
   }
@@ -653,7 +664,39 @@ async function startAudit() {
   }
 }
 
-async function loadAudit({ silent = false } = {}) {
+async function loadLatestAudit({ silent = false, preferCurrentDomain = false, suppressError = false } = {}) {
+  if (!silent) loading.value = true;
+  try {
+    const params =
+      preferCurrentDomain && String(domain.value || "").trim()
+        ? { domain: String(domain.value || "").trim() }
+        : undefined;
+    const { data } = await api.get("/api/seo/latest/", { params });
+    const latestAuditId = Number(data?.audit_id || 0) || null;
+    if (!latestAuditId) {
+      auditId.value = null;
+      audit.value = null;
+      persistState();
+      return false;
+    }
+    auditId.value = latestAuditId;
+    if (data?.domain) {
+      domain.value = String(data.domain);
+    }
+    persistState();
+    await loadAudit({ silent: true, allowLatestFallback: false });
+    return true;
+  } catch (e) {
+    if (!suppressError) {
+      error.value = e?.response?.data?.detail || "Не удалось загрузить последний SEO-аудит.";
+    }
+    return false;
+  } finally {
+    if (!silent) loading.value = false;
+  }
+}
+
+async function loadAudit({ silent = false, allowLatestFallback = true } = {}) {
   if (!auditId.value) return;
   if (!silent) loading.value = true;
   error.value = "";
@@ -665,6 +708,20 @@ async function loadAudit({ silent = false } = {}) {
     }
     persistState();
   } catch (e) {
+    const responseStatus = Number(e?.response?.status || 0);
+    if (responseStatus === 404 && allowLatestFallback) {
+      auditId.value = null;
+      audit.value = null;
+      clearPersistedAuditId();
+      const loadedLatest = await loadLatestAudit({
+        silent: true,
+        preferCurrentDomain: true,
+        suppressError: true,
+      });
+      if (loadedLatest) {
+        return;
+      }
+    }
     error.value = e?.response?.data?.detail || "Не удалось загрузить результат аудита.";
   } finally {
     if (!silent) loading.value = false;
@@ -709,16 +766,26 @@ async function stopAudit() {
 }
 
 async function manualRefresh() {
-  await loadAudit();
+  if (auditId.value) {
+    await loadAudit();
+    return;
+  }
+  await loadLatestAudit({ preferCurrentDomain: true });
 }
 
 defineExpose({ manualRefresh });
 
 onMounted(() => {
   restoreState();
-  if (!auditId.value) return;
   bootstrapping.value = true;
-  void loadAudit({ silent: true }).finally(() => {
+  const bootstrap = async () => {
+    if (auditId.value) {
+      await loadAudit({ silent: true });
+      return;
+    }
+    await loadLatestAudit({ silent: true, preferCurrentDomain: true, suppressError: true });
+  };
+  void bootstrap().finally(() => {
     bootstrapping.value = false;
   });
 });

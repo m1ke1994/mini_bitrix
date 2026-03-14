@@ -6,7 +6,8 @@ from celery import shared_task
 from django.utils import timezone
 
 from seo_audit.models import SiteSEOAudit
-from seo_audit.services.crawler import AuditCancelledError, crawl_site_audit, recalculate_audit_score
+from seo_audit.services.crawler import AuditCancelledError, crawl_site_audit
+from seo_audit.services.scoring import recalculate_audit_score
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +53,10 @@ def run_site_audit_task(self, audit_id: int) -> None:
 
     try:
         crawl_site_audit(audit, stop_check=_stop_requested)
+        try:
+            recalculate_audit_score(audit)
+        except Exception:
+            logger.exception("seo_audit.task не удалось пересчитать итоговый score audit_id=%s", audit.id)
     except AuditCancelledError:
         try:
             recalculate_audit_score(audit)

@@ -533,6 +533,7 @@ def tracker_js_view(request):
       method: requestMethodOrDefault(meta.method || 'POST'),
       actionUrl: toAbsoluteUrl(meta.action || window.location.href),
       actionPath: normalizeString(meta.action_path, 512),
+      routePath: normalizeString(meta.path || window.location.pathname || '/', 512),
       formMeta: meta
     };
     return pendingFormSubmissions[submissionId];
@@ -556,75 +557,183 @@ def tracker_js_view(request):
         delete pendingFormSubmissions[key];
         continue;
       }
-      if (!item.resolved && (now - (item.createdAt || now) > 45000)) {
+      if (!item.resolved && (now - (item.createdAt || now) > 15000)) {
         delete pendingFormSubmissions[key];
       }
     }
   }
 
-  function matchesPendingFormSubmission(item, requestUrl, requestMethod) {
+  function isWriteRequestMethod(method) {
+    var normalized = requestMethodOrDefault(method);
+    return normalized === 'POST' || normalized === 'PUT' || normalized === 'PATCH' || normalized === 'DELETE';
+  }
+
+  function detectBodyKind(body) {
+    if (typeof body === 'undefined' || body === null) {
+      return '';
+    }
+    try {
+      if (typeof FormData !== 'undefined' && body instanceof FormData) {
+        return 'formdata';
+      }
+    } catch (_) {}
+    try {
+      if (typeof URLSearchParams !== 'undefined' && body instanceof URLSearchParams) {
+        return 'urlencoded';
+      }
+    } catch (_) {}
+    try {
+      if (typeof Blob !== 'undefined' && body instanceof Blob) {
+        return 'blob';
+      }
+    } catch (_) {}
+    if (typeof body === 'string') {
+      return body ? 'text' : '';
+    }
+    if (typeof body === 'object') {
+      return 'json';
+    }
+    return 'unknown';
+  }
+
+  function buildRequestMetaFromFetchArgs(input, init) {
+    var bodyValue = null;
+    try {
+      if (init && Object.prototype.hasOwnProperty.call(init, 'body')) {
+        bodyValue = init.body;
+      } else if (input && typeof input === 'object' && Object.prototype.hasOwnProperty.call(input, 'body')) {
+        bodyValue = input.body;
+      }
+    } catch (_) {
+      bodyValue = null;
+    }
+    return {
+      hasBody: !(typeof bodyValue === 'undefined' || bodyValue === null),
+      bodyKind: detectBodyKind(bodyValue),
+      requestFailed: false
+    };
+  }
+
+  function matchPendingFormSubmissionScore(item, requestUrl, requestMethod, requestMeta) {
     if (!item || item.resolved) {
-      return false;
+      return -1;
     }
     if (isTrackerInternalRequest(requestUrl)) {
-      return false;
+      return -1;
     }
     if ((Date.now() - (item.createdAt || Date.now())) > 20000) {
-      return false;
+      return -1;
     }
 
     var normalizedMethod = requestMethodOrDefault(requestMethod);
-    if (item.method && normalizedMethod && item.method !== normalizedMethod) {
-      return false;
+    var methodScore = 0;
+    if (item.method && normalizedMethod && item.method === normalizedMethod) {
+      methodScore = 30;
+    } else if (isWriteRequestMethod(item.method) && isWriteRequestMethod(normalizedMethod)) {
+      methodScore = 15;
+    } else if (item.method === 'GET' && normalizedMethod === 'GET') {
+      methodScore = 20;
+    } else if (!isWriteRequestMethod(normalizedMethod)) {
+      return -1;
     }
 
     var absoluteRequestUrl = toAbsoluteUrl(requestUrl);
-    if (!absoluteRequestUrl) {
-      return false;
-    }
-    if (item.actionUrl && absoluteRequestUrl.indexOf(item.actionUrl) === 0) {
-      return true;
+    var requestPath = parseUrlPathname(absoluteRequestUrl || '');
+    if (!absoluteRequestUrl && !requestPath) {
+      return -1;
     }
 
-    var requestPath = parseUrlPathname(absoluteRequestUrl);
-    if (!requestPath) {
-      return false;
+    var score = methodScore;
+    if (item.actionUrl && absoluteRequestUrl.indexOf(item.actionUrl) === 0) {
+      score += 120;
     }
-    if (item.actionPath && requestPath === item.actionPath) {
-      return true;
+    if (requestPath && item.actionPath && requestPath === item.actionPath) {
+      score += 100;
+    } else if (requestPath && item.actionPath && item.actionPath !== '/' && requestPath.indexOf(item.actionPath) === 0) {
+      score += 70;
     }
-    return false;
+    if (requestPath && /^\/api\//.test(requestPath)) {
+      score += 35;
+    }
+    if (requestPath && /(lead|form|contact|submit|request|feedback|callback)/i.test(requestPath)) {
+      score += 25;
+    }
+    if (requestPath && item.routePath && requestPath === item.routePath) {
+      score += 10;
+    }
+    if ((Date.now() - (item.createdAt || Date.now())) <= 5000) {
+      score += 15;
+    }
+    if (requestMeta && requestMeta.hasBody) {
+      score += 20;
+      if (requestMeta.bodyKind === 'formdata') {
+        score += 15;
+      } else if (requestMeta.bodyKind === 'json' || requestMeta.bodyKind === 'urlencoded') {
+        score += 10;
+      }
+    }
+    return score;
   }
 
-  function resolvePendingFormSubmission(requestUrl, requestMethod) {
+  function resolvePendingFormSubmission(requestUrl, requestMethod, requestMeta) {
     cleanupPendingFormSubmissions(false);
     var keys = Object.keys(pendingFormSubmissions || {});
     var matched = null;
+    var matchedScore = -1;
+    var unresolvedCount = 0;
+    var unresolvedCandidate = null;
     for (var i = 0; i < keys.length; i++) {
       var item = pendingFormSubmissions[keys[i]];
-      if (!matchesPendingFormSubmission(item, requestUrl, requestMethod)) {
+      if (!item || item.resolved) {
         continue;
       }
-      if (!matched || (item.createdAt || 0) > (matched.createdAt || 0)) {
+      unresolvedCount += 1;
+      unresolvedCandidate = item;
+      var score = matchPendingFormSubmissionScore(item, requestUrl, requestMethod, requestMeta);
+      if (score < 0) {
+        continue;
+      }
+      if (!matched || score > matchedScore || (score === matchedScore && (item.createdAt || 0) > (matched.createdAt || 0))) {
         matched = item;
+        matchedScore = score;
       }
     }
-    return matched;
+    if (matched && matchedScore >= 45) {
+      return matched;
+    }
+    if (matched && matchedScore >= 30 && requestMeta && requestMeta.hasBody) {
+      return matched;
+    }
+    if (
+      unresolvedCount === 1 &&
+      unresolvedCandidate &&
+      isWriteRequestMethod(requestMethod) &&
+      (Date.now() - (unresolvedCandidate.createdAt || Date.now())) <= 7000
+    ) {
+      return unresolvedCandidate;
+    }
+    return null;
   }
 
-  function finalizePendingFormSubmission(requestUrl, requestMethod, statusCode, transport) {
-    var pending = resolvePendingFormSubmission(requestUrl, requestMethod);
+  function finalizePendingFormSubmission(requestUrl, requestMethod, statusCode, transport, requestMeta) {
+    var normalizedMeta = requestMeta || {};
+    var pending = resolvePendingFormSubmission(requestUrl, requestMethod, normalizedMeta);
     if (!pending) {
       return;
     }
     pending.resolved = true;
     pending.resolvedAt = Date.now();
     var normalizedStatus = Number(statusCode || 0) || 0;
-    var eventType = (normalizedStatus >= 200 && normalizedStatus < 400) ? 'form_submit_success' : 'form_submit_error';
+    var failedByTransport = !!normalizedMeta.requestFailed;
+    var isSuccessStatus = normalizedStatus >= 200 && normalizedStatus < 400;
+    var isBestEffortSuccess = !failedByTransport && normalizedStatus === 0;
+    var eventType = (isSuccessStatus || isBestEffortSuccess) ? 'form_submit_success' : 'form_submit_error';
     trackFormStep(eventType, null, mergeObjects(pending.formMeta || {}, {
       submission_id: pending.id,
       status: normalizedStatus,
       transport: normalizeString(transport || '', 32),
+      body_kind: normalizeString(normalizedMeta.bodyKind || '', 32),
+      request_failed: failedByTransport,
       request_url: normalizeString(requestUrl || '', 1000)
     }));
     cleanupPendingFormSubmissions(false);
@@ -1346,6 +1455,7 @@ def tracker_js_view(request):
     window.fetch = function (input, init) {
       var requestUrl = extractFetchUrl(input);
       var requestMethod = extractFetchMethod(input, init);
+      var requestMeta = buildRequestMetaFromFetchArgs(input, init);
       return originalFetch.apply(this, arguments)
         .then(function (response) {
           var statusCode = response && typeof response.status === 'number' ? response.status : 0;
@@ -1355,7 +1465,13 @@ def tracker_js_view(request):
             status: statusCode,
             transport: 'fetch'
           });
-          finalizePendingFormSubmission(requestUrl, requestMethod, statusCode, 'fetch');
+          finalizePendingFormSubmission(
+            requestUrl,
+            requestMethod,
+            statusCode,
+            'fetch',
+            mergeObjects(requestMeta, { requestFailed: false })
+          );
           return response;
         })
         .catch(function (error) {
@@ -1365,7 +1481,13 @@ def tracker_js_view(request):
             status: 0,
             transport: 'fetch'
           });
-          finalizePendingFormSubmission(requestUrl, requestMethod, 0, 'fetch');
+          finalizePendingFormSubmission(
+            requestUrl,
+            requestMethod,
+            0,
+            'fetch',
+            mergeObjects(requestMeta, { requestFailed: true })
+          );
           throw error;
         });
     };
@@ -1386,34 +1508,62 @@ def tracker_js_view(request):
       try {
         this.__saasTrackerMethod = requestMethodOrDefault(method);
         this.__saasTrackerUrl = toAbsoluteUrl(url);
+        this.__saasTrackerHasBody = false;
+        this.__saasTrackerBodyKind = '';
+        this.__saasTrackerFailed = false;
       } catch (_) {
         this.__saasTrackerMethod = 'GET';
         this.__saasTrackerUrl = '';
+        this.__saasTrackerHasBody = false;
+        this.__saasTrackerBodyKind = '';
+        this.__saasTrackerFailed = false;
       }
       return originalOpen.apply(this, arguments);
     };
 
-    proto.send = function () {
+    proto.send = function (body) {
       var xhr = this;
+      try {
+        xhr.__saasTrackerHasBody = !(typeof body === 'undefined' || body === null);
+        xhr.__saasTrackerBodyKind = detectBodyKind(body);
+      } catch (_) {
+        xhr.__saasTrackerHasBody = false;
+        xhr.__saasTrackerBodyKind = '';
+      }
+      function onRequestFailed() {
+        xhr.__saasTrackerFailed = true;
+      }
       function onDone() {
         try {
           xhr.removeEventListener('loadend', onDone);
+          xhr.removeEventListener('error', onRequestFailed);
+          xhr.removeEventListener('timeout', onRequestFailed);
+          xhr.removeEventListener('abort', onRequestFailed);
         } catch (_) {}
+        var xhrStatus = typeof xhr.status === 'number' ? xhr.status : 0;
         trackApiRequest({
           url: xhr.__saasTrackerUrl || '',
           method: xhr.__saasTrackerMethod || 'GET',
-          status: typeof xhr.status === 'number' ? xhr.status : 0,
+          status: xhrStatus,
           transport: 'xhr'
         });
         finalizePendingFormSubmission(
           xhr.__saasTrackerUrl || '',
           xhr.__saasTrackerMethod || 'GET',
-          typeof xhr.status === 'number' ? xhr.status : 0,
-          'xhr'
+          xhrStatus,
+          'xhr',
+          {
+            hasBody: !!xhr.__saasTrackerHasBody,
+            bodyKind: xhr.__saasTrackerBodyKind || '',
+            requestFailed: !!xhr.__saasTrackerFailed
+          }
         );
       }
       try {
         xhr.addEventListener('loadend', onDone);
+        xhr.addEventListener('error', onRequestFailed);
+        xhr.addEventListener('timeout', onRequestFailed);
+        xhr.addEventListener('abort', onRequestFailed);
       } catch (_) {}
       return originalSend.apply(this, arguments);
     };

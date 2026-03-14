@@ -52,6 +52,50 @@ class SEOAuditStartView(APIView):
         )
 
 
+class SEOAuditLatestView(APIView):
+    permission_classes = [permissions.IsAuthenticated, IsClientUser, HasActiveSubscription]
+
+    def get(self, request):
+        domain = str(request.query_params.get("domain") or "").strip().lower()
+        audits_qs = SiteSEOAudit.objects.filter(client=request.client)
+        if domain:
+            audits_qs = audits_qs.filter(domain=domain)
+        audit = audits_qs.order_by("-created_at").first()
+        if not audit:
+            logger.info(
+                "seo_audit.latest no_audits_found client_id=%s domain=%s",
+                request.client.id,
+                domain or "<any>",
+            )
+            return json_response(
+                {
+                    "ok": True,
+                    "audit_id": None,
+                    "domain": domain or None,
+                },
+                http_status=status.HTTP_200_OK,
+            )
+
+        logger.info(
+            "seo_audit.latest client_id=%s domain=%s audit_id=%s status=%s",
+            request.client.id,
+            domain or "<any>",
+            audit.id,
+            audit.status,
+        )
+        return json_response(
+            {
+                "ok": True,
+                "audit_id": audit.id,
+                "domain": audit.domain,
+                "status": audit.status,
+                "created_at": audit.created_at,
+                "finished_at": audit.finished_at,
+            },
+            http_status=status.HTTP_200_OK,
+        )
+
+
 class SEOAuditDetailView(APIView):
     permission_classes = [permissions.IsAuthenticated, IsClientUser, HasActiveSubscription]
 
