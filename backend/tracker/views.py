@@ -407,6 +407,24 @@ class EventCreateView(TrackBaseAPIView):
                         page_url=page_url,
                         duration_seconds=duration_seconds,
                     )
+                elif event_type == "scroll_depth":
+                    latest_page_view = (
+                        AnalyticsPageView.objects.filter(
+                            client=client,
+                            session_id=serializer.validated_data["session_id"],
+                        )
+                        .order_by("-created_at")
+                        .first()
+                    )
+                    depth_value = 0
+                    try:
+                        depth_value = int(payload.get("depth") or payload.get("current_depth") or 0)
+                    except (TypeError, ValueError):
+                        depth_value = 0
+                    depth_value = max(0, min(depth_value, 100))
+                    if latest_page_view and depth_value > latest_page_view.max_scroll_depth:
+                        latest_page_view.max_scroll_depth = depth_value
+                        latest_page_view.save(update_fields=["max_scroll_depth", "updated_at"])
             except Exception:
                 logger.exception(
                     "track.event failed to mirror analytics event type=%s visit_id=%s client_id=%s",

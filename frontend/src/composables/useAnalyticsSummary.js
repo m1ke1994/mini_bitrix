@@ -25,6 +25,22 @@ const summary = ref({
   total_time_on_site_seconds: 0,
   avg_visit_duration_seconds: 0,
   engagement_pages: [],
+  ai_event_signals: {
+    scroll_depth: {
+      events_total: 0,
+      thresholds: { 25: 0, 50: 0, 75: 0, 100: 0 },
+    },
+    forms: {
+      form_view: 0,
+      form_start: 0,
+      form_first_field_filled: 0,
+      form_submit_attempt: 0,
+      form_submit_success: 0,
+      form_submit_error: 0,
+    },
+    section_views: { events_total: 0 },
+    cta_clicks: { events_total: 0 },
+  },
 });
 const loading = ref(false);
 const error = ref("");

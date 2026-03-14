@@ -267,6 +267,15 @@ def tracker_js_view(request):
   var pageTrackStartedAt = Date.now();
   var pageTrackSent = false;
   var pageTrackRouteFingerprint = '';
+  var SCROLL_THRESHOLDS = [25, 50, 75, 100];
+  var scrollThresholdState = {};
+  var maxScrollDepth = 0;
+  var scrollEvaluationScheduled = false;
+  var formVisibilityObserver = null;
+  var sectionVisibilityObserver = null;
+  var pendingFormSubmissions = {};
+  var sectionSeenState = {};
+  var sectionObservedState = {};
 
   function toAbsoluteUrl(input) {
     if (!input) {
@@ -281,6 +290,67 @@ def tracker_js_view(request):
 
   function requestMethodOrDefault(method) {
     return ((method || 'GET') + '').toUpperCase();
+  }
+
+  function normalizeString(value, maxLen) {
+    var normalized = ((value || '') + '').trim();
+    if (typeof maxLen === 'number' && maxLen > 0) {
+      return normalized.slice(0, maxLen);
+    }
+    return normalized;
+  }
+
+  function normalizeText(value, maxLen) {
+    var normalized = ((value || '') + '').replace(/\s+/g, ' ').trim();
+    if (typeof maxLen === 'number' && maxLen > 0) {
+      return normalized.slice(0, maxLen);
+    }
+    return normalized;
+  }
+
+  function mergeObjects(base, extension) {
+    var target = {};
+    var key;
+    if (base && typeof base === 'object') {
+      for (key in base) {
+        if (Object.prototype.hasOwnProperty.call(base, key)) {
+          target[key] = base[key];
+        }
+      }
+    }
+    if (extension && typeof extension === 'object') {
+      for (key in extension) {
+        if (Object.prototype.hasOwnProperty.call(extension, key)) {
+          target[key] = extension[key];
+        }
+      }
+    }
+    return target;
+  }
+
+  function parseUrlPathname(urlValue) {
+    var absolute = toAbsoluteUrl(urlValue);
+    if (!absolute) {
+      return '';
+    }
+    try {
+      return normalizeString(new URL(absolute).pathname || '', 512);
+    } catch (_) {
+      return '';
+    }
+  }
+
+  function isTrackerInternalRequest(urlValue) {
+    var absolute = toAbsoluteUrl(urlValue);
+    if (!absolute) {
+      return false;
+    }
+    try {
+      var parsed = new URL(absolute);
+      return parsed.origin === trackerOrigin && (parsed.pathname || '').indexOf('/api/track/') === 0;
+    } catch (_) {
+      return false;
+    }
   }
 
   function shouldTrackApiRequest(urlValue, method) {
@@ -371,6 +441,591 @@ def tracker_js_view(request):
       }
     }
     return fields;
+  }
+
+  function getCurrentRouteKey() {
+    return (window.location.pathname || '/') + (window.location.search || '');
+  }
+
+  function getCurrentPathname() {
+    return normalizeString(window.location.pathname || '/', 512) || '/';
+  }
+
+  function getFormDomIndex(form) {
+    try {
+      var forms = document.getElementsByTagName('form');
+      for (var i = 0; i < forms.length; i++) {
+        if (forms[i] === form) {
+          return i + 1;
+        }
+      }
+    } catch (_) {}
+    return 0;
+  }
+
+  function getFormIdentifier(form) {
+    if (!form) {
+      return '';
+    }
+    var explicit = normalizeString(form.getAttribute('data-track-form'), 120);
+    if (explicit) {
+      return explicit;
+    }
+    if (form.id) {
+      return normalizeString('id:' + form.id, 120);
+    }
+    var formName = normalizeString(form.getAttribute('name'), 100);
+    if (formName) {
+      return normalizeString('name:' + formName, 120);
+    }
+    var actionPath = parseUrlPathname(form.action || window.location.href);
+    if (actionPath) {
+      return normalizeString('action:' + actionPath + '#' + getFormDomIndex(form), 120);
+    }
+    return normalizeString('form#' + getFormDomIndex(form), 120);
+  }
+
+  function getFormMeta(form) {
+    var actionUrl = toAbsoluteUrl(form && form.action ? form.action : window.location.href) || window.location.href;
+    return {
+      id: normalizeString(form && form.id ? form.id : '', 255),
+      name: normalizeString(form && form.getAttribute ? form.getAttribute('name') : '', 255),
+      form_key: getFormIdentifier(form),
+      action: normalizeString(actionUrl, 1000),
+      action_path: parseUrlPathname(actionUrl),
+      method: requestMethodOrDefault(form && form.method ? form.method : 'GET'),
+      page_url: normalizeString(window.location.href, 1000),
+      path: getCurrentPathname(),
+      field_count: (form && form.elements && form.elements.length) ? form.elements.length : 0
+    };
+  }
+
+  function getFormState(form) {
+    if (!form || form.tagName !== 'FORM') {
+      return null;
+    }
+    var currentRouteKey = getCurrentRouteKey();
+    if (!form.__saasTrackerState || form.__saasTrackerState.routeKey !== currentRouteKey) {
+      form.__saasTrackerState = {
+        routeKey: currentRouteKey,
+        viewed: false,
+        started: false,
+        firstFieldFilled: false,
+        submitAttempted: false,
+      };
+    }
+    return form.__saasTrackerState;
+  }
+
+  function trackFormStep(stepType, form, extraPayload) {
+    var payload = mergeObjects(getFormMeta(form), extraPayload || {});
+    trackEvent(stepType, payload);
+  }
+
+  function createPendingFormSubmission(form) {
+    var submissionId = createUuid();
+    var meta = getFormMeta(form);
+    pendingFormSubmissions[submissionId] = {
+      id: submissionId,
+      createdAt: Date.now(),
+      resolved: false,
+      resolvedAt: 0,
+      method: requestMethodOrDefault(meta.method || 'POST'),
+      actionUrl: toAbsoluteUrl(meta.action || window.location.href),
+      actionPath: normalizeString(meta.action_path, 512),
+      formMeta: meta
+    };
+    return pendingFormSubmissions[submissionId];
+  }
+
+  function cleanupPendingFormSubmissions(force) {
+    var now = Date.now();
+    var keys = Object.keys(pendingFormSubmissions || {});
+    for (var i = 0; i < keys.length; i++) {
+      var key = keys[i];
+      var item = pendingFormSubmissions[key];
+      if (!item) {
+        delete pendingFormSubmissions[key];
+        continue;
+      }
+      if (force) {
+        delete pendingFormSubmissions[key];
+        continue;
+      }
+      if (item.resolved && (now - (item.resolvedAt || now) > 5000)) {
+        delete pendingFormSubmissions[key];
+        continue;
+      }
+      if (!item.resolved && (now - (item.createdAt || now) > 45000)) {
+        delete pendingFormSubmissions[key];
+      }
+    }
+  }
+
+  function matchesPendingFormSubmission(item, requestUrl, requestMethod) {
+    if (!item || item.resolved) {
+      return false;
+    }
+    if (isTrackerInternalRequest(requestUrl)) {
+      return false;
+    }
+    if ((Date.now() - (item.createdAt || Date.now())) > 20000) {
+      return false;
+    }
+
+    var normalizedMethod = requestMethodOrDefault(requestMethod);
+    if (item.method && normalizedMethod && item.method !== normalizedMethod) {
+      return false;
+    }
+
+    var absoluteRequestUrl = toAbsoluteUrl(requestUrl);
+    if (!absoluteRequestUrl) {
+      return false;
+    }
+    if (item.actionUrl && absoluteRequestUrl.indexOf(item.actionUrl) === 0) {
+      return true;
+    }
+
+    var requestPath = parseUrlPathname(absoluteRequestUrl);
+    if (!requestPath) {
+      return false;
+    }
+    if (item.actionPath && requestPath === item.actionPath) {
+      return true;
+    }
+    return false;
+  }
+
+  function resolvePendingFormSubmission(requestUrl, requestMethod) {
+    cleanupPendingFormSubmissions(false);
+    var keys = Object.keys(pendingFormSubmissions || {});
+    var matched = null;
+    for (var i = 0; i < keys.length; i++) {
+      var item = pendingFormSubmissions[keys[i]];
+      if (!matchesPendingFormSubmission(item, requestUrl, requestMethod)) {
+        continue;
+      }
+      if (!matched || (item.createdAt || 0) > (matched.createdAt || 0)) {
+        matched = item;
+      }
+    }
+    return matched;
+  }
+
+  function finalizePendingFormSubmission(requestUrl, requestMethod, statusCode, transport) {
+    var pending = resolvePendingFormSubmission(requestUrl, requestMethod);
+    if (!pending) {
+      return;
+    }
+    pending.resolved = true;
+    pending.resolvedAt = Date.now();
+    var normalizedStatus = Number(statusCode || 0) || 0;
+    var eventType = (normalizedStatus >= 200 && normalizedStatus < 400) ? 'form_submit_success' : 'form_submit_error';
+    trackFormStep(eventType, null, mergeObjects(pending.formMeta || {}, {
+      submission_id: pending.id,
+      status: normalizedStatus,
+      transport: normalizeString(transport || '', 32),
+      request_url: normalizeString(requestUrl || '', 1000)
+    }));
+    cleanupPendingFormSubmissions(false);
+  }
+
+  function isFilledField(target) {
+    if (!target) {
+      return false;
+    }
+    var type = ((target.type || '') + '').toLowerCase();
+    if (type === 'checkbox' || type === 'radio') {
+      return !!target.checked;
+    }
+    if (type === 'file') {
+      return !!(target.files && target.files.length);
+    }
+    return normalizeString(target.value, 1000).length > 0;
+  }
+
+  function onFormFocusIn(event) {
+    try {
+      var field = event.target;
+      var form = field && field.form ? field.form : null;
+      if (!form || form.tagName !== 'FORM') {
+        return;
+      }
+      var state = getFormState(form);
+      if (!state || state.started) {
+        return;
+      }
+      state.started = true;
+      trackFormStep('form_start', form, { trigger: 'focus' });
+    } catch (err) {
+      logError('form focus tracking failed', err);
+    }
+  }
+
+  function onFormInputOrChange(event) {
+    try {
+      var field = event.target;
+      var form = field && field.form ? field.form : null;
+      if (!form || form.tagName !== 'FORM') {
+        return;
+      }
+      var state = getFormState(form);
+      if (!state) {
+        return;
+      }
+      if (!state.started) {
+        state.started = true;
+        trackFormStep('form_start', form, { trigger: 'input' });
+      }
+      if (!state.firstFieldFilled && isFilledField(field)) {
+        state.firstFieldFilled = true;
+        trackFormStep('form_first_field_filled', form, {
+          field_name: normalizeString(field.name || field.id || '', 64),
+          field_type: normalizeString(field.type || field.tagName || '', 32),
+        });
+      }
+    } catch (err) {
+      logError('form input tracking failed', err);
+    }
+  }
+
+  function onFormVisibility(entries) {
+    for (var i = 0; i < entries.length; i++) {
+      var entry = entries[i];
+      var form = entry && entry.target ? entry.target : null;
+      if (!form || form.tagName !== 'FORM') {
+        continue;
+      }
+      if (!entry.isIntersecting || entry.intersectionRatio < 0.35) {
+        continue;
+      }
+      var state = getFormState(form);
+      if (!state || state.viewed) {
+        continue;
+      }
+      state.viewed = true;
+      trackFormStep('form_view', form, { trigger: 'intersection' });
+      if (formVisibilityObserver) {
+        try {
+          formVisibilityObserver.unobserve(form);
+        } catch (_) {}
+      }
+    }
+  }
+
+  function refreshFormVisibilityObserver() {
+    try {
+      if (formVisibilityObserver) {
+        formVisibilityObserver.disconnect();
+      }
+      if (!window.IntersectionObserver) {
+        return;
+      }
+      formVisibilityObserver = new IntersectionObserver(onFormVisibility, {
+        threshold: [0.35, 0.6]
+      });
+      var forms = document.getElementsByTagName('form');
+      for (var i = 0; i < forms.length; i++) {
+        var form = forms[i];
+        var state = getFormState(form);
+        if (!state || state.viewed) {
+          continue;
+        }
+        formVisibilityObserver.observe(form);
+      }
+    } catch (err) {
+      logError('form visibility observer failed', err);
+    }
+  }
+
+  function normalizeSectionKey(value) {
+    return normalizeString(value, 64).toLowerCase().replace(/[^a-z0-9_-]+/g, '_').replace(/^_+|_+$/g, '');
+  }
+
+  function detectSectionKey(element) {
+    if (!element || element.nodeType !== 1) {
+      return '';
+    }
+    var explicit = normalizeSectionKey(element.getAttribute ? element.getAttribute('data-track-section') : '');
+    if (explicit) {
+      return explicit;
+    }
+
+    var tagName = normalizeString(element.tagName || '', 32).toLowerCase();
+    if (tagName === 'form') {
+      return 'form';
+    }
+
+    var idValue = normalizeString(element.id || '', 100).toLowerCase();
+    var classValue = '';
+    try {
+      classValue = normalizeString(typeof element.className === 'string' ? element.className : '', 255).toLowerCase();
+    } catch (_) {
+      classValue = '';
+    }
+    var signature = idValue + ' ' + classValue;
+
+    if (!signature) {
+      return '';
+    }
+    if (/hero/.test(signature)) {
+      return 'hero';
+    }
+    if (/(benefit|advantage|capabilit|feature)/.test(signature)) {
+      return 'benefits';
+    }
+    if (/(case|portfolio|project|example)/.test(signature)) {
+      return 'cases';
+    }
+    if (/(review|testimonial)/.test(signature)) {
+      return 'reviews';
+    }
+    if (/(faq|question)/.test(signature)) {
+      return 'faq';
+    }
+    if (/(pricing|tarif|plan|price)/.test(signature)) {
+      return 'pricing';
+    }
+    if (/(contact|footer|telegram|whatsapp|email|phone)/.test(signature)) {
+      return 'contacts';
+    }
+    return '';
+  }
+
+  function collectSectionCandidates() {
+    var selector = [
+      '[data-track-section]',
+      'form',
+      'section',
+      '[id*="hero"]',
+      '[id*="benefit"]',
+      '[id*="advantage"]',
+      '[id*="case"]',
+      '[id*="review"]',
+      '[id*="faq"]',
+      '[id*="pricing"]',
+      '[id*="tarif"]',
+      '[id*="contact"]',
+      '[class*="hero"]',
+      '[class*="benefit"]',
+      '[class*="advantage"]',
+      '[class*="case"]',
+      '[class*="review"]',
+      '[class*="faq"]',
+      '[class*="pricing"]',
+      '[class*="tarif"]',
+      '[class*="contact"]'
+    ].join(',');
+    try {
+      return document.querySelectorAll(selector);
+    } catch (_) {
+      return [];
+    }
+  }
+
+  function onSectionVisibility(entries) {
+    for (var i = 0; i < entries.length; i++) {
+      var entry = entries[i];
+      var section = entry && entry.target ? entry.target : null;
+      if (!section || !entry.isIntersecting || entry.intersectionRatio < 0.35) {
+        continue;
+      }
+      var sectionKey = normalizeString(section.__saasSectionKey, 64);
+      if (!sectionKey || sectionSeenState[sectionKey]) {
+        continue;
+      }
+      sectionSeenState[sectionKey] = true;
+      trackEvent('section_view', {
+        section_key: sectionKey,
+        page_url: normalizeString(window.location.href, 1000),
+        path: getCurrentPathname()
+      });
+      if (sectionVisibilityObserver) {
+        try {
+          sectionVisibilityObserver.unobserve(section);
+        } catch (_) {}
+      }
+    }
+  }
+
+  function refreshSectionVisibilityObserver() {
+    try {
+      if (sectionVisibilityObserver) {
+        sectionVisibilityObserver.disconnect();
+      }
+      sectionObservedState = {};
+      if (!window.IntersectionObserver) {
+        return;
+      }
+      sectionVisibilityObserver = new IntersectionObserver(onSectionVisibility, {
+        threshold: [0.35, 0.6]
+      });
+      var candidates = collectSectionCandidates();
+      for (var i = 0; i < candidates.length; i++) {
+        var section = candidates[i];
+        var sectionKey = detectSectionKey(section);
+        if (!sectionKey || sectionSeenState[sectionKey] || sectionObservedState[sectionKey]) {
+          continue;
+        }
+        sectionObservedState[sectionKey] = true;
+        section.__saasSectionKey = sectionKey;
+        sectionVisibilityObserver.observe(section);
+      }
+    } catch (err) {
+      logError('section visibility observer failed', err);
+    }
+  }
+
+  function getScrollDepthPercent() {
+    var doc = document.documentElement || {};
+    var body = document.body || {};
+    var scrollTop = window.pageYOffset || doc.scrollTop || body.scrollTop || 0;
+    var viewportHeight = window.innerHeight || doc.clientHeight || 0;
+    var scrollHeight = Math.max(
+      doc.scrollHeight || 0,
+      body.scrollHeight || 0,
+      doc.offsetHeight || 0,
+      body.offsetHeight || 0
+    );
+
+    if (scrollHeight <= 0 || viewportHeight <= 0) {
+      return 0;
+    }
+    if (scrollHeight <= viewportHeight) {
+      return 100;
+    }
+    var depth = Math.round(((scrollTop + viewportHeight) / scrollHeight) * 100);
+    if (depth < 0) {
+      return 0;
+    }
+    if (depth > 100) {
+      return 100;
+    }
+    return depth;
+  }
+
+  function evaluateScrollDepth() {
+    var depth = getScrollDepthPercent();
+    if (depth > maxScrollDepth) {
+      maxScrollDepth = depth;
+    }
+    for (var i = 0; i < SCROLL_THRESHOLDS.length; i++) {
+      var threshold = SCROLL_THRESHOLDS[i];
+      if (depth < threshold || scrollThresholdState[threshold]) {
+        continue;
+      }
+      scrollThresholdState[threshold] = true;
+      trackEvent('scroll_depth', {
+        depth: threshold,
+        current_depth: depth,
+        path: getCurrentPathname(),
+        page_url: normalizeString(window.location.href, 1000)
+      });
+    }
+  }
+
+  function scheduleScrollDepthEvaluation() {
+    if (scrollEvaluationScheduled) {
+      return;
+    }
+    scrollEvaluationScheduled = true;
+    var scheduler = window.requestAnimationFrame || function (callback) {
+      return setTimeout(callback, 50);
+    };
+    scheduler(function () {
+      scrollEvaluationScheduled = false;
+      evaluateScrollDepth();
+    });
+  }
+
+  function resetPageAnalyticsSignals() {
+    scrollThresholdState = {};
+    maxScrollDepth = 0;
+    sectionSeenState = {};
+    cleanupPendingFormSubmissions(false);
+    scheduleScrollDepthEvaluation();
+    setTimeout(function () {
+      refreshFormVisibilityObserver();
+      refreshSectionVisibilityObserver();
+      scheduleScrollDepthEvaluation();
+    }, 120);
+  }
+
+  function readDatasetValue(node, attrName) {
+    if (!node || !node.getAttribute) {
+      return '';
+    }
+    return normalizeString(node.getAttribute(attrName), 120);
+  }
+
+  function detectCtaType(node, text, href, className) {
+    var lowerText = normalizeText(text, 200).toLowerCase();
+    var lowerHref = normalizeString(href, 1000).toLowerCase();
+    var lowerClass = normalizeString(className, 255).toLowerCase();
+    var explicitType = readDatasetValue(node, 'data-cta-type') || readDatasetValue(node, 'data-track-cta-type');
+    if (explicitType) {
+      return normalizeSectionKey(explicitType) || 'generic';
+    }
+    if (lowerHref.indexOf('t.me') !== -1 || lowerHref.indexOf('telegram.me') !== -1) {
+      return 'telegram';
+    }
+    if (lowerHref.indexOf('wa.me') !== -1 || lowerHref.indexOf('whatsapp') !== -1) {
+      return 'whatsapp';
+    }
+    if (lowerHref.indexOf('mailto:') === 0) {
+      return 'email';
+    }
+    if (lowerHref.indexOf('tel:') === 0) {
+      return 'phone';
+    }
+    if (/(pricing|tarif|plan|price)/.test(lowerClass) || /(тариф|цена|оплат|купить|buy|pricing|plan|price)/.test(lowerText)) {
+      return 'pricing';
+    }
+    if (/(hero|banner)/.test(lowerClass)) {
+      return 'hero';
+    }
+    if (/(submit|form|send|request|оставить|заявк|подпис|запис)/.test(lowerClass + ' ' + lowerText)) {
+      return 'form';
+    }
+    return 'generic';
+  }
+
+  function getCtaMeta(node) {
+    if (!node) {
+      return null;
+    }
+    var explicit = readDatasetValue(node, 'data-track-cta') || readDatasetValue(node, 'data-cta');
+    var text = normalizeText((node.innerText || node.textContent || ''), 120);
+    var href = normalizeString(node.getAttribute ? (node.getAttribute('href') || '') : '', 1000);
+    var className = normalizeString(typeof node.className === 'string' ? node.className : '', 255);
+    var lowerText = text.toLowerCase();
+    var lowerHref = href.toLowerCase();
+    var lowerClass = className.toLowerCase();
+    var isCta = !!explicit;
+
+    if (!isCta && (lowerHref.indexOf('t.me') !== -1 || lowerHref.indexOf('telegram.me') !== -1 || lowerHref.indexOf('wa.me') !== -1 || lowerHref.indexOf('whatsapp') !== -1 || lowerHref.indexOf('mailto:') === 0 || lowerHref.indexOf('tel:') === 0)) {
+      isCta = true;
+    }
+    if (!isCta && (lowerClass.indexOf('cta') !== -1 || lowerClass.indexOf('btn-primary') !== -1 || lowerClass.indexOf('button-primary') !== -1 || lowerClass.indexOf('hero') !== -1)) {
+      isCta = true;
+    }
+    if (!isCta && /(оставить|заявк|подключ|начать|попроб|демо|demo|trial|register|signup|sign up|buy|contact|call|write|telegram|whatsapp|связат|заказать|получить)/.test(lowerText)) {
+      isCta = true;
+    }
+    if (!isCta) {
+      return null;
+    }
+
+    var ctaType = detectCtaType(node, text, href, className);
+    var ctaKeySource = explicit || node.id || href || text;
+    var ctaKey = normalizeSectionKey(ctaKeySource) || 'cta';
+
+    return {
+      cta_type: normalizeString(ctaType, 48),
+      cta_key: normalizeString(ctaKey, 120),
+      href: href,
+      text: text
+    };
   }
 
   function buildPayload(extra) {
@@ -539,6 +1194,7 @@ def tracker_js_view(request):
     }
     flushTimeOnPage('spa_route_change');
     resetPageTimer(window.location.pathname || '/');
+    resetPageAnalyticsSignals();
     setTimeout(trackPageView, 0);
   }
 
@@ -596,6 +1252,7 @@ def tracker_js_view(request):
       }
       if (document.visibilityState === 'visible') {
         resetPageTimer(window.location.pathname || '/');
+        resetPageAnalyticsSignals();
       }
     } catch (err) {
       logError('visibility tracking failed', err);
@@ -613,12 +1270,20 @@ def tracker_js_view(request):
       if (!node) {
         return;
       }
-      trackEvent('click', {
+      var clickPayload = {
         tag: node.tagName || '',
         id: node.id || '',
+        class: normalizeString(typeof node.className === 'string' ? node.className : '', 255),
         text: ((node.innerText || node.textContent || '') + '').trim().slice(0, 120),
+        href: normalizeString(node.getAttribute ? (node.getAttribute('href') || '') : '', 1000),
         path: window.location.pathname
-      });
+      };
+      trackEvent('click', clickPayload);
+
+      var ctaMeta = getCtaMeta(node);
+      if (ctaMeta) {
+        trackEvent('cta_click', mergeObjects(clickPayload, ctaMeta));
+      }
     } catch (err) {
       logError('click tracking failed', err);
     }
@@ -630,25 +1295,23 @@ def tracker_js_view(request):
       if (!form || form.tagName !== 'FORM') {
         return;
       }
-      trackEvent('form_submit', {
-        id: form.id || '',
-        name: form.getAttribute('name') || '',
-        page_url: window.location.href,
-        url: window.location.href,
-        domain: window.location.hostname,
-        action: form.action || '',
-        action_path: (function () {
-          try {
-            return new URL(form.action || '', window.location.href).pathname || '';
-          } catch (_) {
-            return '';
-          }
-        })(),
-        method: (form.method || 'GET').toUpperCase(),
-        path: window.location.pathname,
+      var state = getFormState(form);
+      if (state) {
+        state.submitAttempted = true;
+        if (!state.started) {
+          state.started = true;
+          trackFormStep('form_start', form, { trigger: 'submit' });
+        }
+      }
+      var pending = createPendingFormSubmission(form);
+      var formPayloadBase = mergeObjects(getFormMeta(form), {
+        url: normalizeString(window.location.href, 1000),
+        domain: normalizeString(window.location.hostname, 255),
         fields: extractSafeFormFields(form),
-        field_count: (form.elements && form.elements.length) ? form.elements.length : 0
+        submission_id: pending.id
       });
+      trackEvent('form_submit_attempt', formPayloadBase);
+      trackEvent('form_submit', formPayloadBase);
     } catch (err) {
       logError('submit tracking failed', err);
     }
@@ -685,12 +1348,14 @@ def tracker_js_view(request):
       var requestMethod = extractFetchMethod(input, init);
       return originalFetch.apply(this, arguments)
         .then(function (response) {
+          var statusCode = response && typeof response.status === 'number' ? response.status : 0;
           trackApiRequest({
             url: requestUrl,
             method: requestMethod,
-            status: response && typeof response.status === 'number' ? response.status : 0,
+            status: statusCode,
             transport: 'fetch'
           });
+          finalizePendingFormSubmission(requestUrl, requestMethod, statusCode, 'fetch');
           return response;
         })
         .catch(function (error) {
@@ -700,6 +1365,7 @@ def tracker_js_view(request):
             status: 0,
             transport: 'fetch'
           });
+          finalizePendingFormSubmission(requestUrl, requestMethod, 0, 'fetch');
           throw error;
         });
     };
@@ -739,6 +1405,12 @@ def tracker_js_view(request):
           status: typeof xhr.status === 'number' ? xhr.status : 0,
           transport: 'xhr'
         });
+        finalizePendingFormSubmission(
+          xhr.__saasTrackerUrl || '',
+          xhr.__saasTrackerMethod || 'GET',
+          typeof xhr.status === 'number' ? xhr.status : 0,
+          'xhr'
+        );
       }
       try {
         xhr.addEventListener('loadend', onDone);
@@ -750,6 +1422,7 @@ def tracker_js_view(request):
   try {
     logDebug('init handlers');
     resetPageTimer(window.location.pathname || '/');
+    resetPageAnalyticsSignals();
     trackVisitStart()
       .then(function () {
         return trackPageView();
@@ -761,7 +1434,12 @@ def tracker_js_view(request):
     installXhrInterceptor();
     document.addEventListener('click', onClick, true);
     document.addEventListener('submit', onSubmit, true);
+    document.addEventListener('focusin', onFormFocusIn, true);
+    document.addEventListener('input', onFormInputOrChange, true);
+    document.addEventListener('change', onFormInputOrChange, true);
     document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('scroll', scheduleScrollDepthEvaluation, { passive: true });
+    window.addEventListener('resize', scheduleScrollDepthEvaluation);
     window.addEventListener('beforeunload', onPageClose);
     window.addEventListener('pagehide', onPageClose);
     wrapHistory();

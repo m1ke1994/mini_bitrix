@@ -1,4 +1,4 @@
-import { createRouter, createWebHistory } from "vue-router";
+﻿import { createRouter, createWebHistory } from "vue-router";
 import PublicHomePage from "./views/PublicHomePage.vue";
 import { primeSubscriptionStatus } from "./composables/useSubscriptionStatus";
 import { useAuthStore } from "./stores/auth";
@@ -16,6 +16,7 @@ const DashboardPagesConversion = () => import("./views/DashboardPagesConversion.
 const DashboardUniqueVisitors = () => import("./views/DashboardUniqueVisitors.vue");
 const DashboardDevices = () => import("./views/DashboardDevices.vue");
 const DashboardSeoAudit = () => import("./views/DashboardSeoAudit.vue");
+const DashboardAiRecommendations = () => import("./views/DashboardAiRecommendations.vue");
 const IntegrationPage = () => import("./views/IntegrationPage.vue");
 const InstructionsPage = () => import("./views/InstructionsPage.vue");
 const AuthPage = () => import("./views/AuthPage.vue");
@@ -31,13 +32,13 @@ const routes = [
     meta: {
       public: true,
       title:
-        "Аналитика сайтов и учет заявок — сервис отслеживания лидов | TrackNode",
+        "РђРЅР°Р»РёС‚РёРєР° СЃР°Р№С‚РѕРІ Рё СѓС‡РµС‚ Р·Р°СЏРІРѕРє вЂ” СЃРµСЂРІРёСЃ РѕС‚СЃР»РµР¶РёРІР°РЅРёСЏ Р»РёРґРѕРІ | TrackNode",
       description:
-        "Сервис аналитики сайтов и учета заявок. Отслеживайте лиды, конверсию и путь клиента. Аналитика воронки продаж и Telegram-уведомления в одном кабинете.",
+        "РЎРµСЂРІРёСЃ Р°РЅР°Р»РёС‚РёРєРё СЃР°Р№С‚РѕРІ Рё СѓС‡РµС‚Р° Р·Р°СЏРІРѕРє. РћС‚СЃР»РµР¶РёРІР°Р№С‚Рµ Р»РёРґС‹, РєРѕРЅРІРµСЂСЃРёСЋ Рё РїСѓС‚СЊ РєР»РёРµРЅС‚Р°. РђРЅР°Р»РёС‚РёРєР° РІРѕСЂРѕРЅРєРё РїСЂРѕРґР°Р¶ Рё Telegram-СѓРІРµРґРѕРјР»РµРЅРёСЏ РІ РѕРґРЅРѕРј РєР°Р±РёРЅРµС‚Рµ.",
       keywords:
-        "аналитика сайтов, сервис аналитики, учет заявок, аналитика воронки продаж, отслеживание конверсии, TrackNode",
-      ogImageAlt: "аналитика сайтов интерфейс",
-      twitterImageAlt: "учет заявок дашборд",
+        "Р°РЅР°Р»РёС‚РёРєР° СЃР°Р№С‚РѕРІ, СЃРµСЂРІРёСЃ Р°РЅР°Р»РёС‚РёРєРё, СѓС‡РµС‚ Р·Р°СЏРІРѕРє, Р°РЅР°Р»РёС‚РёРєР° РІРѕСЂРѕРЅРєРё РїСЂРѕРґР°Р¶, РѕС‚СЃР»РµР¶РёРІР°РЅРёРµ РєРѕРЅРІРµСЂСЃРёРё, TrackNode",
+      ogImageAlt: "Р°РЅР°Р»РёС‚РёРєР° СЃР°Р№С‚РѕРІ РёРЅС‚РµСЂС„РµР№СЃ",
+      twitterImageAlt: "СѓС‡РµС‚ Р·Р°СЏРІРѕРє РґР°С€Р±РѕСЂРґ",
       ogType: "website",
       schema: homepageSoftwareSchema,
     },
@@ -48,13 +49,13 @@ const routes = [
     component: PublicFeaturePage,
     meta: {
       public: true,
-      title: "Аналитика сайтов TrackNode - контроль трафика, лидов и конверсии",
+      title: "РђРЅР°Р»РёС‚РёРєР° СЃР°Р№С‚РѕРІ TrackNode - РєРѕРЅС‚СЂРѕР»СЊ С‚СЂР°С„РёРєР°, Р»РёРґРѕРІ Рё РєРѕРЅРІРµСЂСЃРёРё",
       description:
-        "Аналитика TrackNode показывает источники трафика, динамику заявок и конверсию страниц, чтобы быстро находить точки роста.",
-      keywords: "аналитика сайта, веб-аналитика, конверсия, лиды, TrackNode",
-      pageHeading: "Аналитика сайтов",
+        "РђРЅР°Р»РёС‚РёРєР° TrackNode РїРѕРєР°Р·С‹РІР°РµС‚ РёСЃС‚РѕС‡РЅРёРєРё С‚СЂР°С„РёРєР°, РґРёРЅР°РјРёРєСѓ Р·Р°СЏРІРѕРє Рё РєРѕРЅРІРµСЂСЃРёСЋ СЃС‚СЂР°РЅРёС†, С‡С‚РѕР±С‹ Р±С‹СЃС‚СЂРѕ РЅР°С…РѕРґРёС‚СЊ С‚РѕС‡РєРё СЂРѕСЃС‚Р°.",
+      keywords: "Р°РЅР°Р»РёС‚РёРєР° СЃР°Р№С‚Р°, РІРµР±-Р°РЅР°Р»РёС‚РёРєР°, РєРѕРЅРІРµСЂСЃРёСЏ, Р»РёРґС‹, TrackNode",
+      pageHeading: "РђРЅР°Р»РёС‚РёРєР° СЃР°Р№С‚РѕРІ",
       pageText:
-        "Собирайте данные по визитам, источникам и событиям в одном интерфейсе. TrackNode помогает видеть реальную эффективность маркетинга и сайта.",
+        "РЎРѕР±РёСЂР°Р№С‚Рµ РґР°РЅРЅС‹Рµ РїРѕ РІРёР·РёС‚Р°Рј, РёСЃС‚РѕС‡РЅРёРєР°Рј Рё СЃРѕР±С‹С‚РёСЏРј РІ РѕРґРЅРѕРј РёРЅС‚РµСЂС„РµР№СЃРµ. TrackNode РїРѕРјРѕРіР°РµС‚ РІРёРґРµС‚СЊ СЂРµР°Р»СЊРЅСѓСЋ СЌС„С„РµРєС‚РёРІРЅРѕСЃС‚СЊ РјР°СЂРєРµС‚РёРЅРіР° Рё СЃР°Р№С‚Р°.",
       ogType: "website",
     },
   },
@@ -64,13 +65,13 @@ const routes = [
     component: PublicFeaturePage,
     meta: {
       public: true,
-      title: "Отчеты TrackNode - ежедневные и PDF-отчеты по заявкам и воронке",
+      title: "РћС‚С‡РµС‚С‹ TrackNode - РµР¶РµРґРЅРµРІРЅС‹Рµ Рё PDF-РѕС‚С‡РµС‚С‹ РїРѕ Р·Р°СЏРІРєР°Рј Рё РІРѕСЂРѕРЅРєРµ",
       description:
-        "Создавайте отчеты по заявкам и воронке продаж в TrackNode: ежедневная статистика, PDF-выгрузка и прозрачные показатели для бизнеса.",
-      keywords: "отчеты по лидам, PDF отчет, отчеты аналитики, TrackNode",
-      pageHeading: "Отчеты",
+        "РЎРѕР·РґР°РІР°Р№С‚Рµ РѕС‚С‡РµС‚С‹ РїРѕ Р·Р°СЏРІРєР°Рј Рё РІРѕСЂРѕРЅРєРµ РїСЂРѕРґР°Р¶ РІ TrackNode: РµР¶РµРґРЅРµРІРЅР°СЏ СЃС‚Р°С‚РёСЃС‚РёРєР°, PDF-РІС‹РіСЂСѓР·РєР° Рё РїСЂРѕР·СЂР°С‡РЅС‹Рµ РїРѕРєР°Р·Р°С‚РµР»Рё РґР»СЏ Р±РёР·РЅРµСЃР°.",
+      keywords: "РѕС‚С‡РµС‚С‹ РїРѕ Р»РёРґР°Рј, PDF РѕС‚С‡РµС‚, РѕС‚С‡РµС‚С‹ Р°РЅР°Р»РёС‚РёРєРё, TrackNode",
+      pageHeading: "РћС‚С‡РµС‚С‹",
       pageText:
-        "Формируйте регулярные отчеты по ключевым метрикам: заявкам, источникам и конверсии. Подходит для собственника, маркетолога и отдела продаж.",
+        "Р¤РѕСЂРјРёСЂСѓР№С‚Рµ СЂРµРіСѓР»СЏСЂРЅС‹Рµ РѕС‚С‡РµС‚С‹ РїРѕ РєР»СЋС‡РµРІС‹Рј РјРµС‚СЂРёРєР°Рј: Р·Р°СЏРІРєР°Рј, РёСЃС‚РѕС‡РЅРёРєР°Рј Рё РєРѕРЅРІРµСЂСЃРёРё. РџРѕРґС…РѕРґРёС‚ РґР»СЏ СЃРѕР±СЃС‚РІРµРЅРЅРёРєР°, РјР°СЂРєРµС‚РѕР»РѕРіР° Рё РѕС‚РґРµР»Р° РїСЂРѕРґР°Р¶.",
       ogType: "website",
     },
   },
@@ -80,13 +81,13 @@ const routes = [
     component: PublicFeaturePage,
     meta: {
       public: true,
-      title: "Telegram-уведомления TrackNode - мгновенные оповещения по заявкам",
+      title: "Telegram-СѓРІРµРґРѕРјР»РµРЅРёСЏ TrackNode - РјРіРЅРѕРІРµРЅРЅС‹Рµ РѕРїРѕРІРµС‰РµРЅРёСЏ РїРѕ Р·Р°СЏРІРєР°Рј",
       description:
-        "Подключите Telegram-уведомления в TrackNode и получайте сообщения о новых заявках, оплатах и статусах без задержек.",
-      keywords: "telegram уведомления, уведомления о заявках, TrackNode",
-      pageHeading: "Telegram-уведомления",
+        "РџРѕРґРєР»СЋС‡РёС‚Рµ Telegram-СѓРІРµРґРѕРјР»РµРЅРёСЏ РІ TrackNode Рё РїРѕР»СѓС‡Р°Р№С‚Рµ СЃРѕРѕР±С‰РµРЅРёСЏ Рѕ РЅРѕРІС‹С… Р·Р°СЏРІРєР°С…, РѕРїР»Р°С‚Р°С… Рё СЃС‚Р°С‚СѓСЃР°С… Р±РµР· Р·Р°РґРµСЂР¶РµРє.",
+      keywords: "telegram СѓРІРµРґРѕРјР»РµРЅРёСЏ, СѓРІРµРґРѕРјР»РµРЅРёСЏ Рѕ Р·Р°СЏРІРєР°С…, TrackNode",
+      pageHeading: "Telegram-СѓРІРµРґРѕРјР»РµРЅРёСЏ",
       pageText:
-        "Настройте быстрые уведомления о событиях в Telegram, чтобы команда сразу реагировала на новые обращения и изменения статусов.",
+        "РќР°СЃС‚СЂРѕР№С‚Рµ Р±С‹СЃС‚СЂС‹Рµ СѓРІРµРґРѕРјР»РµРЅРёСЏ Рѕ СЃРѕР±С‹С‚РёСЏС… РІ Telegram, С‡С‚РѕР±С‹ РєРѕРјР°РЅРґР° СЃСЂР°Р·Сѓ СЂРµР°РіРёСЂРѕРІР°Р»Р° РЅР° РЅРѕРІС‹Рµ РѕР±СЂР°С‰РµРЅРёСЏ Рё РёР·РјРµРЅРµРЅРёСЏ СЃС‚Р°С‚СѓСЃРѕРІ.",
       ogType: "website",
     },
   },
@@ -96,13 +97,13 @@ const routes = [
     component: PublicFeaturePage,
     meta: {
       public: true,
-      title: "Тарифы TrackNode - SaaS аналитика для малого и среднего бизнеса",
+      title: "РўР°СЂРёС„С‹ TrackNode - SaaS Р°РЅР°Р»РёС‚РёРєР° РґР»СЏ РјР°Р»РѕРіРѕ Рё СЃСЂРµРґРЅРµРіРѕ Р±РёР·РЅРµСЃР°",
       description:
-        "Выберите тариф TrackNode под ваш поток заявок: прозрачная цена, быстрый старт и инструменты аналитики без сложной настройки.",
-      keywords: "тарифы аналитики сайта, цена saas, TrackNode тарифы",
-      pageHeading: "Тарифы",
+        "Р’С‹Р±РµСЂРёС‚Рµ С‚Р°СЂРёС„ TrackNode РїРѕРґ РІР°С€ РїРѕС‚РѕРє Р·Р°СЏРІРѕРє: РїСЂРѕР·СЂР°С‡РЅР°СЏ С†РµРЅР°, Р±С‹СЃС‚СЂС‹Р№ СЃС‚Р°СЂС‚ Рё РёРЅСЃС‚СЂСѓРјРµРЅС‚С‹ Р°РЅР°Р»РёС‚РёРєРё Р±РµР· СЃР»РѕР¶РЅРѕР№ РЅР°СЃС‚СЂРѕР№РєРё.",
+      keywords: "С‚Р°СЂРёС„С‹ Р°РЅР°Р»РёС‚РёРєРё СЃР°Р№С‚Р°, С†РµРЅР° saas, TrackNode С‚Р°СЂРёС„С‹",
+      pageHeading: "РўР°СЂРёС„С‹",
       pageText:
-        "Подберите подходящий план для вашего бизнеса и начните работать с аналитикой сайта, отчетами и лидогенерацией в одном сервисе.",
+        "РџРѕРґР±РµСЂРёС‚Рµ РїРѕРґС…РѕРґСЏС‰РёР№ РїР»Р°РЅ РґР»СЏ РІР°С€РµРіРѕ Р±РёР·РЅРµСЃР° Рё РЅР°С‡РЅРёС‚Рµ СЂР°Р±РѕС‚Р°С‚СЊ СЃ Р°РЅР°Р»РёС‚РёРєРѕР№ СЃР°Р№С‚Р°, РѕС‚С‡РµС‚Р°РјРё Рё Р»РёРґРѕРіРµРЅРµСЂР°С†РёРµР№ РІ РѕРґРЅРѕРј СЃРµСЂРІРёСЃРµ.",
       ogType: "website",
     },
   },
@@ -113,9 +114,9 @@ const routes = [
     meta: {
       public: true,
       noindex: true,
-      title: "Авторизация | TrackNode",
-      description: "Вход в личный кабинет TrackNode.",
-      keywords: "tracknode login, авторизация",
+      title: "РђРІС‚РѕСЂРёР·Р°С†РёСЏ | TrackNode",
+      description: "Р’С…РѕРґ РІ Р»РёС‡РЅС‹Р№ РєР°Р±РёРЅРµС‚ TrackNode.",
+      keywords: "tracknode login, Р°РІС‚РѕСЂРёР·Р°С†РёСЏ",
     },
   },
   {
@@ -125,9 +126,9 @@ const routes = [
     meta: {
       public: true,
       noindex: true,
-      title: "Вход в TrackNode",
-      description: "Вход в личный кабинет TrackNode для работы с аналитикой и заявками.",
-      keywords: "вход tracknode, логин",
+      title: "Р’С…РѕРґ РІ TrackNode",
+      description: "Р’С…РѕРґ РІ Р»РёС‡РЅС‹Р№ РєР°Р±РёРЅРµС‚ TrackNode РґР»СЏ СЂР°Р±РѕС‚С‹ СЃ Р°РЅР°Р»РёС‚РёРєРѕР№ Рё Р·Р°СЏРІРєР°РјРё.",
+      keywords: "РІС…РѕРґ tracknode, Р»РѕРіРёРЅ",
     },
   },
   {
@@ -137,9 +138,9 @@ const routes = [
     meta: {
       public: true,
       noindex: true,
-      title: "Регистрация в TrackNode",
-      description: "Создайте аккаунт TrackNode для доступа к аналитике сайта и воронке лидогенерации.",
-      keywords: "регистрация tracknode, создать аккаунт",
+      title: "Р РµРіРёСЃС‚СЂР°С†РёСЏ РІ TrackNode",
+      description: "РЎРѕР·РґР°Р№С‚Рµ Р°РєРєР°СѓРЅС‚ TrackNode РґР»СЏ РґРѕСЃС‚СѓРїР° Рє Р°РЅР°Р»РёС‚РёРєРµ СЃР°Р№С‚Р° Рё РІРѕСЂРѕРЅРєРµ Р»РёРґРѕРіРµРЅРµСЂР°С†РёРё.",
+      keywords: "СЂРµРіРёСЃС‚СЂР°С†РёСЏ tracknode, СЃРѕР·РґР°С‚СЊ Р°РєРєР°СѓРЅС‚",
     },
   },
   {
@@ -158,8 +159,8 @@ const routes = [
             component: DashboardOverview,
             meta: {
               noindex: true,
-              title: "Панель управления - Обзор",
-              description: "Личный кабинет TrackNode: обзор ключевых метрик.",
+              title: "РџР°РЅРµР»СЊ СѓРїСЂР°РІР»РµРЅРёСЏ - РћР±Р·РѕСЂ",
+              description: "Р›РёС‡РЅС‹Р№ РєР°Р±РёРЅРµС‚ TrackNode: РѕР±Р·РѕСЂ РєР»СЋС‡РµРІС‹С… РјРµС‚СЂРёРє.",
             },
           },
           {
@@ -168,8 +169,8 @@ const routes = [
             component: DashboardDynamics,
             meta: {
               noindex: true,
-              title: "Панель управления - Динамика по дням",
-              description: "Личный кабинет TrackNode: динамика метрик по дням.",
+              title: "РџР°РЅРµР»СЊ СѓРїСЂР°РІР»РµРЅРёСЏ - Р”РёРЅР°РјРёРєР° РїРѕ РґРЅСЏРј",
+              description: "Р›РёС‡РЅС‹Р№ РєР°Р±РёРЅРµС‚ TrackNode: РґРёРЅР°РјРёРєР° РјРµС‚СЂРёРє РїРѕ РґРЅСЏРј.",
             },
           },
           {
@@ -178,8 +179,8 @@ const routes = [
             component: DashboardSources,
             meta: {
               noindex: true,
-              title: "Панель управления - Топ источников",
-              description: "Личный кабинет TrackNode: топ источников трафика.",
+              title: "РџР°РЅРµР»СЊ СѓРїСЂР°РІР»РµРЅРёСЏ - РўРѕРї РёСЃС‚РѕС‡РЅРёРєРѕРІ",
+              description: "Р›РёС‡РЅС‹Р№ РєР°Р±РёРЅРµС‚ TrackNode: С‚РѕРї РёСЃС‚РѕС‡РЅРёРєРѕРІ С‚СЂР°С„РёРєР°.",
             },
           },
           {
@@ -188,8 +189,8 @@ const routes = [
             component: DashboardUniqueVisitors,
             meta: {
               noindex: true,
-              title: "Панель управления - Уникальные пользователи",
-              description: "Личный кабинет TrackNode: уникальные пользователи.",
+              title: "РџР°РЅРµР»СЊ СѓРїСЂР°РІР»РµРЅРёСЏ - РЈРЅРёРєР°Р»СЊРЅС‹Рµ РїРѕР»СЊР·РѕРІР°С‚РµР»Рё",
+              description: "Р›РёС‡РЅС‹Р№ РєР°Р±РёРЅРµС‚ TrackNode: СѓРЅРёРєР°Р»СЊРЅС‹Рµ РїРѕР»СЊР·РѕРІР°С‚РµР»Рё.",
             },
           },
           {
@@ -198,8 +199,8 @@ const routes = [
             component: DashboardEngagement,
             meta: {
               noindex: true,
-              title: "Панель управления - Вовлечённость",
-              description: "Личный кабинет TrackNode: вовлечённость пользователей по времени на страницах.",
+              title: "РџР°РЅРµР»СЊ СѓРїСЂР°РІР»РµРЅРёСЏ - Р’РѕРІР»РµС‡С‘РЅРЅРѕСЃС‚СЊ",
+              description: "Р›РёС‡РЅС‹Р№ РєР°Р±РёРЅРµС‚ TrackNode: РІРѕРІР»РµС‡С‘РЅРЅРѕСЃС‚СЊ РїРѕР»СЊР·РѕРІР°С‚РµР»РµР№ РїРѕ РІСЂРµРјРµРЅРё РЅР° СЃС‚СЂР°РЅРёС†Р°С….",
             },
           },
           {
@@ -208,8 +209,8 @@ const routes = [
             component: DashboardClicks,
             meta: {
               noindex: true,
-              title: "Панель управления - Топ кликов",
-              description: "Личный кабинет TrackNode: отчет по кликам.",
+              title: "РџР°РЅРµР»СЊ СѓРїСЂР°РІР»РµРЅРёСЏ - РўРѕРї РєР»РёРєРѕРІ",
+              description: "Р›РёС‡РЅС‹Р№ РєР°Р±РёРЅРµС‚ TrackNode: РѕС‚С‡РµС‚ РїРѕ РєР»РёРєР°Рј.",
             },
           },
           {
@@ -218,8 +219,8 @@ const routes = [
             component: DashboardPagesConversion,
             meta: {
               noindex: true,
-              title: "Панель управления - Конверсия по страницам",
-              description: "Личный кабинет TrackNode: конверсия страниц.",
+              title: "РџР°РЅРµР»СЊ СѓРїСЂР°РІР»РµРЅРёСЏ - РљРѕРЅРІРµСЂСЃРёСЏ РїРѕ СЃС‚СЂР°РЅРёС†Р°Рј",
+              description: "Р›РёС‡РЅС‹Р№ РєР°Р±РёРЅРµС‚ TrackNode: РєРѕРЅРІРµСЂСЃРёСЏ СЃС‚СЂР°РЅРёС†.",
             },
           },
           {
@@ -228,8 +229,18 @@ const routes = [
             component: DashboardSeoAudit,
             meta: {
               noindex: true,
-              title: "SEO аудит",
-              description: "Базовый SEO-аудит сайта в кабинете TrackNode.",
+              title: "SEO Р°СѓРґРёС‚",
+              description: "Р‘Р°Р·РѕРІС‹Р№ SEO-Р°СѓРґРёС‚ СЃР°Р№С‚Р° РІ РєР°Р±РёРЅРµС‚Рµ TrackNode.",
+            },
+          },
+          {
+            path: "ai-recommendations",
+            name: "dashboard_ai_recommendations",
+            component: DashboardAiRecommendations,
+            meta: {
+              noindex: true,
+              title: "AI рекомендации",
+              description: "Раздел подготовки AI-рекомендаций на базе поведенческой аналитики.",
             },
           },
           {
@@ -238,8 +249,8 @@ const routes = [
             component: DashboardDevices,
             meta: {
               noindex: true,
-              title: "Панель управления - Устройства",
-              description: "Личный кабинет TrackNode: статистика устройств.",
+              title: "РџР°РЅРµР»СЊ СѓРїСЂР°РІР»РµРЅРёСЏ - РЈСЃС‚СЂРѕР№СЃС‚РІР°",
+              description: "Р›РёС‡РЅС‹Р№ РєР°Р±РёРЅРµС‚ TrackNode: СЃС‚Р°С‚РёСЃС‚РёРєР° СѓСЃС‚СЂРѕР№СЃС‚РІ.",
             },
           },
         ],
@@ -248,25 +259,25 @@ const routes = [
         path: "/settings",
         name: "settings",
         component: SettingsPage,
-        meta: { noindex: true, title: "Настройки", description: "Личный кабинет TrackNode: настройки аккаунта." },
+        meta: { noindex: true, title: "РќР°СЃС‚СЂРѕР№РєРё", description: "Р›РёС‡РЅС‹Р№ РєР°Р±РёРЅРµС‚ TrackNode: РЅР°СЃС‚СЂРѕР№РєРё Р°РєРєР°СѓРЅС‚Р°." },
       },
       {
         path: "/account",
         name: "account",
         component: AccountView,
-        meta: { noindex: true, title: "Аккаунт", description: "Личный кабинет TrackNode: смена пароля." },
+        meta: { noindex: true, title: "РђРєРєР°СѓРЅС‚", description: "Р›РёС‡РЅС‹Р№ РєР°Р±РёРЅРµС‚ TrackNode: СЃРјРµРЅР° РїР°СЂРѕР»СЏ." },
       },
       {
         path: "/integration",
         name: "integration",
         component: IntegrationPage,
-        meta: { noindex: true, title: "Интеграции", description: "Личный кабинет TrackNode: настройки интеграции." },
+        meta: { noindex: true, title: "РРЅС‚РµРіСЂР°С†РёРё", description: "Р›РёС‡РЅС‹Р№ РєР°Р±РёРЅРµС‚ TrackNode: РЅР°СЃС‚СЂРѕР№РєРё РёРЅС‚РµРіСЂР°С†РёРё." },
       },
       {
         path: "/reports",
         name: "reports",
         component: ReportsPage,
-        meta: { noindex: true, title: "Отчет PDF", description: "Личный кабинет TrackNode: PDF-отчеты." },
+        meta: { noindex: true, title: "РћС‚С‡РµС‚ PDF", description: "Р›РёС‡РЅС‹Р№ РєР°Р±РёРЅРµС‚ TrackNode: PDF-РѕС‚С‡РµС‚С‹." },
       },
       {
         path: "/about",
@@ -274,9 +285,9 @@ const routes = [
         component: () => import("./views/AboutProject.vue"),
         meta: {
           noindex: true,
-          title: "О проекте TrackNode - платформа аналитики сайтов",
-          description: "TrackNode - система аналитики сайтов и управления заявками для малого и среднего бизнеса.",
-          keywords: "TrackNode, аналитика сайта, SaaS аналитика, управление заявками, воронка лидогенерации",
+          title: "Рћ РїСЂРѕРµРєС‚Рµ TrackNode - РїР»Р°С‚С„РѕСЂРјР° Р°РЅР°Р»РёС‚РёРєРё СЃР°Р№С‚РѕРІ",
+          description: "TrackNode - СЃРёСЃС‚РµРјР° Р°РЅР°Р»РёС‚РёРєРё СЃР°Р№С‚РѕРІ Рё СѓРїСЂР°РІР»РµРЅРёСЏ Р·Р°СЏРІРєР°РјРё РґР»СЏ РјР°Р»РѕРіРѕ Рё СЃСЂРµРґРЅРµРіРѕ Р±РёР·РЅРµСЃР°.",
+          keywords: "TrackNode, Р°РЅР°Р»РёС‚РёРєР° СЃР°Р№С‚Р°, SaaS Р°РЅР°Р»РёС‚РёРєР°, СѓРїСЂР°РІР»РµРЅРёРµ Р·Р°СЏРІРєР°РјРё, РІРѕСЂРѕРЅРєР° Р»РёРґРѕРіРµРЅРµСЂР°С†РёРё",
           ogType: "website",
         },
       },
@@ -284,7 +295,7 @@ const routes = [
         path: "/instructions",
         name: "instructions",
         component: InstructionsPage,
-        meta: { noindex: true, title: "Инструкция по подключению", description: "Личный кабинет TrackNode: инструкции." },
+        meta: { noindex: true, title: "РРЅСЃС‚СЂСѓРєС†РёСЏ РїРѕ РїРѕРґРєР»СЋС‡РµРЅРёСЋ", description: "Р›РёС‡РЅС‹Р№ РєР°Р±РёРЅРµС‚ TrackNode: РёРЅСЃС‚СЂСѓРєС†РёРё." },
       },
     ],
   },
@@ -297,8 +308,8 @@ const routes = [
     meta: {
       public: true,
       noindex: true,
-      title: "404 - Страница не найдена | TrackNode",
-      description: "Страница не найдена.",
+      title: "404 - РЎС‚СЂР°РЅРёС†Р° РЅРµ РЅР°Р№РґРµРЅР° | TrackNode",
+      description: "РЎС‚СЂР°РЅРёС†Р° РЅРµ РЅР°Р№РґРµРЅР°.",
     },
   },
 ];

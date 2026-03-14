@@ -34,7 +34,7 @@
         <span class="seo-spinner" aria-hidden="true"></span>
         {{ runningHint }}
       </p>
-      <p class="muted seo-hint">Аудит обходит до 100 внутренних страниц и выполняется в фоне через Celery.</p>
+      <p class="muted seo-hint">Введите только домен, например tracknode.ru. Аудит ищет robots.txt и sitemap.xml только в корне сайта.</p>
     </div>
 
     <div class="stats seo-stats">
