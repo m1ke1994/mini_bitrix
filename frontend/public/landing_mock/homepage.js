@@ -1,12 +1,24 @@
 export const homepageData = {
   brand: { name: "TrackNode" },
   nav: [
-    { label: "Возможности", href: "#capabilities" },
-    { label: "Как работает", href: "#how" },
-    { label: "Тарифы", href: "#pricing" },
-    { label: "Отзывы", href: "#reviews" },
-    { label: "FAQ", href: "#faq" },
-    { label: "Контакты", href: "#footer" },
+    {
+      label: "Главная",
+      href: "/",
+      children: [
+        { label: "Возможности", href: "#capabilities" },
+        { label: "Как работает", href: "#how" },
+        { label: "Отзывы", href: "#reviews" },
+        { label: "Тарифы", href: "#pricing" },
+        { label: "FAQ", href: "#faq" },
+        { label: "Контакты", href: "#contacts" },
+      ],
+    },
+    { label: "SEO-аудит", href: "/seo-audit" },
+    { label: "Аналитика сайта", href: "/website-analytics" },
+    { label: "Кейсы", href: "/cases" },
+    { label: "Цены", href: "/pricing" },
+    { label: "Статьи", href: "/blog" },
+    { label: "Контакты", href: "/contacts" },
   ],
   headerCta: { label: "Войти", href: "https://tracknode.ru", target: "_blank", rel: "noopener" },
   hero: {

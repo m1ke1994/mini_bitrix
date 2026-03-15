@@ -36,6 +36,54 @@ export default defineNuxtConfig({
         "Cache-Control": "public, s-maxage=900, stale-while-revalidate=3600",
       },
     },
+    "/seo-audit": {
+      ssr: true,
+      headers: {
+        "Cache-Control": "public, s-maxage=900, stale-while-revalidate=3600",
+      },
+    },
+    "/website-analytics": {
+      ssr: true,
+      headers: {
+        "Cache-Control": "public, s-maxage=900, stale-while-revalidate=3600",
+      },
+    },
+    "/cases": {
+      ssr: true,
+      headers: {
+        "Cache-Control": "public, s-maxage=900, stale-while-revalidate=3600",
+      },
+    },
+    "/cases/**": {
+      ssr: true,
+      headers: {
+        "Cache-Control": "public, s-maxage=900, stale-while-revalidate=3600",
+      },
+    },
+    "/pricing": {
+      ssr: true,
+      headers: {
+        "Cache-Control": "public, s-maxage=900, stale-while-revalidate=3600",
+      },
+    },
+    "/blog": {
+      ssr: true,
+      headers: {
+        "Cache-Control": "public, s-maxage=900, stale-while-revalidate=3600",
+      },
+    },
+    "/blog/**": {
+      ssr: true,
+      headers: {
+        "Cache-Control": "public, s-maxage=900, stale-while-revalidate=3600",
+      },
+    },
+    "/contacts": {
+      ssr: true,
+      headers: {
+        "Cache-Control": "public, s-maxage=900, stale-while-revalidate=3600",
+      },
+    },
     "/analitika": {
       ssr: true,
       headers: {

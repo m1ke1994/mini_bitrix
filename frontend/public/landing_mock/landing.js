@@ -1,5 +1,6 @@
 import { homepageData } from "./homepage.js";
 import { siteData } from "./data.js";
+import { landingSeoPages } from "./seoPages.js";
 
 const appRoutes = {
   login: "/app/login",
@@ -145,28 +146,29 @@ const footer = {
     {
       title: "Продукт",
       links: [
-        { label: "Возможности", href: "#features" },
-        { label: "Как это работает", href: "#how" },
-        { label: "Тарифы", href: "#pricing" },
+        { label: "Главная", href: "/" },
+        { label: "SEO-аудит", href: "/seo-audit" },
+        { label: "Аналитика сайта", href: "/website-analytics" },
+        { label: "Цены", href: "/pricing" },
         { label: "Открыть приложение", href: appRoutes.dashboard },
       ],
     },
     {
       title: "Ресурсы",
       links: [
-        { label: "Отзывы", href: "#reviews" },
-        { label: "FAQ", href: "#faq" },
-        { label: "Поддержка", href: "#footer-contacts" },
-        { label: "Документация", href: "#footer-contacts" },
+        { label: "Кейсы", href: "/cases" },
+        { label: "Статьи", href: "/blog" },
+        { label: "FAQ", href: "/#faq" },
+        { label: "Поддержка", href: "/contacts" },
       ],
     },
     {
       title: "Компания",
       links: [
-        { label: "Контакты", href: "#footer-contacts" },
-        { label: "Партнёрам", href: "#footer-contacts" },
-        { label: "Вакансии", href: "#footer-contacts" },
-        { label: "О нас", href: "#footer-contacts" },
+        { label: "Контакты", href: "/contacts" },
+        { label: "Карта разделов", href: "/#capabilities" },
+        { label: "Как это работает", href: "/#how" },
+        { label: "Отзывы", href: "/#reviews" },
       ],
     },
   ],
@@ -238,4 +240,5 @@ export const landingData = {
   footer,
   heroDemo,
   seo,
+  seoPages: landingSeoPages,
 };

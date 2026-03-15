@@ -18,8 +18,8 @@
 
     <HowItWorksSection :how="landing.how" />
 
-    <PricingSection :pricing="landing.site.pricing" />
     <ReviewsSection :reviews="landing.site.reviews" />
+    <PricingSection :pricing="landing.site.pricing" />
     <FAQSection :faq="landing.site.faq" />
 
     <SiteFooter :footer="landing.footer" />
