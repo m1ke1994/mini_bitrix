@@ -33,6 +33,7 @@ const page = landing.seoPages?.cases;
 const cases = getLandingCases();
 
 definePageMeta({
+  layout: "landing",
   publicPage: true,
   disableGlobalSeo: true,
 });

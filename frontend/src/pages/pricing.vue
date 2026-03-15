@@ -48,6 +48,7 @@ const landing = getLandingData();
 const page = landing.seoPages?.pricing;
 
 definePageMeta({
+  layout: "landing",
   publicPage: true,
   disableGlobalSeo: true,
 });

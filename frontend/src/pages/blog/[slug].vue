@@ -59,6 +59,7 @@ const articleSchema = {
 };
 
 definePageMeta({
+  layout: "landing",
   publicPage: true,
   disableGlobalSeo: true,
 });

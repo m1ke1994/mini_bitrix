@@ -95,6 +95,7 @@ const caseSchema = {
 };
 
 definePageMeta({
+  layout: "landing",
   publicPage: true,
   disableGlobalSeo: true,
 });

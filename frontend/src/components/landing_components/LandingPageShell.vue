@@ -1,13 +1,13 @@
 <template>
-  <main id="top" class="public-home-main landing-page-main min-h-screen bg-[#eef1f8] px-3 pb-5 sm:px-6 sm:pb-8 lg:px-8">
+  <main id="top" class="public-home-main landing-page-main landing-shell min-h-screen bg-[#eef1f8] px-3 pb-5 sm:px-6 sm:pb-8 lg:px-8">
     <div
-      class="relative mx-auto w-full max-w-[1400px] overflow-hidden rounded-[30px] border border-white/70 bg-[#f7f9fe] px-4 pb-8 pt-4 shadow-[0_26px_60px_rgba(36,52,87,0.12)] sm:px-6 lg:px-9 lg:pb-12 lg:pt-6"
+      class="landing-shell__head-card relative mx-auto w-full max-w-[1400px] overflow-hidden rounded-[30px] border border-white/70 bg-[#f7f9fe] px-4 pb-8 pt-4 shadow-[0_26px_60px_rgba(36,52,87,0.12)] sm:px-6 lg:px-9 lg:pb-12 lg:pt-6"
     >
       <div
-        class="pointer-events-none absolute -left-[14%] bottom-[-14%] h-[430px] w-[430px] rounded-full bg-[radial-gradient(circle,rgba(203,218,255,0.5)_0%,rgba(203,218,255,0)_70%)] blur-2xl"
+        class="landing-shell__glow landing-shell__glow--left pointer-events-none absolute -left-[14%] bottom-[-14%] h-[430px] w-[430px] rounded-full bg-[radial-gradient(circle,rgba(203,218,255,0.5)_0%,rgba(203,218,255,0)_70%)] blur-2xl"
       />
       <div
-        class="pointer-events-none absolute -right-[12%] top-[10%] h-[560px] w-[560px] rounded-full bg-[radial-gradient(circle,rgba(146,195,255,0.56)_0%,rgba(146,195,255,0)_72%)] blur-2xl"
+        class="landing-shell__glow landing-shell__glow--right pointer-events-none absolute -right-[12%] top-[10%] h-[560px] w-[560px] rounded-full bg-[radial-gradient(circle,rgba(146,195,255,0.56)_0%,rgba(146,195,255,0)_72%)] blur-2xl"
       />
 
       <UpHeader
@@ -64,8 +64,50 @@ defineProps({
 </script>
 
 <style scoped>
+.landing-shell {
+  min-height: 100vh;
+  background: #eef1f8;
+  padding: 90px 12px 20px;
+}
+
 .landing-page-main {
   padding-top: 90px !important;
+}
+
+.landing-shell__head-card {
+  position: relative;
+  margin: 0 auto;
+  width: 100%;
+  max-width: 1400px;
+  overflow: hidden;
+  border-radius: 30px;
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  background: #f7f9fe;
+  box-shadow: 0 26px 60px rgba(36, 52, 87, 0.12);
+  padding: 16px 16px 32px;
+}
+
+.landing-shell__glow {
+  pointer-events: none;
+  position: absolute;
+  border-radius: 999px;
+  filter: blur(32px);
+}
+
+.landing-shell__glow--left {
+  left: -14%;
+  bottom: -14%;
+  width: 430px;
+  height: 430px;
+  background: radial-gradient(circle, rgba(203, 218, 255, 0.5) 0%, rgba(203, 218, 255, 0) 70%);
+}
+
+.landing-shell__glow--right {
+  right: -12%;
+  top: 10%;
+  width: 560px;
+  height: 560px;
+  background: radial-gradient(circle, rgba(146, 195, 255, 0.56) 0%, rgba(146, 195, 255, 0) 72%);
 }
 
 .landing-page-hero {
@@ -139,14 +181,30 @@ defineProps({
 }
 
 @media (min-width: 640px) {
+  .landing-shell {
+    padding: 50px 24px 32px;
+  }
+
   .landing-page-main {
     padding-top: 50px !important;
+  }
+
+  .landing-shell__head-card {
+    padding: 20px 24px 40px;
   }
 }
 
 @media (min-width: 1024px) {
+  .landing-shell {
+    padding: 100px 32px 32px;
+  }
+
   .landing-page-main {
     padding-top: 100px !important;
+  }
+
+  .landing-shell__head-card {
+    padding: 24px 36px 48px;
   }
 }
 

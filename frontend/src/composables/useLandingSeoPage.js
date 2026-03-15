@@ -40,7 +40,6 @@ export function useLandingSeoPage(options = {}) {
 
   useHead({
     link: [
-      { key: "landing-style-css", rel: "stylesheet", href: "/landing_mock/css/main.css" },
       { key: `canonical-${routeKey}`, rel: "canonical", href: canonical },
     ],
     script: schema.map((entry, index) => ({

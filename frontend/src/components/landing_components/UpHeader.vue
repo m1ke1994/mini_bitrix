@@ -1,17 +1,17 @@
 <template>
   <header
-    class="fixed inset-x-0 top-0 z-[120] border-b border-[#dce6f5]/85 bg-[rgba(244,249,255,0.72)] backdrop-blur-[14px]"
+    class="landing-header fixed inset-x-0 top-0 z-[120] border-b border-[#dce6f5]/85 bg-[rgba(244,249,255,0.72)] backdrop-blur-[14px]"
   >
-    <div class="mx-auto w-full max-w-[1400px] px-3 py-2 sm:px-6 sm:py-2.5 lg:px-8">
+    <div class="landing-header__outer mx-auto w-full max-w-[1400px] px-3 py-2 sm:px-6 sm:py-2.5 lg:px-8">
       <div
-        class="mx-auto flex w-full max-w-[1280px] items-center justify-between gap-2 rounded-[18px] border border-[#dee5f2] bg-white/95 px-3 py-2.5 shadow-[0_12px_36px_rgba(34,51,90,0.08)] backdrop-blur sm:px-4"
+        class="landing-header__inner mx-auto flex w-full max-w-[1280px] items-center justify-between gap-2 rounded-[18px] border border-[#dee5f2] bg-white/95 px-3 py-2.5 shadow-[0_12px_36px_rgba(34,51,90,0.08)] backdrop-blur sm:px-4"
       >
-        <a href="/" class="flex min-w-fit items-center gap-2.5 pr-2" @click.prevent="onBrandClick">
-          <img :src="brand.logoSrc || '/landing_media/brand/logo.svg'" :alt="brand.name" class="h-8 w-8" />
-          <span class="text-[22px] font-semibold tracking-[-0.02em] text-[#1f2738]">{{ brand.name }}</span>
+        <a href="/" class="landing-header__brand flex min-w-fit items-center gap-2.5 pr-2" @click.prevent="onBrandClick">
+          <img :src="brand.logoSrc || '/landing_media/brand/logo.svg'" :alt="brand.name" class="landing-header__logo h-8 w-8" />
+          <span class="landing-header__brand-name text-[22px] font-semibold tracking-[-0.02em] text-[#1f2738]">{{ brand.name }}</span>
         </a>
 
-        <nav class="hidden items-center gap-7 lg:flex" aria-label="Главная навигация">
+        <nav class="landing-header__desktop-nav hidden items-center gap-7 lg:flex" aria-label="Главная навигация">
           <div
             v-for="item in nav"
             :key="`${item.label}-${item.href}`"
@@ -64,12 +64,12 @@
           </div>
         </nav>
 
-        <div class="flex items-center gap-2 sm:gap-2.5">
+        <div class="landing-header__actions flex items-center gap-2 sm:gap-2.5">
           <a
             :href="headerCta.href"
             :target="headerCta.target || null"
             :rel="headerCta.rel || null"
-            class="btn-brand-gradient hidden min-h-10 items-center justify-center rounded-[11px] px-4 text-[15px] font-semibold text-white shadow-[0_10px_20px_rgba(47,106,255,0.35)] transition hover:brightness-105 sm:inline-flex sm:px-6 sm:text-[16px]"
+            class="landing-header__cta btn-brand-gradient hidden min-h-10 items-center justify-center rounded-[11px] px-4 text-[15px] font-semibold text-white shadow-[0_10px_20px_rgba(47,106,255,0.35)] transition hover:brightness-105 sm:inline-flex sm:px-6 sm:text-[16px]"
           >
             {{ headerCta.label }}
           </a>
@@ -77,7 +77,7 @@
           <button
             type="button"
             aria-label="Меню"
-            class="inline-flex h-10 w-10 items-center justify-center rounded-[10px] border border-[#d7dfee] bg-white text-[#2a3246] lg:hidden"
+            class="landing-header__burger inline-flex h-10 w-10 items-center justify-center rounded-[10px] border border-[#d7dfee] bg-white text-[#2a3246] lg:hidden"
             @click="openMobileMenu"
           >
             <svg viewBox="0 0 20 20" class="h-[16px] w-[16px]" fill="none" aria-hidden="true">
@@ -413,6 +413,96 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.landing-header {
+  position: fixed;
+  inset-inline: 0;
+  top: 0;
+  z-index: 120;
+  border-bottom: 1px solid rgba(220, 230, 245, 0.85);
+  background: rgba(244, 249, 255, 0.72);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.landing-header__outer {
+  margin: 0 auto;
+  width: 100%;
+  max-width: 1400px;
+  padding: 8px 12px;
+}
+
+.landing-header__inner {
+  margin: 0 auto;
+  width: 100%;
+  max-width: 1280px;
+  border-radius: 18px;
+  border: 1px solid #dee5f2;
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 12px 36px rgba(34, 51, 90, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 10px 12px;
+}
+
+.landing-header__brand {
+  min-width: fit-content;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.625rem;
+  padding-right: 0.5rem;
+}
+
+.landing-header__logo {
+  width: 32px;
+  height: 32px;
+}
+
+.landing-header__brand-name {
+  color: #1f2738;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.landing-header__desktop-nav {
+  display: none;
+  align-items: center;
+  gap: 1.75rem;
+}
+
+.landing-header__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.landing-header__cta {
+  display: none;
+  min-height: 40px;
+  border-radius: 11px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 1rem;
+  color: #fff;
+  font-size: 0.95rem;
+  font-weight: 600;
+  box-shadow: 0 10px 20px rgba(47, 106, 255, 0.35);
+}
+
+.landing-header__burger {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  border: 1px solid #d7dfee;
+  background: #fff;
+  color: #2a3246;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .header-scroll-progress {
   height: 3px;
   width: 100%;
@@ -668,5 +758,39 @@ onBeforeUnmount(() => {
   background-image: var(--brand-gradient);
   color: #fff;
   box-shadow: 0 10px 20px rgba(47, 106, 255, 0.28);
+}
+
+@media (min-width: 640px) {
+  .landing-header__outer {
+    padding: 10px 24px;
+  }
+
+  .landing-header__inner {
+    padding: 10px 16px;
+  }
+
+  .landing-header__actions {
+    gap: 0.625rem;
+  }
+
+  .landing-header__cta {
+    display: inline-flex;
+    padding: 0 1.5rem;
+    font-size: 1rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .landing-header__outer {
+    padding: 10px 32px;
+  }
+
+  .landing-header__desktop-nav {
+    display: flex;
+  }
+
+  .landing-header__burger {
+    display: none;
+  }
 }
 </style>

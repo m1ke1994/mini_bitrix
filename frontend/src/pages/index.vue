@@ -43,6 +43,7 @@ const softwareSchema = {
 };
 
 definePageMeta({
+  layout: "landing",
   publicPage: true,
   disableGlobalSeo: true,
 });
@@ -67,7 +68,6 @@ useSeoMeta({
 useHead({
   link: [
     { rel: "canonical", href: canonical },
-    { rel: "stylesheet", href: "/landing_mock/css/main.css" },
   ],
   script: [
     {

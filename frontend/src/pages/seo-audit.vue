@@ -65,6 +65,7 @@ const serviceSchema = createServiceSchema({
 });
 
 definePageMeta({
+  layout: "landing",
   publicPage: true,
   disableGlobalSeo: true,
 });

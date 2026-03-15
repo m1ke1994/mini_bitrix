@@ -39,6 +39,7 @@ const landing = getLandingData();
 const page = landing.seoPages?.contacts;
 
 definePageMeta({
+  layout: "landing",
   publicPage: true,
   disableGlobalSeo: true,
 });

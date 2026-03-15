@@ -31,6 +31,7 @@ const page = landing.seoPages?.blog;
 const posts = getLandingBlogPosts();
 
 definePageMeta({
+  layout: "landing",
   publicPage: true,
   disableGlobalSeo: true,
 });
