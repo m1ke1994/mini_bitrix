@@ -109,5 +109,145 @@ class AiSignalsPayloadTests(TestCase):
         self.assertEqual(payload["forms"]["form_submit_attempt"], 1)
         self.assertEqual(payload["forms"]["form_submit_success"], 1)
         self.assertEqual(payload["forms"]["form_submit_error"], 1)
+        self.assertEqual(payload["forms"]["form_visible"], 1)
+        self.assertEqual(payload["forms"]["form_started"], 1)
+        self.assertEqual(payload["forms"]["form_first_field_completed"], 1)
         self.assertEqual(payload["section_views"]["events_total"], 1)
         self.assertEqual(payload["cta_clicks"]["events_total"], 1)
+
+    def test_ai_signal_payload_includes_extended_ai_blocks(self):
+        now = timezone.now()
+        self.visit.device_type = "mobile"
+        self.visit.referrer = "https://google.com"
+        self.visit.save(update_fields=["device_type", "referrer"])
+
+        TrackerEvent.objects.bulk_create(
+            [
+                TrackerEvent(
+                    visit=self.visit,
+                    type="scroll_depth",
+                    payload={"depth": 60},
+                    timestamp=now,
+                ),
+                TrackerEvent(
+                    visit=self.visit,
+                    type="form_visible",
+                    payload={"form_id": "lead_form"},
+                    timestamp=now,
+                ),
+                TrackerEvent(
+                    visit=self.visit,
+                    type="form_started",
+                    payload={"form_id": "lead_form"},
+                    timestamp=now,
+                ),
+                TrackerEvent(
+                    visit=self.visit,
+                    type="form_first_field_completed",
+                    payload={"form_id": "lead_form"},
+                    timestamp=now,
+                ),
+                TrackerEvent(
+                    visit=self.visit,
+                    type="field_input_started",
+                    payload={"form_id": "lead_form", "field_name": "name", "field_type": "text"},
+                    timestamp=now,
+                ),
+                TrackerEvent(
+                    visit=self.visit,
+                    type="field_completed",
+                    payload={"form_id": "lead_form", "field_name": "name", "field_type": "text"},
+                    timestamp=now,
+                ),
+                TrackerEvent(
+                    visit=self.visit,
+                    type="field_error",
+                    payload={"form_id": "lead_form", "field_name": "phone", "field_type": "tel"},
+                    timestamp=now,
+                ),
+                TrackerEvent(
+                    visit=self.visit,
+                    type="field_revisit",
+                    payload={"form_id": "lead_form", "field_name": "phone", "field_type": "tel"},
+                    timestamp=now,
+                ),
+                TrackerEvent(
+                    visit=self.visit,
+                    type="cta_visible",
+                    payload={"cta_id": "hero_cta", "cta_text": "Оставить заявку", "cta_type": "hero"},
+                    timestamp=now,
+                ),
+                TrackerEvent(
+                    visit=self.visit,
+                    type="cta_click",
+                    payload={"cta_id": "hero_cta", "cta_text": "Оставить заявку", "cta_type": "hero"},
+                    timestamp=now,
+                ),
+                TrackerEvent(
+                    visit=self.visit,
+                    type="cta_target_reached",
+                    payload={"cta_id": "hero_cta"},
+                    timestamp=now,
+                ),
+                TrackerEvent(
+                    visit=self.visit,
+                    type="cta_converted",
+                    payload={"cta_id": "hero_cta"},
+                    timestamp=now,
+                ),
+                TrackerEvent(
+                    visit=self.visit,
+                    type="section_visible",
+                    payload={"section_id": "hero"},
+                    timestamp=now,
+                ),
+                TrackerEvent(
+                    visit=self.visit,
+                    type="section_time_spent",
+                    payload={"section_id": "hero", "visible_duration_seconds": 9},
+                    timestamp=now,
+                ),
+                TrackerEvent(
+                    visit=self.visit,
+                    type="section_interaction_after_view",
+                    payload={"section_id": "hero", "interaction_type": "cta_click"},
+                    timestamp=now,
+                ),
+                TrackerEvent(
+                    visit=self.visit,
+                    type="section_conversion_after_view",
+                    payload={"section_id": "hero"},
+                    timestamp=now,
+                ),
+                TrackerEvent(
+                    visit=self.visit,
+                    type="phone_click",
+                    payload={"section_id": "contacts", "page_url": "https://test.local/"},
+                    timestamp=now,
+                ),
+            ]
+        )
+
+        payload = _build_ai_event_signals_payload(
+            client=self.client_obj,
+            from_dt=now - timedelta(days=1),
+            to_dt=now + timedelta(days=1),
+        )
+
+        self.assertIn("form_funnel", payload)
+        self.assertIn("field_analytics", payload)
+        self.assertIn("cta_funnel", payload)
+        self.assertIn("section_analytics", payload)
+        self.assertIn("device_segmentation", payload)
+        self.assertIn("source_segmentation", payload)
+        self.assertIn("micro_conversions", payload)
+        self.assertIn("anomalies", payload)
+
+        self.assertGreaterEqual(len(payload["form_funnel"]["rows"]), 6)
+        self.assertEqual(len(payload["field_analytics"]["rows"]), 2)
+        self.assertEqual(len(payload["cta_funnel"]["rows"]), 1)
+        self.assertEqual(len(payload["section_analytics"]["rows"]), 1)
+        self.assertEqual(len(payload["device_segmentation"]["rows"]), 4)
+        self.assertEqual(len(payload["source_segmentation"]["rows"]), 7)
+        self.assertEqual(payload["micro_conversions"]["rows"][0]["event"], "phone_click")
+        self.assertEqual(len(payload["anomalies"]["rows"]), 6)

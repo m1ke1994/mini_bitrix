@@ -273,9 +273,25 @@ def tracker_js_view(request):
   var scrollEvaluationScheduled = false;
   var formVisibilityObserver = null;
   var sectionVisibilityObserver = null;
+  var ctaVisibilityObserver = null;
   var pendingFormSubmissions = {};
   var sectionSeenState = {};
   var sectionObservedState = {};
+  var sectionRuntimeState = {};
+  var ctaSeenState = {};
+  var recentCtaClicks = [];
+  var MICRO_CONVERSION_TYPES = [
+    'phone_click',
+    'email_click',
+    'telegram_click',
+    'whatsapp_click',
+    'map_open',
+    'faq_expand',
+    'gallery_open',
+    'video_play',
+    'tariff_expand',
+    'contact_copy'
+  ];
 
   function toAbsoluteUrl(input) {
     if (!input) {
@@ -326,6 +342,123 @@ def tracker_js_view(request):
       }
     }
     return target;
+  }
+
+  function normalizeDeviceType(value) {
+    var normalized = normalizeString(value, 32).toLowerCase();
+    if (normalized === 'mobile' || normalized === 'tablet' || normalized === 'desktop') {
+      return normalized;
+    }
+    return 'unknown';
+  }
+
+  function detectDeviceTypeHint() {
+    try {
+      if (window.matchMedia && window.matchMedia('(max-width: 767px)').matches) {
+        return 'mobile';
+      }
+      var ua = normalizeString(navigator.userAgent || '', 512).toLowerCase();
+      if (!ua) {
+        return 'unknown';
+      }
+      if (/tablet|ipad|playbook|silk/i.test(ua)) {
+        return 'tablet';
+      }
+      if (/mobi|iphone|ipod|android/i.test(ua)) {
+        return 'mobile';
+      }
+      return 'desktop';
+    } catch (_) {
+      return 'unknown';
+    }
+  }
+
+  function classifyTrafficSource(rawSource, rawMedium, rawReferrer) {
+    var source = normalizeString(rawSource, 120).toLowerCase();
+    var medium = normalizeString(rawMedium, 120).toLowerCase();
+    var referrer = normalizeString(rawReferrer, 1000).toLowerCase();
+    var refHost = '';
+    try {
+      refHost = referrer ? normalizeString(new URL(referrer).hostname || '', 255).toLowerCase() : '';
+    } catch (_) {
+      refHost = '';
+    }
+
+    if (source === '(direct)' || source === 'direct') {
+      source = '';
+    }
+    if (medium === '(none)' || medium === 'none') {
+      medium = '';
+    }
+
+    if (/(email|mail|newsletter)/.test(medium) || /(email|newsletter)/.test(source)) {
+      return 'email';
+    }
+    if (/(cpc|ppc|paid|display|banner|retarget)/.test(medium) || /(adwords|gads|yandex_direct|vk_ads|mytarget|facebook_ads|instagram_ads)/.test(source)) {
+      return 'paid';
+    }
+    if (/(social|social_media|smm)/.test(medium) || /(facebook|instagram|vk|vkontakte|ok|tiktok|linkedin|pinterest|youtube|telegram|twitter|x\.com)/.test(source || refHost)) {
+      return 'social';
+    }
+    if (/(organic|seo)/.test(medium) || /(google|bing|yandex|duckduckgo|yahoo|baidu)/.test(source || refHost)) {
+      return 'organic';
+    }
+    if (medium === 'referral') {
+      return 'referral';
+    }
+    if (!source && !medium) {
+      if (!refHost || refHost === normalizeString(window.location.hostname || '', 255).toLowerCase()) {
+        return 'direct';
+      }
+      return 'referral';
+    }
+    return 'unknown';
+  }
+
+  function getSourceContext() {
+    var utmSource = '';
+    var utmMedium = '';
+    var utmCampaign = '';
+    try {
+      var currentUrl = new URL(window.location.href);
+      utmSource = normalizeString(currentUrl.searchParams.get('utm_source') || '', 120);
+      utmMedium = normalizeString(currentUrl.searchParams.get('utm_medium') || '', 120);
+      utmCampaign = normalizeString(currentUrl.searchParams.get('utm_campaign') || '', 120);
+    } catch (_) {
+      utmSource = '';
+      utmMedium = '';
+      utmCampaign = '';
+    }
+    var referrer = normalizeString(document.referrer || '', 1000);
+    var sourceCategory = classifyTrafficSource(utmSource, utmMedium, referrer);
+    return {
+      category: sourceCategory,
+      source: normalizeString(utmSource, 120).toLowerCase(),
+      utm_source: utmSource || null,
+      utm_medium: utmMedium || null,
+      utm_campaign: utmCampaign || null,
+      referrer: referrer || null
+    };
+  }
+
+  function buildAiPayload(entityId, payload) {
+    var sourceContext = getSourceContext();
+    return mergeObjects({
+      page_url: normalizeString(window.location.href, 1000),
+      path: getCurrentPathname(),
+      entity_id: normalizeString(entityId || '', 160),
+      device_type: normalizeDeviceType(detectDeviceTypeHint()),
+      source: sourceContext.category,
+      source_raw: sourceContext.source || null,
+      utm_source: sourceContext.utm_source,
+      utm_medium: sourceContext.utm_medium,
+      utm_campaign: sourceContext.utm_campaign,
+      referrer: sourceContext.referrer
+    }, payload || {});
+  }
+
+  function trackAiEvent(type, entityId, payload) {
+    return trackEvent(type, buildAiPayload(entityId, payload));
   }
 
   function parseUrlPathname(urlValue) {
@@ -512,14 +645,136 @@ def tracker_js_view(request):
         started: false,
         firstFieldFilled: false,
         submitAttempted: false,
+        fieldState: {},
+        lastActiveFieldKey: '',
+        firstFieldStartedKey: '',
       };
     }
     return form.__saasTrackerState;
   }
 
+  function normalizeFormStepType(stepType) {
+    var normalized = normalizeString(stepType, 64);
+    if (!normalized) {
+      return '';
+    }
+    if (normalized === 'form_view') {
+      return 'form_visible';
+    }
+    if (normalized === 'form_start') {
+      return 'form_started';
+    }
+    if (normalized === 'form_first_field_filled') {
+      return 'form_first_field_completed';
+    }
+    return normalized;
+  }
+
+  function shouldTrackFormField(field) {
+    if (!field || field.disabled) {
+      return false;
+    }
+    var fieldType = normalizeString(field.type || field.tagName || '', 32).toLowerCase();
+    if (!fieldType) {
+      return false;
+    }
+    if (fieldType === 'hidden' || fieldType === 'password' || fieldType === 'file' || fieldType === 'submit' || fieldType === 'reset' || fieldType === 'button') {
+      return false;
+    }
+    var fieldName = normalizeString(field.name || field.id || '', 64);
+    return !!fieldName;
+  }
+
+  function getFieldMeta(field) {
+    if (!shouldTrackFormField(field)) {
+      return null;
+    }
+    var form = field.form && field.form.tagName === 'FORM' ? field.form : null;
+    var formKey = getFormIdentifier(form);
+    var fieldName = normalizeString(field.name || field.id || '', 64);
+    var fieldType = normalizeString(field.type || field.tagName || '', 32).toLowerCase();
+    var fieldKey = normalizeString((formKey || 'form') + ':' + fieldName + ':' + fieldType, 180);
+    return {
+      form: form,
+      form_id: formKey,
+      field_name: fieldName,
+      field_type: fieldType || 'unknown',
+      field_key: fieldKey,
+      field_required: !!field.required
+    };
+  }
+
+  function getFormFieldState(formState, fieldKey) {
+    if (!formState || !fieldKey) {
+      return null;
+    }
+    if (!formState.fieldState) {
+      formState.fieldState = {};
+    }
+    if (!formState.fieldState[fieldKey]) {
+      formState.fieldState[fieldKey] = {
+        focusCount: 0,
+        inputStarted: false,
+        completed: false,
+      };
+    }
+    return formState.fieldState[fieldKey];
+  }
+
+  function getFieldErrorKind(field) {
+    if (!field) {
+      return 'invalid';
+    }
+    try {
+      if (field.validity && field.validity.valueMissing) {
+        return 'required';
+      }
+      if (field.validity && field.validity.typeMismatch) {
+        return 'type_mismatch';
+      }
+      if (field.validity && field.validity.patternMismatch) {
+        return 'pattern';
+      }
+      if (field.validity && field.validity.tooShort) {
+        return 'too_short';
+      }
+      if (field.validity && field.validity.tooLong) {
+        return 'too_long';
+      }
+      if (field.validity && field.validity.rangeUnderflow) {
+        return 'range_underflow';
+      }
+      if (field.validity && field.validity.rangeOverflow) {
+        return 'range_overflow';
+      }
+      if (field.validity && field.validity.badInput) {
+        return 'bad_input';
+      }
+    } catch (_) {}
+    return 'invalid';
+  }
+
+  function trackFieldEvent(eventType, fieldMeta, extraPayload) {
+    if (!fieldMeta || !fieldMeta.form) {
+      return;
+    }
+    var payload = mergeObjects(getFormMeta(fieldMeta.form), {
+      form_id: normalizeString(fieldMeta.form_id || '', 120),
+      field_name: normalizeString(fieldMeta.field_name || '', 64),
+      field_type: normalizeString(fieldMeta.field_type || 'unknown', 32),
+      field_required: !!fieldMeta.field_required
+    });
+    payload = mergeObjects(payload, extraPayload || {});
+    trackAiEvent(eventType, fieldMeta.field_key || fieldMeta.field_name, payload);
+  }
+
   function trackFormStep(stepType, form, extraPayload) {
+    var normalizedType = normalizeFormStepType(stepType);
+    if (!normalizedType) {
+      return;
+    }
     var payload = mergeObjects(getFormMeta(form), extraPayload || {});
-    trackEvent(stepType, payload);
+    trackAiEvent(normalizedType, payload.form_key || payload.id || '', payload);
   }
 
   function createPendingFormSubmission(form) {
@@ -715,6 +970,371 @@ def tracker_js_view(request):
     return null;
   }
 
+  function cleanupRecentCtaClicks() {
+    var now = Date.now();
+    var next = [];
+    for (var i = 0; i < recentCtaClicks.length; i++) {
+      var item = recentCtaClicks[i];
+      if (!item) {
+        continue;
+      }
+      if ((now - (item.createdAt || now)) > 30 * 60 * 1000) {
+        continue;
+      }
+      next.push(item);
+    }
+    recentCtaClicks = next.slice(-40);
+  }
+
+  function rememberCtaClick(ctaPayload) {
+    if (!ctaPayload) {
+      return;
+    }
+    cleanupRecentCtaClicks();
+    recentCtaClicks.push({
+      createdAt: Date.now(),
+      converted: false,
+      cta_id: normalizeString(ctaPayload.cta_id || ctaPayload.cta_key || '', 120),
+      cta_type: normalizeString(ctaPayload.cta_type || '', 48),
+      cta_text: normalizeText(ctaPayload.cta_text || ctaPayload.text || '', 120),
+      target_type: normalizeString(ctaPayload.target_type || '', 32),
+      page_url: normalizeString(window.location.href, 1000),
+      path: getCurrentPathname()
+    });
+  }
+
+  function trackCtaConversionFromLatestClick(formMeta) {
+    cleanupRecentCtaClicks();
+    for (var i = recentCtaClicks.length - 1; i >= 0; i--) {
+      var item = recentCtaClicks[i];
+      if (!item || item.converted) {
+        continue;
+      }
+      item.converted = true;
+      trackAiEvent('cta_converted', item.cta_id || 'cta', mergeObjects(item, {
+        form_id: normalizeString((formMeta && (formMeta.form_key || formMeta.id)) || '', 120),
+        conversion_type: 'form_submit_success'
+      }));
+      return;
+    }
+  }
+
+  function getSectionRuntime(sectionKey) {
+    var key = normalizeString(sectionKey || '', 64);
+    if (!key) {
+      return null;
+    }
+    if (!sectionRuntimeState[key]) {
+      sectionRuntimeState[key] = {
+        section_id: key,
+        section_name: key,
+        firstSeenAt: 0,
+        lastSeenAt: 0,
+        seenDepth: 0,
+        wasNextScroll: false,
+        hadCtaClickAfter: false,
+        hadFormStartAfter: false,
+        hadConversionAfter: false,
+        interactionTracked: false,
+        conversionTracked: false,
+        summaryFlushed: false,
+      };
+    }
+    return sectionRuntimeState[key];
+  }
+
+  function getMostRecentSectionKey() {
+    var keys = Object.keys(sectionRuntimeState || {});
+    var matchedKey = '';
+    var matchedTs = 0;
+    for (var i = 0; i < keys.length; i++) {
+      var key = keys[i];
+      var state = sectionRuntimeState[key];
+      if (!state || !state.firstSeenAt) {
+        continue;
+      }
+      var ts = Number(state.lastSeenAt || state.firstSeenAt || 0) || 0;
+      if (!matchedKey || ts > matchedTs) {
+        matchedKey = key;
+        matchedTs = ts;
+      }
+    }
+    return matchedKey;
+  }
+
+  function buildSectionPayload(sectionKey, state, extraPayload) {
+    if (!sectionKey || !state) {
+      return mergeObjects({}, extraPayload || {});
+    }
+    var nowMs = Date.now();
+    var durationSeconds = 0;
+    if (state.firstSeenAt) {
+      durationSeconds = Math.max(1, Math.round((nowMs - state.firstSeenAt) / 1000));
+    }
+    return mergeObjects({
+      section_id: normalizeString(sectionKey, 64),
+      section_name: normalizeString(state.section_name || sectionKey, 120),
+      first_seen_at: state.firstSeenAt ? new Date(state.firstSeenAt).toISOString() : null,
+      visible_duration: durationSeconds,
+      visible_duration_seconds: durationSeconds,
+      was_next_scroll: !!state.wasNextScroll,
+      had_cta_click_after: !!state.hadCtaClickAfter,
+      had_form_start_after: !!state.hadFormStartAfter,
+      had_conversion_after: !!state.hadConversionAfter
+    }, extraPayload || {});
+  }
+
+  function markSectionsScrollProgress(depth) {
+    var keys = Object.keys(sectionRuntimeState || {});
+    for (var i = 0; i < keys.length; i++) {
+      var key = keys[i];
+      var state = sectionRuntimeState[key];
+      if (!state || !state.firstSeenAt) {
+        continue;
+      }
+      if (depth > (state.seenDepth || 0)) {
+        state.wasNextScroll = true;
+      }
+    }
+  }
+
+  function registerSectionInteraction(interactionType, extraPayload) {
+    var sectionKey = getMostRecentSectionKey();
+    if (!sectionKey) {
+      return;
+    }
+    var state = getSectionRuntime(sectionKey);
+    if (!state) {
+      return;
+    }
+    if (interactionType === 'cta_click') {
+      state.hadCtaClickAfter = true;
+    }
+    if (interactionType === 'form_started') {
+      state.hadFormStartAfter = true;
+    }
+    if (!state.interactionTracked) {
+      state.interactionTracked = true;
+      trackAiEvent('section_interaction_after_view', sectionKey, buildSectionPayload(sectionKey, state, mergeObjects({
+        interaction_type: normalizeString(interactionType || '', 32)
+      }, extraPayload || {})));
+    }
+  }
+
+  function registerSectionConversion(conversionType, extraPayload) {
+    var sectionKey = getMostRecentSectionKey();
+    if (!sectionKey) {
+      return;
+    }
+    var state = getSectionRuntime(sectionKey);
+    if (!state) {
+      return;
+    }
+    state.hadConversionAfter = true;
+    if (!state.conversionTracked) {
+      state.conversionTracked = true;
+      trackAiEvent('section_conversion_after_view', sectionKey, buildSectionPayload(sectionKey, state, mergeObjects({
+        conversion_type: normalizeString(conversionType || '', 32)
+      }, extraPayload || {})));
+    }
+  }
+
+  function flushSectionSignals(reason) {
+    var keys = Object.keys(sectionRuntimeState || {});
+    for (var i = 0; i < keys.length; i++) {
+      var sectionKey = keys[i];
+      var state = sectionRuntimeState[sectionKey];
+      if (!state || !state.firstSeenAt || state.summaryFlushed) {
+        continue;
+      }
+      trackAiEvent('section_time_spent', sectionKey, buildSectionPayload(sectionKey, state, {
+        flush_reason: normalizeString(reason || 'unknown', 32)
+      }));
+      if (!state.hadCtaClickAfter && !state.hadFormStartAfter && !state.hadConversionAfter) {
+        trackAiEvent('section_exit_after_view', sectionKey, buildSectionPayload(sectionKey, state, {
+          exit_reason: normalizeString(reason || 'unknown', 32)
+        }));
+      }
+      state.summaryFlushed = true;
+    }
+  }
+
+  function isElementInViewport(element, thresholdRatio) {
+    if (!element || !element.getBoundingClientRect) {
+      return false;
+    }
+    try {
+      var rect = element.getBoundingClientRect();
+      var vh = window.innerHeight || document.documentElement.clientHeight || 0;
+      var vw = window.innerWidth || document.documentElement.clientWidth || 0;
+      if (vh <= 0 || vw <= 0) {
+        return false;
+      }
+      var threshold = Math.max(0, Math.min(Number(thresholdRatio || 0), 1));
+      var visibleHeight = Math.max(0, Math.min(rect.bottom, vh) - Math.max(rect.top, 0));
+      var visibleWidth = Math.max(0, Math.min(rect.right, vw) - Math.max(rect.left, 0));
+      var elementArea = Math.max(1, rect.width * rect.height);
+      var visibleArea = Math.max(0, visibleHeight * visibleWidth);
+      return (visibleArea / elementArea) >= threshold;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function trackCtaTargetReachedOnHash(ctaMeta, clickPayload) {
+    if (!ctaMeta || !ctaMeta.href || ctaMeta.href.charAt(0) !== '#') {
+      return;
+    }
+    var hash = normalizeString(ctaMeta.href, 128);
+    if (!hash || hash === '#') {
+      return;
+    }
+    var targetNode = null;
+    try {
+      targetNode = document.querySelector(hash);
+    } catch (_) {
+      targetNode = null;
+    }
+    if (!targetNode) {
+      return;
+    }
+    var targetType = 'anchor';
+    try {
+      if (targetNode.tagName === 'FORM') {
+        targetType = 'form';
+      } else if (targetNode.tagName === 'SECTION') {
+        targetType = 'section';
+      }
+    } catch (_) {
+      targetType = 'anchor';
+    }
+    var ctaPayload = mergeObjects(clickPayload || {}, ctaMeta);
+    var emitReached = function () {
+      trackAiEvent('cta_target_reached', ctaMeta.cta_id || ctaMeta.cta_key || 'cta', mergeObjects(ctaPayload, {
+        target_type: targetType,
+        target_id: hash
+      }));
+    };
+    if (isElementInViewport(targetNode, 0.2)) {
+      emitReached();
+      return;
+    }
+    if (!window.IntersectionObserver) {
+      setTimeout(function () {
+        if (isElementInViewport(targetNode, 0.2)) {
+          emitReached();
+        }
+      }, 600);
+      return;
+    }
+    var done = false;
+    var targetObserver = new IntersectionObserver(function (entries) {
+      if (done) {
+        return;
+      }
+      for (var i = 0; i < entries.length; i++) {
+        var entry = entries[i];
+        if (entry && entry.isIntersecting && entry.intersectionRatio >= 0.2) {
+          done = true;
+          emitReached();
+          try {
+            targetObserver.disconnect();
+          } catch (_) {}
+          break;
+        }
+      }
+    }, { threshold: [0.2, 0.4] });
+    try {
+      targetObserver.observe(targetNode);
+      setTimeout(function () {
+        try {
+          targetObserver.disconnect();
+        } catch (_) {}
+      }, 8000);
+    } catch (_) {}
+  }
+
+  function detectNearestSectionKey(node) {
+    var current = node;
+    var hops = 0;
+    while (current && hops < 8) {
+      var key = detectSectionKey(current);
+      if (key) {
+        return key;
+      }
+      current = current.parentElement || null;
+      hops += 1;
+    }
+    return '';
+  }
+
+  function detectMicroConversionFromClick(node) {
+    if (!node) {
+      return null;
+    }
+    var href = normalizeString(node.getAttribute ? (node.getAttribute('href') || '') : '', 1000).toLowerCase();
+    var className = normalizeString(typeof node.className === 'string' ? node.className : '', 255).toLowerCase();
+    var idValue = normalizeString(node.id || '', 120).toLowerCase();
+    var textValue = normalizeText(node.innerText || node.textContent || '', 180).toLowerCase();
+    var dataTrack = readDatasetValue(node, 'data-track-micro') || readDatasetValue(node, 'data-micro-conversion');
+    var sectionKey = detectNearestSectionKey(node);
+
+    if (dataTrack && MICRO_CONVERSION_TYPES.indexOf(dataTrack) !== -1) {
+      return {
+        type: dataTrack,
+        payload: { section_id: sectionKey || null }
+      };
+    }
+    if (href.indexOf('tel:') === 0) {
+      return { type: 'phone_click', payload: { section_id: sectionKey || null } };
+    }
+    if (href.indexOf('mailto:') === 0) {
+      return { type: 'email_click', payload: { section_id: sectionKey || null } };
+    }
+    if (href.indexOf('t.me') !== -1 || href.indexOf('telegram.me') !== -1) {
+      return { type: 'telegram_click', payload: { section_id: sectionKey || null } };
+    }
+    if (href.indexOf('wa.me') !== -1 || href.indexOf('whatsapp') !== -1) {
+      return { type: 'whatsapp_click', payload: { section_id: sectionKey || null } };
+    }
+    if (href.indexOf('maps.google') !== -1 || href.indexOf('yandex.ru/maps') !== -1 || href.indexOf('2gis') !== -1 || className.indexOf('map') !== -1 || idValue.indexOf('map') !== -1) {
+      return { type: 'map_open', payload: { section_id: sectionKey || null } };
+    }
+    if (node.tagName === 'SUMMARY' || className.indexOf('faq') !== -1 || idValue.indexOf('faq') !== -1) {
+      return { type: 'faq_expand', payload: { section_id: sectionKey || null } };
+    }
+    if (className.indexOf('gallery') !== -1 || className.indexOf('lightbox') !== -1 || idValue.indexOf('gallery') !== -1) {
+      return { type: 'gallery_open', payload: { section_id: sectionKey || null } };
+    }
+    if (className.indexOf('video') !== -1 || idValue.indexOf('video') !== -1 || /play|видео|ролик/.test(textValue)) {
+      return { type: 'video_play', payload: { section_id: sectionKey || null } };
+    }
+    if (/(tarif|pricing|plan|price)/.test(className + ' ' + idValue) && /(подроб|развер|show|more|open)/.test(textValue + ' ' + className)) {
+      return { type: 'tariff_expand', payload: { section_id: sectionKey || null } };
+    }
+    if (className.indexOf('copy') !== -1 || readDatasetValue(node, 'data-copy') || /копир|copy/.test(textValue)) {
+      return { type: 'contact_copy', payload: { section_id: sectionKey || null } };
+    }
+    return null;
+  }
+
+  function detectCopiedContactKind(value) {
+    var normalized = normalizeString(value, 300);
+    if (!normalized) {
+      return '';
+    }
+    if (/@/.test(normalized)) {
+      return 'email';
+    }
+    if (/[+\d][\d\-\(\)\s]{6,}/.test(normalized)) {
+      return 'phone';
+    }
+    if (/(t\.me|telegram|whatsapp|wa\.me)/i.test(normalized)) {
+      return 'messenger';
+    }
+    return '';
+  }
+
   function finalizePendingFormSubmission(requestUrl, requestMethod, statusCode, transport, requestMeta) {
     var normalizedMeta = requestMeta || {};
     var pending = resolvePendingFormSubmission(requestUrl, requestMethod, normalizedMeta);
@@ -728,14 +1348,19 @@ def tracker_js_view(request):
     var isSuccessStatus = normalizedStatus >= 200 && normalizedStatus < 400;
     var isBestEffortSuccess = !failedByTransport && normalizedStatus === 0;
     var eventType = (isSuccessStatus || isBestEffortSuccess) ? 'form_submit_success' : 'form_submit_error';
-    trackFormStep(eventType, null, mergeObjects(pending.formMeta || {}, {
+    var finalPayload = mergeObjects(pending.formMeta || {}, {
       submission_id: pending.id,
       status: normalizedStatus,
       transport: normalizeString(transport || '', 32),
       body_kind: normalizeString(normalizedMeta.bodyKind || '', 32),
       request_failed: failedByTransport,
       request_url: normalizeString(requestUrl || '', 1000)
-    }));
+    });
+    trackFormStep(eventType, null, finalPayload);
+    if (eventType === 'form_submit_success') {
+      registerSectionConversion('form_submit_success', finalPayload);
+      trackCtaConversionFromLatestClick(finalPayload);
+    }
     cleanupPendingFormSubmissions(false);
   }
 
@@ -761,11 +1386,28 @@ def tracker_js_view(request):
         return;
       }
       var state = getFormState(form);
-      if (!state || state.started) {
+      if (!state) {
         return;
       }
-      state.started = true;
-      trackFormStep('form_start', form, { trigger: 'focus' });
+      var fieldMeta = getFieldMeta(field);
+      if (fieldMeta) {
+        var fieldState = getFormFieldState(state, fieldMeta.field_key);
+        if (fieldState) {
+          if (fieldState.focusCount > 0) {
+            trackFieldEvent('field_revisit', fieldMeta, { trigger: 'focus' });
+          }
+          fieldState.focusCount += 1;
+        }
+        state.lastActiveFieldKey = fieldMeta.field_key;
+        trackFieldEvent('field_focus', fieldMeta, { trigger: 'focus' });
+      }
+      if (!state.started) {
+        state.started = true;
+        trackFormStep('form_started', form, { trigger: 'focus' });
+        registerSectionInteraction('form_started', {
+          form_id: normalizeString(getFormIdentifier(form), 120)
+        });
+      }
     } catch (err) {
       logError('form focus tracking failed', err);
     }
@@ -782,19 +1424,78 @@ def tracker_js_view(request):
       if (!state) {
         return;
       }
+      var fieldMeta = getFieldMeta(field);
+      if (!fieldMeta) {
+        return;
+      }
+      var fieldState = getFormFieldState(state, fieldMeta.field_key);
+      if (!fieldState) {
+        return;
+      }
       if (!state.started) {
         state.started = true;
-        trackFormStep('form_start', form, { trigger: 'input' });
+        trackFormStep('form_started', form, { trigger: 'input' });
+        registerSectionInteraction('form_started', {
+          form_id: normalizeString(getFormIdentifier(form), 120)
+        });
+      }
+      if (!fieldState.inputStarted) {
+        fieldState.inputStarted = true;
+        trackFieldEvent('field_input_started', fieldMeta, { trigger: event.type || 'input' });
+        if (!state.firstFieldStartedKey) {
+          state.firstFieldStartedKey = fieldMeta.field_key;
+        }
       }
       if (!state.firstFieldFilled && isFilledField(field)) {
         state.firstFieldFilled = true;
-        trackFormStep('form_first_field_filled', form, {
-          field_name: normalizeString(field.name || field.id || '', 64),
-          field_type: normalizeString(field.type || field.tagName || '', 32),
+        trackFormStep('form_first_field_completed', form, {
+          field_name: normalizeString(fieldMeta.field_name || '', 64),
+          field_type: normalizeString(fieldMeta.field_type || '', 32),
+          first_field_key: normalizeString(fieldMeta.field_key || '', 180),
+        });
+      }
+      if (isFilledField(field) && !fieldState.completed) {
+        fieldState.completed = true;
+        trackFieldEvent('field_completed', fieldMeta, { trigger: event.type || 'input' });
+      }
+      state.lastActiveFieldKey = fieldMeta.field_key;
+    } catch (err) {
+      logError('form input tracking failed', err);
+    }
+  }
+
+  function onFormFocusOut(event) {
+    try {
+      var field = event.target;
+      var fieldMeta = getFieldMeta(field);
+      if (!fieldMeta) {
+        return;
+      }
+      var form = fieldMeta.form;
+      var formState = getFormState(form);
+      if (formState) {
+        formState.lastActiveFieldKey = fieldMeta.field_key;
+      }
+      trackFieldEvent('field_blur', fieldMeta, { trigger: 'blur' });
+      var hasError = false;
+      try {
+        if (typeof field.checkValidity === 'function') {
+          hasError = !field.checkValidity();
+        }
+      } catch (_) {
+        hasError = false;
+      }
+      if (!hasError && field.required && !isFilledField(field)) {
+        hasError = true;
+      }
+      if (hasError) {
+        trackFieldEvent('field_error', fieldMeta, {
+          error_kind: getFieldErrorKind(field),
+          trigger: 'blur'
         });
       }
     } catch (err) {
-      logError('form input tracking failed', err);
+      logError('form blur tracking failed', err);
     }
   }
 
@@ -813,7 +1514,7 @@ def tracker_js_view(request):
         continue;
       }
       state.viewed = true;
-      trackFormStep('form_view', form, { trigger: 'intersection' });
+      trackFormStep('form_visible', form, { trigger: 'intersection' });
       if (formVisibilityObserver) {
         try {
           formVisibilityObserver.unobserve(form);
@@ -940,19 +1641,29 @@ def tracker_js_view(request):
         continue;
       }
       var sectionKey = normalizeString(section.__saasSectionKey, 64);
-      if (!sectionKey || sectionSeenState[sectionKey]) {
+      if (!sectionKey) {
         continue;
       }
-      sectionSeenState[sectionKey] = true;
-      trackEvent('section_view', {
-        section_key: sectionKey,
-        page_url: normalizeString(window.location.href, 1000),
-        path: getCurrentPathname()
-      });
-      if (sectionVisibilityObserver) {
-        try {
-          sectionVisibilityObserver.unobserve(section);
-        } catch (_) {}
+      var sectionState = getSectionRuntime(sectionKey);
+      if (!sectionState) {
+        continue;
+      }
+      var sectionName = readDatasetValue(section, 'data-track-section-name') || readDatasetValue(section, 'data-section-name') || normalizeText(section.getAttribute ? (section.getAttribute('aria-label') || '') : '', 120);
+      if (sectionName) {
+        sectionState.section_name = sectionName;
+      }
+      var nowMs = Date.now();
+      sectionState.lastSeenAt = nowMs;
+      if (!sectionState.firstSeenAt) {
+        sectionState.firstSeenAt = nowMs;
+        sectionState.seenDepth = maxScrollDepth;
+      }
+      if (!sectionSeenState[sectionKey]) {
+        sectionSeenState[sectionKey] = true;
+        trackAiEvent('section_visible', sectionKey, buildSectionPayload(sectionKey, sectionState, {
+          section_key: sectionKey,
+          seen_depth: maxScrollDepth
+        }));
       }
     }
   }
@@ -967,7 +1678,7 @@ def tracker_js_view(request):
         return;
       }
       sectionVisibilityObserver = new IntersectionObserver(onSectionVisibility, {
-        threshold: [0.35, 0.6]
+        threshold: [0.35, 0.6, 0.8]
       });
       var candidates = collectSectionCandidates();
       for (var i = 0; i < candidates.length; i++) {
@@ -1018,17 +1729,17 @@ def tracker_js_view(request):
     if (depth > maxScrollDepth) {
       maxScrollDepth = depth;
     }
+    markSectionsScrollProgress(depth);
     for (var i = 0; i < SCROLL_THRESHOLDS.length; i++) {
       var threshold = SCROLL_THRESHOLDS[i];
       if (depth < threshold || scrollThresholdState[threshold]) {
         continue;
       }
       scrollThresholdState[threshold] = true;
-      trackEvent('scroll_depth', {
+      trackAiEvent('scroll_depth', 'page_scroll', {
         depth: threshold,
         current_depth: depth,
-        path: getCurrentPathname(),
-        page_url: normalizeString(window.location.href, 1000)
+        max_depth: maxScrollDepth
       });
     }
   }
@@ -1051,11 +1762,25 @@ def tracker_js_view(request):
     scrollThresholdState = {};
     maxScrollDepth = 0;
     sectionSeenState = {};
+    sectionRuntimeState = {};
+    sectionObservedState = {};
+    ctaSeenState = {};
+    if (sectionVisibilityObserver) {
+      try {
+        sectionVisibilityObserver.disconnect();
+      } catch (_) {}
+    }
+    if (ctaVisibilityObserver) {
+      try {
+        ctaVisibilityObserver.disconnect();
+      } catch (_) {}
+    }
     cleanupPendingFormSubmissions(false);
     scheduleScrollDepthEvaluation();
     setTimeout(function () {
       refreshFormVisibilityObserver();
       refreshSectionVisibilityObserver();
+      refreshCtaVisibilityObserver();
       scheduleScrollDepthEvaluation();
     }, 120);
   }
@@ -1128,13 +1853,97 @@ def tracker_js_view(request):
     var ctaType = detectCtaType(node, text, href, className);
     var ctaKeySource = explicit || node.id || href || text;
     var ctaKey = normalizeSectionKey(ctaKeySource) || 'cta';
+    var targetType = 'none';
+    if (href && href.charAt(0) === '#') {
+      targetType = 'anchor';
+    } else if (href.indexOf('mailto:') === 0) {
+      targetType = 'email';
+    } else if (href.indexOf('tel:') === 0) {
+      targetType = 'phone';
+    } else if (href.indexOf('t.me') !== -1 || href.indexOf('telegram.me') !== -1) {
+      targetType = 'telegram';
+    } else if (href.indexOf('wa.me') !== -1 || href.indexOf('whatsapp') !== -1) {
+      targetType = 'whatsapp';
+    }
 
     return {
       cta_type: normalizeString(ctaType, 48),
+      cta_id: normalizeString(ctaKey, 120),
       cta_key: normalizeString(ctaKey, 120),
+      cta_text: text,
       href: href,
-      text: text
+      text: text,
+      target_type: normalizeString(targetType, 32)
     };
+  }
+
+  function collectCtaCandidates() {
+    var selector = [
+      '[data-track-cta]',
+      '[data-cta]',
+      'a[href]',
+      'button',
+      '[role="button"]'
+    ].join(',');
+    try {
+      return document.querySelectorAll(selector);
+    } catch (_) {
+      return [];
+    }
+  }
+
+  function onCtaVisibility(entries) {
+    for (var i = 0; i < entries.length; i++) {
+      var entry = entries[i];
+      var node = entry && entry.target ? entry.target : null;
+      if (!node || !entry.isIntersecting || entry.intersectionRatio < 0.35) {
+        continue;
+      }
+      var ctaMeta = getCtaMeta(node);
+      if (!ctaMeta) {
+        continue;
+      }
+      var ctaId = normalizeString(ctaMeta.cta_id || ctaMeta.cta_key || '', 120) || 'cta';
+      if (ctaSeenState[ctaId]) {
+        continue;
+      }
+      ctaSeenState[ctaId] = true;
+      trackAiEvent('cta_visible', ctaId, ctaMeta);
+      if (ctaVisibilityObserver) {
+        try {
+          ctaVisibilityObserver.unobserve(node);
+        } catch (_) {}
+      }
+    }
+  }
+
+  function refreshCtaVisibilityObserver() {
+    try {
+      if (ctaVisibilityObserver) {
+        ctaVisibilityObserver.disconnect();
+      }
+      if (!window.IntersectionObserver) {
+        return;
+      }
+      ctaVisibilityObserver = new IntersectionObserver(onCtaVisibility, {
+        threshold: [0.35, 0.6]
+      });
+      var candidates = collectCtaCandidates();
+      for (var i = 0; i < candidates.length; i++) {
+        var node = candidates[i];
+        var ctaMeta = getCtaMeta(node);
+        if (!ctaMeta) {
+          continue;
+        }
+        var ctaId = normalizeString(ctaMeta.cta_id || ctaMeta.cta_key || '', 120) || 'cta';
+        if (ctaSeenState[ctaId]) {
+          continue;
+        }
+        ctaVisibilityObserver.observe(node);
+      }
+    } catch (err) {
+      logError('cta visibility observer failed', err);
+    }
   }
 
   function buildPayload(extra) {
@@ -1302,6 +2111,7 @@ def tracker_js_view(request):
       return;
     }
     flushTimeOnPage('spa_route_change');
+    flushSectionSignals('route_change');
     resetPageTimer(window.location.pathname || '/');
     resetPageAnalyticsSignals();
     setTimeout(trackPageView, 0);
@@ -1357,6 +2167,7 @@ def tracker_js_view(request):
     try {
       if (document.visibilityState === 'hidden') {
         flushTimeOnPage('visibility_hidden', { preferBeacon: true });
+        flushSectionSignals('visibility_hidden');
         return;
       }
       if (document.visibilityState === 'visible') {
@@ -1370,6 +2181,7 @@ def tracker_js_view(request):
 
   function onPageClose() {
     flushTimeOnPage('page_close', { preferBeacon: true });
+    flushSectionSignals('page_close');
     trackVisitEnd();
   }
 
@@ -1391,10 +2203,53 @@ def tracker_js_view(request):
 
       var ctaMeta = getCtaMeta(node);
       if (ctaMeta) {
-        trackEvent('cta_click', mergeObjects(clickPayload, ctaMeta));
+        var ctaPayload = mergeObjects(clickPayload, ctaMeta);
+        trackAiEvent('cta_click', ctaMeta.cta_id || ctaMeta.cta_key || 'cta', ctaPayload);
+        rememberCtaClick(ctaPayload);
+        trackCtaTargetReachedOnHash(ctaMeta, clickPayload);
+        registerSectionInteraction('cta_click', {
+          cta_id: normalizeString(ctaMeta.cta_id || ctaMeta.cta_key || '', 120),
+          cta_type: normalizeString(ctaMeta.cta_type || '', 48)
+        });
+      }
+
+      var micro = detectMicroConversionFromClick(node);
+      if (micro && micro.type) {
+        trackAiEvent(micro.type, micro.type, micro.payload || {});
       }
     } catch (err) {
       logError('click tracking failed', err);
+    }
+  }
+
+  function onCopy(event) {
+    try {
+      var copiedText = '';
+      try {
+        copiedText = normalizeString((window.getSelection && window.getSelection().toString()) || '', 300);
+      } catch (_) {
+        copiedText = '';
+      }
+      if (!copiedText) {
+        try {
+          copiedText = normalizeString((event && event.clipboardData && event.clipboardData.getData && event.clipboardData.getData('text')) || '', 300);
+        } catch (_) {
+          copiedText = '';
+        }
+      }
+      var copiedKind = detectCopiedContactKind(copiedText);
+      if (!copiedKind) {
+        return;
+      }
+      var target = event && event.target ? event.target : null;
+      var sectionKey = detectNearestSectionKey(target);
+      trackAiEvent('contact_copy', sectionKey || 'contact_copy', {
+        copied_kind: copiedKind,
+        copied_length: copiedText.length || 0,
+        section_id: sectionKey || null
+      });
+    } catch (err) {
+      logError('copy tracking failed', err);
     }
   }
 
@@ -1409,8 +2264,43 @@ def tracker_js_view(request):
         state.submitAttempted = true;
         if (!state.started) {
           state.started = true;
-          trackFormStep('form_start', form, { trigger: 'submit' });
+          trackFormStep('form_started', form, { trigger: 'submit' });
+          registerSectionInteraction('form_started', {
+            form_id: normalizeString(getFormIdentifier(form), 120)
+          });
         }
+      }
+      var invalidFields = [];
+      try {
+        if (form && form.elements) {
+          for (var idx = 0; idx < form.elements.length; idx++) {
+            var field = form.elements[idx];
+            var fieldMeta = getFieldMeta(field);
+            if (!fieldMeta) {
+              continue;
+            }
+            var invalid = false;
+            try {
+              if (typeof field.checkValidity === 'function') {
+                invalid = !field.checkValidity();
+              }
+            } catch (_) {
+              invalid = false;
+            }
+            if (!invalid && field.required && !isFilledField(field)) {
+              invalid = true;
+            }
+            if (!invalid) {
+              continue;
+            }
+            invalidFields.push({
+              meta: fieldMeta,
+              error_kind: getFieldErrorKind(field)
+            });
+          }
+        }
+      } catch (_) {
+        invalidFields = [];
       }
       var pending = createPendingFormSubmission(form);
       var formPayloadBase = mergeObjects(getFormMeta(form), {
@@ -1419,8 +2309,18 @@ def tracker_js_view(request):
         fields: extractSafeFormFields(form),
         submission_id: pending.id
       });
-      trackEvent('form_submit_attempt', formPayloadBase);
+      trackAiEvent('form_submit_attempt', formPayloadBase.form_key || formPayloadBase.id || 'form', formPayloadBase);
       trackEvent('form_submit', formPayloadBase);
+      for (var i = 0; i < invalidFields.length; i++) {
+        var invalidItem = invalidFields[i];
+        if (!invalidItem || !invalidItem.meta) {
+          continue;
+        }
+        trackFieldEvent('field_error', invalidItem.meta, {
+          error_kind: normalizeString(invalidItem.error_kind || 'invalid', 32),
+          trigger: 'submit'
+        });
+      }
     } catch (err) {
       logError('submit tracking failed', err);
     }
@@ -1585,8 +2485,10 @@ def tracker_js_view(request):
     document.addEventListener('click', onClick, true);
     document.addEventListener('submit', onSubmit, true);
     document.addEventListener('focusin', onFormFocusIn, true);
+    document.addEventListener('focusout', onFormFocusOut, true);
     document.addEventListener('input', onFormInputOrChange, true);
     document.addEventListener('change', onFormInputOrChange, true);
+    document.addEventListener('copy', onCopy, true);
     document.addEventListener('visibilitychange', onVisibilityChange);
     window.addEventListener('scroll', scheduleScrollDepthEvaluation, { passive: true });
     window.addEventListener('resize', scheduleScrollDepthEvaluation);

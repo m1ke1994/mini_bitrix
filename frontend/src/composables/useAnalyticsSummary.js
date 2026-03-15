@@ -37,9 +37,57 @@ const summary = ref({
       form_submit_attempt: 0,
       form_submit_success: 0,
       form_submit_error: 0,
+      form_visible: 0,
+      form_started: 0,
+      form_first_field_completed: 0,
     },
     section_views: { events_total: 0 },
     cta_clicks: { events_total: 0 },
+    form_funnel: {
+      has_data: false,
+      insufficient_data: true,
+      rows: [],
+    },
+    field_analytics: {
+      has_data: false,
+      insufficient_data: true,
+      rows: [],
+      first_field_starts: [],
+      top_drop_off_field: null,
+      top_error_field: null,
+      top_revisit_field: null,
+    },
+    cta_funnel: {
+      has_data: false,
+      insufficient_data: true,
+      rows: [],
+    },
+    section_analytics: {
+      has_data: false,
+      insufficient_data: true,
+      rows: [],
+    },
+    device_segmentation: {
+      has_data: false,
+      insufficient_data: true,
+      rows: [],
+    },
+    source_segmentation: {
+      has_data: false,
+      insufficient_data: true,
+      rows: [],
+    },
+    micro_conversions: {
+      has_data: false,
+      insufficient_data: true,
+      rows: [],
+    },
+    anomalies: {
+      has_data: false,
+      rows: [],
+      key_sections: [],
+      period: null,
+    },
   },
 });
 const loading = ref(false);
@@ -61,7 +109,7 @@ async function loadSummary() {
       engagement_pages: response.data.engagement_pages || [],
     };
   } catch (err) {
-    error.value = "РћС€РёР±РєР° Р·Р°РіСЂСѓР·РєРё Р°РЅР°Р»РёС‚РёРєРё.";
+    error.value = "Ошибка загрузки аналитики.";
   } finally {
     loading.value = false;
   }

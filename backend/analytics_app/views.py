@@ -12,29 +12,15 @@ from rest_framework.views import APIView
 from accounts.permissions import IsClientUser
 from analytics_app.models import Event
 from analytics_app.serializers import PublicAnalyticsEventSerializer, PublicEventCreateSerializer
+from analytics_app.services.ai_recommendations import build_ai_event_signals_payload
 from analytics_app.services.device_stats import get_device_distribution
 from analytics_app.services.metrics import default_period_days, get_metrics, period_bounds
 from analytics_app.services.report_builder import build_full_report
 from clients.permissions import HasValidApiKey
-from tracker.models import Event as TrackerEvent
 from tracker.models import Visit
 from subscriptions.permissions import HasActiveSubscription
 
 logger = logging.getLogger(__name__)
-
-AI_EVENT_TYPES = (
-    "scroll_depth",
-    "form_view",
-    "form_start",
-    "form_first_field_filled",
-    "form_submit_attempt",
-    "form_submit_success",
-    "form_submit_error",
-    "section_view",
-    "cta_click",
-)
-SCROLL_DEPTH_THRESHOLDS = (25, 50, 75, 100)
-
 
 def _default_period_days(days=14):
     return default_period_days(days=days)
@@ -59,62 +45,8 @@ def _period_range(request, days=14):
     return date_from, date_to, from_dt, to_dt
 
 
-def _safe_int(value, default=0):
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return default
-
-
-def _normalize_scroll_threshold(depth_value):
-    for threshold in reversed(SCROLL_DEPTH_THRESHOLDS):
-        if depth_value >= threshold:
-            return threshold
-    return 0
-
-
 def _build_ai_event_signals_payload(client, from_dt, to_dt):
-    tracker_events = TrackerEvent.objects.filter(
-        visit__site__token=client.api_key,
-        timestamp__gte=from_dt,
-        timestamp__lte=to_dt,
-        type__in=AI_EVENT_TYPES,
-    )
-    type_counts = {
-        row["type"]: int(row["count"] or 0)
-        for row in tracker_events.values("type").annotate(count=Count("id"))
-    }
-
-    scroll_threshold_counts = {str(item): 0 for item in SCROLL_DEPTH_THRESHOLDS}
-    for payload in tracker_events.filter(type="scroll_depth").values_list("payload", flat=True):
-        payload = payload or {}
-        depth_value = _safe_int(payload.get("depth") or payload.get("current_depth"), default=0)
-        threshold = _normalize_scroll_threshold(depth_value)
-        if not threshold:
-            continue
-        key = str(threshold)
-        scroll_threshold_counts[key] = scroll_threshold_counts.get(key, 0) + 1
-
-    return {
-        "scroll_depth": {
-            "events_total": int(type_counts.get("scroll_depth", 0)),
-            "thresholds": scroll_threshold_counts,
-        },
-        "forms": {
-            "form_view": int(type_counts.get("form_view", 0)),
-            "form_start": int(type_counts.get("form_start", 0)),
-            "form_first_field_filled": int(type_counts.get("form_first_field_filled", 0)),
-            "form_submit_attempt": int(type_counts.get("form_submit_attempt", 0)),
-            "form_submit_success": int(type_counts.get("form_submit_success", 0)),
-            "form_submit_error": int(type_counts.get("form_submit_error", 0)),
-        },
-        "section_views": {
-            "events_total": int(type_counts.get("section_view", 0)),
-        },
-        "cta_clicks": {
-            "events_total": int(type_counts.get("cta_click", 0)),
-        },
-    }
+    return build_ai_event_signals_payload(client=client, from_dt=from_dt, to_dt=to_dt)
 
 
 def _build_summary_payload(client, from_dt, to_dt):
