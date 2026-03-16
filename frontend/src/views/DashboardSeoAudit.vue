@@ -73,10 +73,80 @@
           </span>
           <span v-if="seoAiRecommendations.cached" class="muted">Кэшированный ответ</span>
         </div>
-        <ul v-if="seoAiRecommendations.items?.length" class="seo-ai-list">
-          <li v-for="(item, idx) in seoAiRecommendations.items" :key="`seo-ai-item-${idx}`">{{ item }}</li>
-        </ul>
-        <p v-else class="muted empty-state">Пока нет готовых рекомендаций. Попробуйте обновить позже.</p>
+
+        <div v-if="seoAiOverviewChips.length" class="seo-ai-overview">
+          <span v-for="(chip, idx) in seoAiOverviewChips" :key="`seo-ai-chip-${idx}`" class="seo-ai-overview-chip">
+            {{ chip }}
+          </span>
+        </div>
+
+        <section v-if="seoAiHighlights.length" class="seo-ai-section">
+          <h3>Краткий вывод</h3>
+          <ul class="seo-ai-list">
+            <li v-for="(item, idx) in seoAiHighlights" :key="`seo-ai-highlight-${idx}`">{{ item }}</li>
+          </ul>
+        </section>
+
+        <section v-if="seoAiMetricsReview.length" class="seo-ai-section">
+          <h3>Оценка ключевых показателей</h3>
+          <div class="seo-ai-metrics-grid">
+            <article
+              v-for="(metric, idx) in seoAiMetricsReview"
+              :key="`seo-ai-metric-${idx}-${metric.label}`"
+              class="seo-ai-metric-card"
+            >
+              <div class="seo-ai-metric-head">
+                <span>{{ metric.label }}</span>
+                <span class="severity-pill" :class="seoMetricStatusClass(metric.status)">
+                  {{ seoMetricStatusLabel(metric.status) }}
+                </span>
+              </div>
+              <strong>{{ metric.value }}</strong>
+              <p class="muted">{{ metric.comment }}</p>
+            </article>
+          </div>
+        </section>
+
+        <section v-if="seoAiProblems.length" class="seo-ai-section">
+          <h3>Основные проблемы</h3>
+          <div class="seo-ai-problems">
+            <article
+              v-for="(problem, idx) in seoAiProblems"
+              :key="`seo-ai-problem-${idx}-${problem.title}`"
+              class="seo-ai-problem-item"
+            >
+              <div class="seo-ai-problem-head">
+                <strong>{{ problem.title }}</strong>
+                <span class="severity-pill" :class="`severity-${problem.severity}`">
+                  {{ severityLabel(problem.severity) }}
+                </span>
+              </div>
+              <p class="muted">{{ problem.description }}</p>
+            </article>
+          </div>
+        </section>
+
+        <section v-if="seoAiFixPlan.length" class="seo-ai-section">
+          <h3>План исправлений</h3>
+          <ol class="seo-ai-fix-plan">
+            <li v-for="(step, idx) in seoAiFixPlan" :key="`seo-ai-fix-${idx}-${step.title}`">
+              <div class="seo-ai-fix-head">
+                <span class="seo-ai-step">Шаг {{ step.step }}</span>
+                <strong>{{ step.title }}</strong>
+              </div>
+              <p class="muted">{{ step.details }}</p>
+            </li>
+          </ol>
+        </section>
+
+        <section class="seo-ai-section">
+          <h3>Что именно исправить</h3>
+          <ul v-if="seoAiActionItems.length" class="seo-ai-list">
+            <li v-for="(item, idx) in seoAiActionItems" :key="`seo-ai-action-${idx}`">{{ item }}</li>
+          </ul>
+          <p v-else class="muted empty-state">Пока нет готовых рекомендаций. Попробуйте обновить позже.</p>
+        </section>
+
         <p v-if="seoAiError" class="muted seo-ai-error">{{ seoAiError }}</p>
       </template>
     </div>
@@ -773,6 +843,68 @@ const pagesWithSpeedIssues = computed(() => Number(audit.value?.pages_with_speed
 const pagesWithIndexingIssues = computed(() => Number(audit.value?.pages_with_indexing_issues ?? 0) || 0);
 const hasRobotsTxt = computed(() => Boolean(audit.value?.has_robots_txt));
 const hasSitemapXml = computed(() => Boolean(audit.value?.has_sitemap_xml));
+const seoAiOverviewChips = computed(() => {
+  const overview = seoAiRecommendations.value?.overview;
+  if (!overview || typeof overview !== "object") return [];
+  const map = [
+    { key: "seo_score_label", label: "SEO-оценка" },
+    { key: "pages_checked_label", label: "Страниц проверено" },
+    { key: "errors_label", label: "Ошибки" },
+    { key: "speed_label", label: "Скорость" },
+    { key: "indexing_label", label: "Индексация" },
+  ];
+  return map
+    .map((item) => {
+      const value = String(overview[item.key] || "").trim();
+      if (!value) return "";
+      return `${item.label}: ${value}`;
+    })
+    .filter((item) => Boolean(item));
+});
+const seoAiHighlights = computed(() => normalizeTextList(seoAiRecommendations.value?.highlights, 5));
+const seoAiMetricsReview = computed(() => {
+  if (!Array.isArray(seoAiRecommendations.value?.metrics_review)) return [];
+  return seoAiRecommendations.value.metrics_review
+    .map((item) => ({
+      label: String(item?.label || "").trim(),
+      value: String(item?.value || "").trim(),
+      status: normalizeSeoMetricStatus(item?.status),
+      comment: String(item?.comment || "").trim(),
+    }))
+    .filter((item) => item.label && item.value)
+    .slice(0, 8);
+});
+const seoAiProblems = computed(() => {
+  if (!Array.isArray(seoAiRecommendations.value?.problems)) return [];
+  return seoAiRecommendations.value.problems
+    .map((item) => ({
+      title: String(item?.title || "").trim(),
+      severity: normalizeSeverity(item?.severity),
+      description: String(item?.description || "").trim(),
+    }))
+    .filter((item) => item.title)
+    .slice(0, 8);
+});
+const seoAiFixPlan = computed(() => {
+  if (!Array.isArray(seoAiRecommendations.value?.fix_plan)) return [];
+  return seoAiRecommendations.value.fix_plan
+    .map((item, index) => {
+      const step = Number(item?.step ?? index + 1);
+      return {
+        step: Number.isFinite(step) && step > 0 ? Math.round(step) : index + 1,
+        title: String(item?.title || "").trim(),
+        details: String(item?.details || "").trim(),
+      };
+    })
+    .filter((item) => item.title)
+    .sort((a, b) => a.step - b.step)
+    .slice(0, 7);
+});
+const seoAiActionItems = computed(() => {
+  const structured = normalizeTextList(seoAiRecommendations.value?.recommendations, 7);
+  if (structured.length) return structured;
+  return normalizeTextList(seoAiRecommendations.value?.items, 7);
+});
 
 const scoreClass = computed(() => scoreClassByValue(scoreValue.value));
 const statusLabel = computed(() => {
@@ -825,6 +957,23 @@ function restoreState() {
   } catch {
     // ignore
   }
+}
+function normalizeTextList(rows, maxItems = 7) {
+  if (!Array.isArray(rows)) return [];
+  return rows
+    .map((item) => String(item || "").trim())
+    .filter((item) => Boolean(item))
+    .slice(0, maxItems);
+}
+function normalizeSeoMetricStatus(value) {
+  const key = String(value || "").toLowerCase();
+  if (key === "good" || key === "warning" || key === "bad" || key === "info") return key;
+  return "info";
+}
+function normalizeSeverity(value) {
+  const key = String(value || "").toLowerCase();
+  if (key === "high" || key === "medium" || key === "low") return key;
+  return "medium";
 }
 
 function severityLabel(value) {
@@ -944,6 +1093,20 @@ function seoAiPriorityClass(value) {
   if (key === "high") return "priority-urgent";
   if (key === "low") return "priority-later";
   return "priority-important";
+}
+function seoMetricStatusLabel(value) {
+  const key = String(value || "").toLowerCase();
+  if (key === "good") return "Хорошо";
+  if (key === "warning") return "Внимание";
+  if (key === "bad") return "Проблема";
+  return "Инфо";
+}
+function seoMetricStatusClass(value) {
+  const key = String(value || "").toLowerCase();
+  if (key === "good") return "severity-low";
+  if (key === "warning") return "severity-medium";
+  if (key === "bad") return "severity-high";
+  return "seo-metric-status-info";
 }
 function comparisonTrendClass(value) {
   const key = String(value || "").toLowerCase();
@@ -1491,6 +1654,97 @@ onBeforeUnmount(() => {
   margin-bottom: 0.5rem;
 }
 
+.seo-ai-overview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-bottom: 0.55rem;
+}
+
+.seo-ai-overview-chip {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #dbe5f1;
+  border-radius: 999px;
+  padding: 0.22rem 0.56rem;
+  font-size: 0.76rem;
+  color: #1e3a8a;
+  background: #eff6ff;
+}
+
+.seo-ai-section {
+  display: grid;
+  gap: 0.45rem;
+  margin-top: 0.62rem;
+}
+
+.seo-ai-section h3 {
+  margin: 0;
+  font-size: 0.95rem;
+  line-height: 1.3;
+}
+
+.seo-ai-metrics-grid {
+  display: grid;
+  gap: 0.55rem;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+}
+
+.seo-ai-metric-card,
+.seo-ai-problem-item,
+.seo-ai-fix-plan li {
+  border: 1px solid var(--color-border);
+  border-radius: 0.7rem;
+  padding: 0.58rem 0.62rem;
+  background: #fff;
+}
+
+.seo-ai-metric-head,
+.seo-ai-problem-head,
+.seo-ai-fix-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.seo-ai-metric-card strong {
+  margin-top: 0.3rem;
+  display: inline-block;
+  font-size: 1.05rem;
+}
+
+.seo-ai-metric-card p,
+.seo-ai-problem-item p,
+.seo-ai-fix-plan p {
+  margin: 0.3rem 0 0;
+}
+
+.seo-ai-problems {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.seo-ai-fix-plan {
+  margin: 0;
+  padding-left: 1rem;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.seo-ai-step {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #dbe5f1;
+  border-radius: 999px;
+  padding: 0.12rem 0.48rem;
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: #1d4ed8;
+  background: #eff6ff;
+}
+
 .seo-ai-list {
   margin: 0;
   padding-left: 1rem;
@@ -1500,6 +1754,11 @@ onBeforeUnmount(() => {
 
 .seo-ai-error {
   margin-top: 0.5rem;
+}
+
+.seo-metric-status-info {
+  color: #1e3a8a;
+  background: #e0e7ff;
 }
 
 .fix-plan-head,

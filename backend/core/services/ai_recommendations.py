@@ -17,6 +17,10 @@ logger = logging.getLogger(__name__)
 
 OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
 MAX_ITEMS = 7
+MAX_HIGHLIGHTS = 5
+MAX_METRICS_REVIEW = 8
+MAX_PROBLEMS = 8
+MAX_FIX_PLAN = 7
 
 
 @dataclass
@@ -71,6 +75,479 @@ def _normalize_items(items: Any) -> list[str]:
         if len(normalized) >= MAX_ITEMS:
             break
     return normalized
+
+
+def _safe_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value or 0)
+    except Exception:
+        return default
+
+
+def _safe_float(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value or 0.0)
+    except Exception:
+        return default
+
+
+def _normalize_text_list(value: Any, *, max_items: int, max_len: int = 260) -> list[str]:
+    if not isinstance(value, (list, tuple)):
+        return []
+    items: list[str] = []
+    for raw in value:
+        text = str(raw or "").strip()
+        if not text:
+            continue
+        items.append(text[:max_len])
+        if len(items) >= max_items:
+            break
+    return items
+
+
+def _normalize_metric_status(value: Any) -> str:
+    key = str(value or "").strip().lower()
+    if key in {"good", "warning", "bad", "info"}:
+        return key
+    return "info"
+
+
+def _severity_key(value: Any) -> str:
+    key = str(value or "").strip().lower()
+    if key in {"high", "medium", "low"}:
+        return key
+    return "medium"
+
+
+def _severity_label(value: Any) -> str:
+    key = _severity_key(value)
+    if key == "high":
+        return "критичная"
+    if key == "low":
+        return "низкая"
+    return "средняя"
+
+
+def _metric_row(*, label: str, value: str, status: str, comment: str) -> dict[str, str]:
+    return {
+        "label": str(label).strip()[:120],
+        "value": str(value).strip()[:120],
+        "status": _normalize_metric_status(status),
+        "comment": str(comment).strip()[:260],
+    }
+
+
+def _build_seo_default_overview(payload: dict[str, Any]) -> dict[str, str]:
+    score = _safe_int(payload.get("seo_score"))
+    pages_count = _safe_int(payload.get("pages_count"))
+    critical = _safe_int(payload.get("critical_issues_count"))
+    warning = _safe_int(payload.get("warning_issues_count"))
+    low = _safe_int(payload.get("low_issues_count"))
+    page_speed_status = str(payload.get("page_speed_status") or "").strip().lower()
+    indexing_status = str(payload.get("indexing_status") or "").strip().lower()
+    robots_status = str(payload.get("robots_status") or "").strip().lower()
+    sitemap_status = str(payload.get("sitemap_status") or "").strip().lower()
+
+    if score >= 80:
+        score_label = "хорошо"
+    elif score >= 60:
+        score_label = "есть точки роста"
+    else:
+        score_label = "требует доработки"
+
+    if pages_count >= 10:
+        pages_label = "достаточно данных"
+    elif pages_count >= 3:
+        pages_label = "данных достаточно для базового вывода"
+    else:
+        pages_label = "данных пока мало"
+
+    if critical > 0:
+        errors_label = "есть критичные ошибки"
+    elif warning + low > 0:
+        errors_label = "есть предупреждения и ошибки"
+    else:
+        errors_label = "критичных ошибок не найдено"
+
+    if page_speed_status == "issues":
+        speed_label = "ниже нормы"
+    else:
+        speed_label = "в пределах нормы"
+
+    indexing_is_ok = indexing_status == "ok" and robots_status == "ok" and sitemap_status == "ok"
+    if indexing_is_ok:
+        indexing_label = "в целом нормально"
+    elif indexing_status == "issues":
+        indexing_label = "есть риски индексации"
+    else:
+        indexing_label = "нужна дополнительная проверка"
+
+    return {
+        "seo_score_label": score_label,
+        "pages_checked_label": pages_label,
+        "errors_label": errors_label,
+        "speed_label": speed_label,
+        "indexing_label": indexing_label,
+    }
+
+
+def _build_seo_default_highlights(payload: dict[str, Any]) -> list[str]:
+    score = _safe_int(payload.get("seo_score"))
+    critical = _safe_int(payload.get("critical_issues_count"))
+    warning = _safe_int(payload.get("warning_issues_count"))
+    top_issues = payload.get("top_issues") or []
+    issue_titles: list[str] = []
+    for item in top_issues:
+        if not isinstance(item, dict):
+            continue
+        title = str(item.get("title") or item.get("issue_type") or "").strip()
+        if title:
+            issue_titles.append(title)
+        if len(issue_titles) >= 2:
+            break
+
+    highlights: list[str] = []
+    if critical > 0:
+        highlights.append(f"Найдены критичные ошибки: {critical}. Их нужно закрыть в первую очередь.")
+    elif warning > 0:
+        highlights.append("Критичных проблем нет, но есть предупреждения, влияющие на рост SEO.")
+    else:
+        highlights.append("Критичных проблем не обнаружено, можно работать над точками роста.")
+
+    if issue_titles:
+        highlights.append(f"Основные зоны внимания: {', '.join(issue_titles)}.")
+
+    if score >= 80:
+        highlights.append("Общий SEO-уровень хороший, но остаются задачи для дальнейшего роста.")
+    elif score >= 60:
+        highlights.append("SEO в рабочем состоянии, но есть заметные резервы для улучшения.")
+    else:
+        highlights.append("Текущее SEO-состояние требует приоритетных доработок.")
+    return highlights[:MAX_HIGHLIGHTS]
+
+
+def _build_seo_default_metrics_review(payload: dict[str, Any]) -> list[dict[str, str]]:
+    score = _safe_int(payload.get("seo_score"))
+    pages_count = _safe_int(payload.get("pages_count"))
+    critical = _safe_int(payload.get("critical_issues_count"))
+    warning = _safe_int(payload.get("warning_issues_count"))
+    low = _safe_int(payload.get("low_issues_count"))
+    ttfb = _safe_int(payload.get("avg_ttfb_ms"))
+    robots_status = str(payload.get("robots_status") or "").strip().lower()
+    sitemap_status = str(payload.get("sitemap_status") or "").strip().lower()
+
+    if score >= 80:
+        score_status, score_comment = "good", "Общий уровень хороший, но остаются точки роста."
+    elif score >= 60:
+        score_status, score_comment = "warning", "Уровень средний: нужно закрыть ключевые проблемы."
+    else:
+        score_status, score_comment = "bad", "Низкий уровень: начните с критичных технических ошибок."
+
+    if pages_count >= 10:
+        pages_comment = "Данных достаточно для уверенных выводов."
+    elif pages_count >= 3:
+        pages_comment = "Данных достаточно для базового анализа."
+    else:
+        pages_comment = "Пока мало данных, выводы предварительные."
+
+    total_errors = critical + warning + low
+    if critical > 0:
+        errors_status, errors_comment = "bad", "Есть критичные ошибки, влияющие на SEO-трафик."
+    elif warning + low > 0:
+        errors_status, errors_comment = "warning", "Есть ошибки и предупреждения, их стоит закрыть планово."
+    else:
+        errors_status, errors_comment = "good", "Существенных ошибок не обнаружено."
+
+    if ttfb <= 0:
+        ttfb_value, ttfb_status, ttfb_comment = "нет данных", "info", "Недостаточно данных для оценки отклика."
+    elif ttfb <= 450:
+        ttfb_value, ttfb_status, ttfb_comment = f"{ttfb} мс", "good", "Отклик сервера в хорошем диапазоне."
+    elif ttfb <= 800:
+        ttfb_value, ttfb_status, ttfb_comment = f"{ttfb} мс", "warning", "Отклик приемлемый, но можно ускорить."
+    else:
+        ttfb_value, ttfb_status, ttfb_comment = f"{ttfb} мс", "bad", "Отклик высокий, это может вредить SEO и UX."
+
+    robots_value = "Найден" if robots_status == "ok" else "Не найден"
+    sitemap_value = "Найден" if sitemap_status == "ok" else "Не найден"
+
+    return [
+        _metric_row(label="SEO-оценка", value=str(score), status=score_status, comment=score_comment),
+        _metric_row(label="Страниц проверено", value=str(pages_count), status="info", comment=pages_comment),
+        _metric_row(label="Всего ошибок", value=str(total_errors), status=errors_status, comment=errors_comment),
+        _metric_row(label="Средний отклик", value=ttfb_value, status=ttfb_status, comment=ttfb_comment),
+        _metric_row(
+            label="robots.txt",
+            value=robots_value,
+            status="good" if robots_status == "ok" else "bad",
+            comment="Файл robots.txt помогает корректному обходу сайта поисковыми системами.",
+        ),
+        _metric_row(
+            label="sitemap.xml",
+            value=sitemap_value,
+            status="good" if sitemap_status == "ok" else "warning",
+            comment="Карта сайта упрощает индексацию важных страниц.",
+        ),
+    ][:MAX_METRICS_REVIEW]
+
+
+def _default_recommendation_for_issue(issue_type: str, title: str) -> str:
+    issue_key = str(issue_type or "").strip().lower()
+    mapping = {
+        "missing_title": "Добавьте уникальные title на приоритетные страницы с коммерческим трафиком.",
+        "missing_description": "Заполните meta description с понятным оффером и релевантными ключевыми фразами.",
+        "missing_h1": "Добавьте уникальный H1, отражающий основной поисковый интент страницы.",
+        "missing_canonical": "Укажите canonical на страницах с риском дублей, чтобы консолидировать индекс.",
+        "low_word_count": "Усилите контент: добавьте полезные блоки и ответы на вопросы пользователя.",
+        "thin_content": "Расширьте слабый контент, чтобы покрыть интент и повысить релевантность страницы.",
+        "missing_alt": "Добавьте alt-теги к изображениям с коротким описанием содержания.",
+        "slow_ttfb": "Проверьте серверный отклик и настройте кеширование/CDN для снижения задержки.",
+        "slow_response": "Оптимизируйте ресурсы страницы и устраните тяжёлые скрипты для ускорения загрузки.",
+    }
+    if issue_key in mapping:
+        return mapping[issue_key]
+    if title:
+        return f"Разберите проблему «{title}» и исправьте её сначала на ключевых посадочных страницах."
+    return "Закройте эту проблему на ключевых страницах и перепроверьте аудит после правок."
+
+
+def _build_seo_default_problems(payload: dict[str, Any]) -> list[dict[str, str]]:
+    top_issues = payload.get("top_issues") or []
+    problems: list[dict[str, str]] = []
+    for item in top_issues:
+        if not isinstance(item, dict):
+            continue
+        title = str(item.get("title") or item.get("issue_type") or "SEO-проблема").strip()
+        severity = _severity_key(item.get("severity"))
+        pages = _safe_int(item.get("pages_affected"))
+        description = str(item.get("description") or "").strip()
+        if pages > 0:
+            pages_text = f" Затронуто страниц: {pages}."
+        else:
+            pages_text = ""
+        if not description:
+            description = f"Нужно устранить эту проблему на приоритетных страницах.{pages_text}"
+        else:
+            description = f"{description[:220]}{pages_text}"
+        problems.append({"title": title[:140], "severity": severity, "description": description[:260]})
+        if len(problems) >= MAX_PROBLEMS:
+            break
+
+    if problems:
+        return problems
+
+    generated: list[dict[str, str]] = []
+    status_checks = [
+        ("title_status", "Проблемы с title"),
+        ("description_status", "Проблемы с description"),
+        ("h1_status", "Проблемы с H1"),
+        ("canonical_status", "Проблемы с canonical"),
+        ("indexing_status", "Риски индексации"),
+        ("page_speed_status", "Проблемы скорости страниц"),
+        ("content_length_status", "Слабый контент"),
+        ("image_alt_status", "Отсутствуют alt у изображений"),
+        ("internal_links_status", "Слабая внутренняя перелинковка"),
+    ]
+    for key, title in status_checks:
+        if str(payload.get(key) or "").strip().lower() != "issues":
+            continue
+        generated.append(
+            {
+                "title": title,
+                "severity": "medium",
+                "description": "Эта зона требует доработки для стабильного роста видимости и трафика.",
+            }
+        )
+        if len(generated) >= MAX_PROBLEMS:
+            break
+    return generated
+
+
+def _build_seo_default_fix_plan(problems: list[dict[str, str]]) -> list[dict[str, Any]]:
+    steps: list[dict[str, Any]] = []
+    for idx, problem in enumerate(problems[:MAX_FIX_PLAN], start=1):
+        title = str(problem.get("title") or "SEO-задача").strip()
+        severity = _severity_key(problem.get("severity"))
+        if severity == "high":
+            details = "Сделайте это в первую очередь на страницах с ключевым трафиком и конверсиями."
+        elif severity == "medium":
+            details = "Выполните после критичных проблем и проверьте изменения повторным аудитом."
+        else:
+            details = "Запланируйте как доработку качества после закрытия основных рисков."
+        steps.append({"step": idx, "title": title[:140], "details": details})
+    return steps
+
+
+def _build_seo_default_recommendations(payload: dict[str, Any], problems: list[dict[str, str]]) -> list[str]:
+    top_issues = payload.get("top_issues") or []
+    recommendations: list[str] = []
+    for item in top_issues:
+        if not isinstance(item, dict):
+            continue
+        issue_type = str(item.get("issue_type") or "").strip().lower()
+        title = str(item.get("title") or "").strip()
+        recommendation = _default_recommendation_for_issue(issue_type, title)
+        if recommendation and recommendation not in recommendations:
+            recommendations.append(recommendation)
+        if len(recommendations) >= MAX_ITEMS:
+            break
+
+    if not recommendations:
+        for problem in problems:
+            title = str(problem.get("title") or "").strip()
+            recommendation = _default_recommendation_for_issue("", title)
+            if recommendation and recommendation not in recommendations:
+                recommendations.append(recommendation)
+            if len(recommendations) >= MAX_ITEMS:
+                break
+
+    if not recommendations:
+        recommendations = [
+            "Закройте критичные ошибки и перепроверьте SEO-аудит после внедрения правок.",
+            "Усилите мета-теги и контент на страницах с приоритетным трафиком.",
+            "Оптимизируйте скорость и индексацию, чтобы закрепить рост видимости в поиске.",
+        ]
+    return recommendations[:MAX_ITEMS]
+
+
+def _normalize_metrics_review(items: Any, default_items: list[dict[str, str]]) -> list[dict[str, str]]:
+    if not isinstance(items, (list, tuple)):
+        return default_items
+    result: list[dict[str, str]] = []
+    for raw in items:
+        if not isinstance(raw, dict):
+            continue
+        label = str(raw.get("label") or "").strip()
+        value = str(raw.get("value") or "").strip()
+        comment = str(raw.get("comment") or "").strip()
+        if not (label and value):
+            continue
+        result.append(
+            _metric_row(
+                label=label,
+                value=value,
+                status=_normalize_metric_status(raw.get("status")),
+                comment=comment or "Показатель учтён в общей оценке.",
+            )
+        )
+        if len(result) >= MAX_METRICS_REVIEW:
+            break
+    return result or default_items
+
+
+def _normalize_problems(items: Any, default_items: list[dict[str, str]]) -> list[dict[str, str]]:
+    if not isinstance(items, (list, tuple)):
+        return default_items
+    result: list[dict[str, str]] = []
+    for raw in items:
+        if not isinstance(raw, dict):
+            continue
+        title = str(raw.get("title") or "").strip()
+        if not title:
+            continue
+        result.append(
+            {
+                "title": title[:140],
+                "severity": _severity_key(raw.get("severity")),
+                "description": str(raw.get("description") or "Проблема требует проверки и исправления.").strip()[:260],
+            }
+        )
+        if len(result) >= MAX_PROBLEMS:
+            break
+    return result or default_items
+
+
+def _normalize_fix_plan(items: Any, default_items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if not isinstance(items, (list, tuple)):
+        return default_items
+    result: list[dict[str, Any]] = []
+    for idx, raw in enumerate(items, start=1):
+        if not isinstance(raw, dict):
+            continue
+        title = str(raw.get("title") or "").strip()
+        details = str(raw.get("details") or "").strip()
+        if not title:
+            continue
+        step = _safe_int(raw.get("step"), idx)
+        if step <= 0:
+            step = idx
+        result.append(
+            {
+                "step": step,
+                "title": title[:140],
+                "details": (details or "Выполните этот шаг и перепроверьте результат аудитом.")[:260],
+            }
+        )
+        if len(result) >= MAX_FIX_PLAN:
+            break
+    return result or default_items
+
+
+def _normalize_overview(items: Any, default_item: dict[str, str]) -> dict[str, str]:
+    if not isinstance(items, dict):
+        return default_item
+    result = dict(default_item)
+    for key in ("seo_score_label", "pages_checked_label", "errors_label", "speed_label", "indexing_label"):
+        value = str(items.get(key) or "").strip()
+        if value:
+            result[key] = value[:140]
+    return result
+
+
+def _build_seo_structured_result(
+    *,
+    parsed: dict[str, Any] | None,
+    payload_for_model: dict[str, Any],
+    fallback_text: str,
+) -> dict[str, Any]:
+    parsed = parsed or {}
+    title = str(parsed.get("title") or "").strip() or "AI-рекомендации по SEO"
+    summary = str(parsed.get("summary") or "").strip()
+    priority = _normalize_priority(parsed.get("priority"))
+
+    default_overview = _build_seo_default_overview(payload_for_model)
+    default_highlights = _build_seo_default_highlights(payload_for_model)
+    default_metrics = _build_seo_default_metrics_review(payload_for_model)
+    default_problems = _build_seo_default_problems(payload_for_model)
+    default_fix_plan = _build_seo_default_fix_plan(default_problems)
+    default_recommendations = _build_seo_default_recommendations(payload_for_model, default_problems)
+
+    overview = _normalize_overview(parsed.get("overview"), default_overview)
+    highlights = _normalize_text_list(parsed.get("highlights"), max_items=MAX_HIGHLIGHTS, max_len=220) or default_highlights
+    metrics_review = _normalize_metrics_review(parsed.get("metrics_review"), default_metrics)
+    problems = _normalize_problems(parsed.get("problems"), default_problems)
+    fix_plan = _normalize_fix_plan(parsed.get("fix_plan"), default_fix_plan)
+
+    recommendations = _normalize_text_list(parsed.get("recommendations"), max_items=MAX_ITEMS, max_len=300)
+    parsed_items = _normalize_items(parsed.get("items"))
+    if not recommendations and parsed_items:
+        recommendations = parsed_items
+    if not recommendations:
+        recommendations = default_recommendations
+
+    if not summary:
+        fallback_result = _build_result_from_text(module="seo", text=fallback_text)
+        summary = str(fallback_result.get("summary") or "").strip() or (
+            "Есть точки роста по техническому SEO. Начните с критичных проблем и приоритетных страниц."
+        )
+
+    return {
+        "success": True,
+        "source": "ai",
+        "title": title[:160],
+        "summary": summary[:520],
+        "priority": priority,
+        "overview": overview,
+        "highlights": highlights[:MAX_HIGHLIGHTS],
+        "metrics_review": metrics_review[:MAX_METRICS_REVIEW],
+        "problems": problems[:MAX_PROBLEMS],
+        "fix_plan": fix_plan[:MAX_FIX_PLAN],
+        "recommendations": recommendations[:MAX_ITEMS],
+        # backward compatibility for existing UI/composables
+        "items": recommendations[:MAX_ITEMS],
+        "debug": None,
+        "generated_at": timezone.now().isoformat(),
+        "cached": False,
+    }
 
 
 def _decode_json_string(raw: str) -> str:
@@ -229,7 +706,12 @@ def _build_result_from_text(*, module: str, text: str) -> dict[str, Any]:
     }
 
 
-def _normalize_ai_payload(*, module: str, raw_text: str) -> dict[str, Any]:
+def _normalize_ai_payload(
+    *,
+    module: str,
+    raw_text: str,
+    payload_for_model: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     candidate = _extract_json_candidate(raw_text)
 
     parsed: dict[str, Any] | None = None
@@ -242,6 +724,13 @@ def _normalize_ai_payload(*, module: str, raw_text: str) -> dict[str, Any]:
 
     if not parsed:
         parsed = _extract_json_like_payload(candidate)
+
+    if module == "seo":
+        return _build_seo_structured_result(
+            parsed=parsed,
+            payload_for_model=payload_for_model or {},
+            fallback_text=raw_text,
+        )
 
     if not parsed:
         return _build_result_from_text(module=module, text=raw_text)
@@ -561,8 +1050,11 @@ def _seo_prompt_payload(detail_payload: dict[str, Any]) -> dict[str, Any]:
         "h1_status": "issues" if has_issue("missing_h1") else "ok",
         "canonical_status": "issues" if has_issue("missing_canonical") else "ok",
         "robots_status": "ok" if detail_payload.get("has_robots_txt") else "missing",
+        "sitemap_status": "ok" if detail_payload.get("has_sitemap_xml") else "missing",
         "indexing_status": "issues" if int(detail_payload.get("pages_with_indexing_issues") or 0) > 0 else "ok",
         "page_speed_status": "issues" if int(detail_payload.get("pages_with_speed_issues") or 0) > 0 else "ok",
+        "pages_with_speed_issues": int(detail_payload.get("pages_with_speed_issues") or 0),
+        "pages_with_indexing_issues": int(detail_payload.get("pages_with_indexing_issues") or 0),
         "content_length_status": (
             "issues"
             if any(has_issue(name) for name in ("thin_content", "too_short_content", "low_word_count"))
@@ -731,6 +1223,56 @@ def _conversion_prompt_payload(summary_payload: dict[str, Any]) -> dict[str, Any
     }
 
 
+def _build_user_prompt(*, module: str, payload_for_model: dict[str, Any]) -> str:
+    if module == "seo":
+        return (
+            "Верни строго JSON без markdown и комментариев.\n"
+            "Анализируй только переданные данные SEO-аудита, ничего не выдумывай.\n"
+            "Все формулировки делай на русском, кратко и прикладно.\n"
+            "Обязательная структура ответа:\n"
+            "{\n"
+            '  "title": "AI-рекомендации по SEO",\n'
+            '  "summary": "Краткая оценка текущего состояния SEO сайта.",\n'
+            '  "priority": "high|medium|low",\n'
+            '  "overview": {\n'
+            '    "seo_score_label": "...",\n'
+            '    "pages_checked_label": "...",\n'
+            '    "errors_label": "...",\n'
+            '    "speed_label": "...",\n'
+            '    "indexing_label": "..."\n'
+            "  },\n"
+            '  "highlights": ["..."],\n'
+            '  "metrics_review": [\n'
+            '    {"label":"...","value":"...","status":"good|warning|bad|info","comment":"..."}\n'
+            "  ],\n"
+            '  "problems": [\n'
+            '    {"title":"...","severity":"high|medium|low","description":"..."}\n'
+            "  ],\n"
+            '  "fix_plan": [\n'
+            '    {"step":1,"title":"...","details":"..."}\n'
+            "  ],\n"
+            '  "recommendations": ["..."]\n'
+            "}\n"
+            "Требования:\n"
+            "- highlights: 3-5 пунктов.\n"
+            "- metrics_review: 5-8 пунктов.\n"
+            "- problems: 2-6 пунктов.\n"
+            "- fix_plan: 3-7 шагов по приоритету.\n"
+            "- recommendations: 3-7 конкретных действий.\n"
+            "- В metrics_review обязательно оцени: SEO-оценку, число страниц, число ошибок, скорость, robots.txt и sitemap.xml (если данные есть).\n"
+            "- Отмечай не только проблемы, но и сильные стороны.\n"
+            f"Данные SEO-аудита:\n{json.dumps(payload_for_model, ensure_ascii=False)}"
+        )
+
+    return (
+        "Analyze the data below and return JSON only without markdown.\n"
+        'Format: {"title":"...","summary":"...","items":["..."],"priority":"high|medium|low"}\n'
+        "Requirements: 3-7 concrete actions, practical style, based only on provided data.\n"
+        "Important: response language must be Russian.\n"
+        f"Data:\n{json.dumps(payload_for_model, ensure_ascii=False)}"
+    )
+
+
 def _generate_recommendations(
     *,
     module: str,
@@ -788,13 +1330,7 @@ def _generate_recommendations(
         force_refresh,
     )
 
-    user_prompt = (
-        "Analyze the data below and return JSON only without markdown.\n"
-        'Format: {"title":"...","summary":"...","items":["..."],"priority":"high|medium|low"}\n'
-        "Requirements: 3-7 concrete actions, practical style, based only on provided data.\n"
-        "Important: response language must be Russian.\n"
-        f"Data:\n{json.dumps(payload_for_model, ensure_ascii=False)}"
-    )
+    user_prompt = _build_user_prompt(module=module, payload_for_model=payload_for_model)
 
     try:
         raw_response = _request_openai(
@@ -860,7 +1396,11 @@ def _generate_recommendations(
                 )
 
                 if retry_text:
-                    result = _normalize_ai_payload(module=module, raw_text=retry_text)
+                    result = _normalize_ai_payload(
+                        module=module,
+                        raw_text=retry_text,
+                        payload_for_model=payload_for_model,
+                    )
                     _cache_set_safe(
                         cache_key,
                         result,
@@ -884,7 +1424,11 @@ def _generate_recommendations(
                 incomplete_details=incomplete_details if isinstance(incomplete_details, dict) else None,
             )
 
-        result = _normalize_ai_payload(module=module, raw_text=output_text)
+        result = _normalize_ai_payload(
+            module=module,
+            raw_text=output_text,
+            payload_for_model=payload_for_model,
+        )
         _cache_set_safe(
             cache_key,
             result,
@@ -932,11 +1476,11 @@ def get_seo_ai_recommendations(
     model = str(getattr(settings, "OPENAI_MODEL_SEO", "gpt-5-mini") or "gpt-5-mini")
 
     system_prompt = (
-        "You are a senior SEO analyst. "
-        "Analyze only provided SEO audit data. "
-        "Do not invent facts and avoid generic theory. "
-        "List the most critical issues first, then quick wins. "
-        "Keep recommendations concise, practical, and in Russian."
+        "Ты senior SEO-аналитик продукта TrackNode. "
+        "Анализируй только переданные данные SEO-аудита. "
+        "Не выдумывай факты и не добавляй общую теорию. "
+        "Сначала давай приоритетные проблемы, затем быстрые улучшения. "
+        "Ответ всегда на русском и строго в JSON-структуре из запроса."
     )
 
     return _generate_recommendations(

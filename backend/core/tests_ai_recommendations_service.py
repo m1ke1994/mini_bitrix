@@ -219,3 +219,84 @@ class AIRecommendationsServiceTests(SimpleTestCase):
         self.assertEqual(result["source"], "ai")
         self.assertEqual(result["priority"], "high")
         self.assertGreaterEqual(len(result.get("items") or []), 1)
+
+    @patch("core.services.ai_recommendations.requests.post")
+    def test_seo_recommendations_return_structured_payload(self, mocked_post):
+        mocked_post.return_value = _mock_response(
+            status_code=200,
+            payload={
+                "output_text": (
+                    '{"title":"AI-рекомендации по SEO","summary":"Есть точки роста по мета-тегам и скорости.",'
+                    '"priority":"high",'
+                    '"overview":{"seo_score_label":"есть точки роста","pages_checked_label":"достаточно данных",'
+                    '"errors_label":"есть критичные ошибки","speed_label":"ниже нормы","indexing_label":"в целом нормально"},'
+                    '"highlights":["Просадка связана с title.","Скорость части страниц ниже нормы."],'
+                    '"metrics_review":[{"label":"SEO-оценка","value":"61","status":"warning","comment":"Нужны доработки."}],'
+                    '"problems":[{"title":"Проблемы с title","severity":"high","description":"На ряде страниц нет title."}],'
+                    '"fix_plan":[{"step":1,"title":"Исправить title","details":"Начните с приоритетных страниц."}],'
+                    '"recommendations":["Обновите title на страницах с трафиком."]}'
+                )
+            },
+        )
+
+        result = get_seo_ai_recommendations(
+            client_id=1,
+            audit_id=12,
+            audit_payload={
+                "domain": "example.com",
+                "score": 61,
+                "seo_score": 61,
+                "pages_count": 8,
+                "has_robots_txt": True,
+                "has_sitemap_xml": True,
+                "pages_with_speed_issues": 2,
+                "pages_with_indexing_issues": 1,
+                "errors": [],
+                "issue_groups": [],
+                "breakdown": {"high_issues": 1, "medium_issues": 2, "low_issues": 1},
+            },
+            force_refresh=True,
+        )
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["source"], "ai")
+        self.assertIn("overview", result)
+        self.assertIn("metrics_review", result)
+        self.assertIn("problems", result)
+        self.assertIn("fix_plan", result)
+        self.assertIn("recommendations", result)
+        self.assertGreaterEqual(len(result.get("recommendations") or []), 1)
+        self.assertEqual(result.get("items"), result.get("recommendations"))
+
+    @patch("core.services.ai_recommendations.requests.post")
+    def test_seo_recommendations_plain_text_builds_structured_defaults(self, mocked_post):
+        mocked_post.return_value = _mock_response(
+            status_code=200,
+            payload={"output_text": "Сначала исправьте title и canonical на ключевых страницах."},
+        )
+
+        result = get_seo_ai_recommendations(
+            client_id=1,
+            audit_id=13,
+            audit_payload={
+                "domain": "example.com",
+                "score": 55,
+                "seo_score": 55,
+                "pages_count": 4,
+                "has_robots_txt": True,
+                "has_sitemap_xml": False,
+                "pages_with_speed_issues": 1,
+                "pages_with_indexing_issues": 2,
+                "errors": [],
+                "issue_groups": [],
+                "breakdown": {"high_issues": 1, "medium_issues": 1, "low_issues": 0},
+            },
+            force_refresh=True,
+        )
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["source"], "ai")
+        self.assertTrue(isinstance(result.get("metrics_review"), list))
+        self.assertTrue(isinstance(result.get("fix_plan"), list))
+        self.assertTrue(isinstance(result.get("recommendations"), list))
+        self.assertGreaterEqual(len(result.get("recommendations") or []), 1)
