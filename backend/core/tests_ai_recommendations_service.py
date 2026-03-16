@@ -59,12 +59,12 @@ class AIRecommendationsServiceTests(SimpleTestCase):
         self.assertEqual(body.get("instructions"), "system")
         self.assertEqual(body.get("input"), "user")
         self.assertGreater(int(body.get("max_output_tokens") or 0), 0)
-        self.assertIn("reasoning", body)
-        self.assertIn("text", body)
+        self.assertNotIn("reasoning", body)
+        self.assertNotIn("text", body)
         self.assertNotIn("temperature", body)
 
     @patch("core.services.ai_recommendations.requests.post")
-    def test_request_openai_keeps_temperature_for_non_gpt5_models(self, mocked_post):
+    def test_request_openai_minimal_payload_for_non_gpt5_models(self, mocked_post):
         mocked_post.return_value = _mock_response(
             status_code=200,
             payload={"output_text": '{"title":"x","summary":"y","items":["z"],"priority":"high"}'},
@@ -73,9 +73,12 @@ class AIRecommendationsServiceTests(SimpleTestCase):
         _request_openai(model="gpt-4.1-mini", system_prompt="system", user_prompt="user")
 
         body = mocked_post.call_args.kwargs["json"]
+        self.assertEqual(body.get("model"), "gpt-4.1-mini")
         self.assertEqual(body.get("instructions"), "system")
         self.assertEqual(body.get("input"), "user")
-        self.assertEqual(body.get("temperature"), 0.2)
+        self.assertNotIn("temperature", body)
+        self.assertNotIn("reasoning", body)
+        self.assertNotIn("text", body)
 
     @patch("core.services.ai_recommendations.requests.post")
     def test_seo_recommendations_ignores_cached_fallback_payload(self, mocked_post):
@@ -171,4 +174,48 @@ class AIRecommendationsServiceTests(SimpleTestCase):
 
         self.assertTrue(result["success"])
         self.assertEqual(result["source"], "ai")
+        self.assertGreaterEqual(len(result.get("items") or []), 1)
+
+    @patch("core.services.ai_recommendations.requests.post")
+    def test_seo_recommendations_parse_output_content_when_output_text_is_missing(self, mocked_post):
+        mocked_post.return_value = _mock_response(
+            status_code=200,
+            payload={
+                "status": "completed",
+                "output": [
+                    {"type": "reasoning", "summary": []},
+                    {
+                        "type": "message",
+                        "content": [
+                            {
+                                "type": "output_text",
+                                "text": '{"title":"AI-рекомендации по SEO","summary":"Проверьте title и скорость.","items":["Исправьте title"],"priority":"high"}',
+                            }
+                        ],
+                    },
+                ],
+            },
+        )
+
+        result = get_seo_ai_recommendations(
+            client_id=1,
+            audit_id=11,
+            audit_payload={
+                "domain": "example.com",
+                "score": 55,
+                "seo_score": 55,
+                "pages_count": 2,
+                "has_robots_txt": True,
+                "pages_with_speed_issues": 1,
+                "pages_with_indexing_issues": 0,
+                "errors": [],
+                "issue_groups": [],
+                "breakdown": {"high_issues": 0, "medium_issues": 1, "low_issues": 0},
+            },
+            force_refresh=True,
+        )
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["source"], "ai")
+        self.assertEqual(result["priority"], "high")
         self.assertGreaterEqual(len(result.get("items") or []), 1)

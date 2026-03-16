@@ -17,7 +17,6 @@ logger = logging.getLogger(__name__)
 
 OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
 MAX_ITEMS = 7
-MODEL_WITHOUT_TEMPERATURE_PREFIXES = ("gpt-5",)
 
 
 @dataclass
@@ -28,37 +27,11 @@ class OpenAIRequestError(Exception):
     error_param: str | None = None
     error_code: str | None = None
     request_id: str | None = None
+    response_status: str | None = None
+    incomplete_details: dict[str, Any] | None = None
 
     def __str__(self) -> str:
         return self.message
-
-
-def _seo_fallback(title: str, summary: str) -> dict[str, Any]:
-    return {
-        "success": False,
-        "source": "fallback",
-        "title": title,
-        "summary": summary,
-        "items": [],
-        "priority": "medium",
-        "debug": None,
-        "generated_at": timezone.now().isoformat(),
-        "cached": False,
-    }
-
-
-def _conversion_fallback(title: str, summary: str) -> dict[str, Any]:
-    return {
-        "success": False,
-        "source": "fallback",
-        "title": title,
-        "summary": summary,
-        "items": [],
-        "priority": "medium",
-        "debug": None,
-        "generated_at": timezone.now().isoformat(),
-        "cached": False,
-    }
 
 
 def _cache_get_safe(cache_key: str) -> dict[str, Any] | None:
@@ -88,6 +61,7 @@ def _normalize_priority(value: Any) -> str:
 def _normalize_items(items: Any) -> list[str]:
     if not isinstance(items, (list, tuple)):
         return []
+
     normalized: list[str] = []
     for item in items:
         text = str(item or "").strip()
@@ -142,6 +116,7 @@ def _extract_json_like_payload(text: str) -> dict[str, Any] | None:
         payload["priority"] = _decode_json_string(priority_match.group(1)).strip().lower()
     if items:
         payload["items"] = items
+
     return payload
 
 
@@ -149,14 +124,18 @@ def _extract_json_candidate(text: str) -> str:
     candidate = str(text or "").strip()
     if not candidate:
         return ""
+
     if candidate.startswith("```"):
         candidate = re.sub(r"^```(?:json)?\s*", "", candidate, flags=re.IGNORECASE)
         candidate = re.sub(r"\s*```$", "", candidate)
+
     if candidate.startswith("{") and candidate.endswith("}"):
         return candidate
+
     match = re.search(r"\{.*\}", candidate, flags=re.DOTALL)
     if match:
         return match.group(0)
+
     return candidate
 
 
@@ -164,18 +143,21 @@ def _extract_output_text(response_data: dict[str, Any]) -> str:
     def _as_text(value: Any) -> str:
         if isinstance(value, str):
             return value.strip()
+
         if isinstance(value, dict):
             if isinstance(value.get("value"), str):
                 return str(value.get("value") or "").strip()
             if isinstance(value.get("text"), str):
                 return str(value.get("text") or "").strip()
+
         if isinstance(value, list):
             chunks = [_as_text(item) for item in value]
             return "\n".join([chunk for chunk in chunks if chunk]).strip()
+
         return ""
 
-    output_text = response_data.get("output_text")
-    normalized_top_level_text = _as_text(output_text)
+    top_level_output_text = response_data.get("output_text")
+    normalized_top_level_text = _as_text(top_level_output_text)
     if normalized_top_level_text:
         return normalized_top_level_text
 
@@ -183,18 +165,26 @@ def _extract_output_text(response_data: dict[str, Any]) -> str:
     for item in response_data.get("output") or []:
         if not isinstance(item, dict):
             continue
+
         content = item.get("content") or []
         for part in content:
             if not isinstance(part, dict):
                 continue
+
+            part_type = str(part.get("type") or "").strip()
+            if part_type and part_type != "output_text":
+                continue
+
             part_text = _as_text(part.get("text"))
             if part_text:
                 chunks.append(part_text)
+
     return "\n".join(chunks).strip()
 
 
 def _build_result_from_text(*, module: str, text: str) -> dict[str, Any]:
     raw = str(text or "").strip()
+
     lines: list[str] = []
     for line in raw.splitlines():
         normalized_line = str(line or "").strip()
@@ -202,6 +192,7 @@ def _build_result_from_text(*, module: str, text: str) -> dict[str, Any]:
             continue
         normalized_line = re.sub(r"^[\s\-\*\u2022]+", "", normalized_line)
         lines.append(normalized_line)
+
     if not lines and raw:
         lines = [part.strip() for part in raw.split(".") if part.strip()]
 
@@ -213,13 +204,18 @@ def _build_result_from_text(*, module: str, text: str) -> dict[str, Any]:
         if len(items) >= MAX_ITEMS:
             break
 
-    title = "\u0420\u0435\u043a\u043e\u043c\u0435\u043d\u0434\u0430\u0446\u0438\u0438 \u043f\u043e \u0443\u043b\u0443\u0447\u0448\u0435\u043d\u0438\u044e"
+    title = "Рекомендации по улучшению"
     if module == "seo":
-        title = "AI-\u0440\u0435\u043a\u043e\u043c\u0435\u043d\u0434\u0430\u0446\u0438\u0438 \u043f\u043e SEO"
+        title = "AI-рекомендации по SEO"
     elif module == "conversion":
-        title = "AI-\u0440\u0435\u043a\u043e\u043c\u0435\u043d\u0434\u0430\u0446\u0438\u0438 \u043f\u043e \u043f\u043e\u0432\u044b\u0448\u0435\u043d\u0438\u044e \u043a\u043e\u043d\u0432\u0435\u0440\u0441\u0438\u0438"
+        title = "AI-рекомендации по повышению конверсии"
 
-    summary = lines[0][:340] if lines else "\u041d\u0430\u0439\u0434\u0435\u043d\u044b \u0442\u043e\u0447\u043a\u0438 \u0440\u043e\u0441\u0442\u0430, \u043a\u043e\u0442\u043e\u0440\u044b\u0435 \u0441\u0442\u043e\u0438\u0442 \u043f\u0440\u043e\u0432\u0435\u0440\u0438\u0442\u044c \u0432 \u043f\u0435\u0440\u0432\u0443\u044e \u043e\u0447\u0435\u0440\u0435\u0434\u044c."
+    summary = (
+        lines[0][:340]
+        if lines
+        else "Найдены точки роста, которые стоит проверить в первую очередь."
+    )
+
     return {
         "success": True,
         "source": "ai",
@@ -235,6 +231,7 @@ def _build_result_from_text(*, module: str, text: str) -> dict[str, Any]:
 
 def _normalize_ai_payload(*, module: str, raw_text: str) -> dict[str, Any]:
     candidate = _extract_json_candidate(raw_text)
+
     parsed: dict[str, Any] | None = None
     try:
         maybe = json.loads(candidate)
@@ -255,12 +252,14 @@ def _normalize_ai_payload(*, module: str, raw_text: str) -> dict[str, Any]:
     priority = _normalize_priority(parsed.get("priority"))
 
     if not title:
-        title = "AI-\u0440\u0435\u043a\u043e\u043c\u0435\u043d\u0434\u0430\u0446\u0438\u0438"
+        title = "AI-рекомендации"
+
     if not summary:
-        summary = "\u041d\u0430\u0439\u0434\u0435\u043d\u044b \u0437\u043e\u043d\u044b \u0440\u043e\u0441\u0442\u0430, \u043a\u043e\u0442\u043e\u0440\u044b\u0435 \u043c\u043e\u0436\u043d\u043e \u0443\u043b\u0443\u0447\u0448\u0438\u0442\u044c \u0432 \u043f\u0435\u0440\u0432\u0443\u044e \u043e\u0447\u0435\u0440\u0435\u0434\u044c."
+        summary = "Найдены зоны роста, которые можно улучшить в первую очередь."
+
     if not items:
-        fallback = _build_result_from_text(module=module, text=summary)
-        items = fallback.get("items") or []
+        fallback_from_text = _build_result_from_text(module=module, text=summary)
+        items = fallback_from_text.get("items") or []
 
     return {
         "success": True,
@@ -275,6 +274,68 @@ def _normalize_ai_payload(*, module: str, raw_text: str) -> dict[str, Any]:
     }
 
 
+def _build_error_response(
+    *,
+    module: str,
+    model: str,
+    cache_scope: str,
+    payload_for_model: dict[str, Any],
+    exc: Exception,
+    period: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    payload_size = len(json.dumps(payload_for_model, ensure_ascii=False))
+
+    if isinstance(exc, OpenAIRequestError):
+        debug = {
+            "message": exc.message,
+            "status_code": exc.status_code,
+            "error_type": exc.error_type,
+            "error_param": exc.error_param,
+            "error_code": exc.error_code,
+            "request_id": exc.request_id,
+            "response_status": exc.response_status,
+            "incomplete_details": exc.incomplete_details,
+        }
+    else:
+        debug = {
+            "message": str(exc),
+            "status_code": None,
+            "error_type": exc.__class__.__name__,
+            "error_param": None,
+            "error_code": None,
+            "request_id": None,
+            "response_status": None,
+            "incomplete_details": None,
+        }
+
+    result = {
+        "success": False,
+        "source": "openai_error",
+        "title": "Ошибка получения AI-ответа",
+        "summary": "OpenAI не вернул валидный ответ. Смотрите поле debug.",
+        "items": [],
+        "priority": "medium",
+        "debug": debug,
+        "debug_context": {
+            "module": module,
+            "model": model,
+            "endpoint": OPENAI_RESPONSES_URL,
+            "cache_scope": cache_scope,
+            "payload_size": payload_size,
+            "enabled": bool(getattr(settings, "AI_RECOMMENDATIONS_ENABLED", False)),
+            "has_key": bool(getattr(settings, "OPENAI_API_KEY", "")),
+            "timeout_seconds": float(getattr(settings, "AI_RECOMMENDATIONS_TIMEOUT_SECONDS", 20) or 20),
+        },
+        "generated_at": timezone.now().isoformat(),
+        "cached": False,
+    }
+
+    if period:
+        result["period"] = period
+
+    return result
+
+
 def _request_openai(
     *,
     model: str,
@@ -284,50 +345,56 @@ def _request_openai(
 ) -> dict[str, Any]:
     safe_model = str(model or "").strip()
     if not safe_model:
-        raise OpenAIRequestError("Model name is empty.", error_type="configuration_error")
+        raise OpenAIRequestError(
+            "Model name is empty.",
+            error_type="configuration_error",
+        )
+
+    api_key = str(getattr(settings, "OPENAI_API_KEY", "") or "").strip()
+    if not api_key:
+        raise OpenAIRequestError(
+            "OPENAI_API_KEY is empty.",
+            error_type="configuration_error",
+        )
 
     default_max_output_tokens = int(getattr(settings, "AI_RECOMMENDATIONS_MAX_OUTPUT_TOKENS", 900) or 900)
     max_output_tokens = int(max_output_tokens_override or default_max_output_tokens)
+
     body: dict[str, Any] = {
         "model": safe_model,
-        "max_output_tokens": max_output_tokens,
         "instructions": system_prompt,
         "input": user_prompt,
+        "max_output_tokens": max_output_tokens,
     }
 
-    # GPT-5 models reject temperature and are more stable with low reasoning effort for concise JSON output.
-    if safe_model.startswith(MODEL_WITHOUT_TEMPERATURE_PREFIXES):
-        body["reasoning"] = {"effort": "minimal"}
-        body["text"] = {"verbosity": "low"}
-    else:
-        body["temperature"] = 0.2
-
     timeout_seconds = float(getattr(settings, "AI_RECOMMENDATIONS_TIMEOUT_SECONDS", 20) or 20)
+
     logger.info(
-        "ai_recommendations openai request: endpoint=%s model=%s timeout=%s max_output_tokens=%s has_reasoning=%s has_text=%s input_len=%s instructions_len=%s",
+        "ai_recommendations openai request: endpoint=%s model=%s timeout=%s max_output_tokens=%s input_len=%s instructions_len=%s",
         OPENAI_RESPONSES_URL,
         safe_model,
         timeout_seconds,
         max_output_tokens,
-        bool(body.get("reasoning")),
-        bool(body.get("text")),
         len(str(user_prompt or "")),
         len(str(system_prompt or "")),
     )
-    response = None
+
+    response: requests.Response | None = None
     current_timeout = timeout_seconds
+
     for attempt in (1, 2):
         try:
             response = requests.post(
                 OPENAI_RESPONSES_URL,
                 headers={
-                    "Authorization": f"Bearer {settings.OPENAI_API_KEY}",
+                    "Authorization": f"Bearer {api_key}",
                     "Content-Type": "application/json",
                 },
                 json=body,
                 timeout=current_timeout,
             )
             break
+
         except requests.exceptions.ReadTimeout as exc:
             logger.warning(
                 "ai_recommendations openai timeout: model=%s attempt=%s timeout=%s error=%s",
@@ -339,10 +406,12 @@ def _request_openai(
             if attempt == 1:
                 current_timeout = max(timeout_seconds * 2, timeout_seconds + 10)
                 continue
+
             raise OpenAIRequestError(
                 f"OpenAI request timed out after retry: {exc}",
                 error_type="network_timeout",
             ) from exc
+
         except requests.exceptions.RequestException as exc:
             logger.warning(
                 "ai_recommendations openai network error: model=%s attempt=%s error=%s",
@@ -352,12 +421,18 @@ def _request_openai(
             )
             if attempt == 1:
                 continue
+
             raise OpenAIRequestError(
                 f"OpenAI request failed: {exc}",
                 error_type="network_error",
             ) from exc
+
     if response is None:
-        raise OpenAIRequestError("OpenAI request failed before receiving response", error_type="network_error")
+        raise OpenAIRequestError(
+            "OpenAI request failed before receiving response.",
+            error_type="network_error",
+        )
+
     response_headers = getattr(response, "headers", {}) or {}
     if not hasattr(response_headers, "get"):
         response_headers = {}
@@ -369,20 +444,24 @@ def _request_openai(
             payload = response.json() or {}
         except Exception:
             payload = {}
+
         error_payload = payload.get("error") if isinstance(payload, dict) else {}
         if not isinstance(error_payload, dict):
             error_payload = {}
 
         message = str(error_payload.get("message") or f"OpenAI request failed with status {response.status_code}.")
+
         logger.error(
-            "ai_recommendations openai http error: model=%s status=%s request_id=%s error_type=%s error_param=%s error_code=%s",
+            "ai_recommendations openai http error: model=%s status=%s request_id=%s error_type=%s error_param=%s error_code=%s message=%s",
             safe_model,
             response.status_code,
             request_id,
             error_payload.get("type"),
             error_payload.get("param"),
             error_payload.get("code"),
+            message,
         )
+
         raise OpenAIRequestError(
             message=message,
             status_code=response.status_code,
@@ -403,13 +482,15 @@ def _request_openai(
 
     if not isinstance(payload, dict):
         raise OpenAIRequestError(
-            "OpenAI response is not a JSON object",
+            "OpenAI response is not a JSON object.",
             status_code=response.status_code,
             request_id=str(request_id or ""),
         )
+
     payload_status = str(payload.get("status") or "").strip() or "unknown"
     incomplete_details = payload.get("incomplete_details")
     output_items = payload.get("output") if isinstance(payload.get("output"), list) else []
+
     logger.info(
         "ai_recommendations openai response: model=%s status=%s request_id=%s response_status=%s output_items=%s has_output_text=%s incomplete_details=%s",
         safe_model,
@@ -420,6 +501,7 @@ def _request_openai(
         bool(payload.get("output_text")),
         incomplete_details if isinstance(incomplete_details, dict) else None,
     )
+
     return payload
 
 
@@ -459,9 +541,14 @@ def _seo_prompt_payload(detail_payload: dict[str, Any]) -> dict[str, Any]:
         )
 
     def has_issue(issue_type: str) -> bool:
-        return any(str(item.get("issue_type") or "").strip().lower() == issue_type for item in errors if isinstance(item, dict))
+        return any(
+            str(item.get("issue_type") or "").strip().lower() == issue_type
+            for item in errors
+            if isinstance(item, dict)
+        )
 
     breakdown = detail_payload.get("breakdown") or {}
+
     return {
         "domain": detail_payload.get("domain"),
         "seo_score": int(detail_payload.get("score") or detail_payload.get("seo_score") or 0),
@@ -476,12 +563,16 @@ def _seo_prompt_payload(detail_payload: dict[str, Any]) -> dict[str, Any]:
         "robots_status": "ok" if detail_payload.get("has_robots_txt") else "missing",
         "indexing_status": "issues" if int(detail_payload.get("pages_with_indexing_issues") or 0) > 0 else "ok",
         "page_speed_status": "issues" if int(detail_payload.get("pages_with_speed_issues") or 0) > 0 else "ok",
-        "content_length_status": "issues"
-        if any(has_issue(name) for name in ("thin_content", "too_short_content", "low_word_count"))
-        else "ok",
-        "image_alt_status": "issues"
-        if any(has_issue(name) for name in ("missing_alt", "missing_image_alt"))
-        else "ok",
+        "content_length_status": (
+            "issues"
+            if any(has_issue(name) for name in ("thin_content", "too_short_content", "low_word_count"))
+            else "ok"
+        ),
+        "image_alt_status": (
+            "issues"
+            if any(has_issue(name) for name in ("missing_alt", "missing_image_alt"))
+            else "ok"
+        ),
         "internal_links_status": "issues" if has_issue("low_internal_links") else "ok",
         "avg_ttfb_ms": int(detail_payload.get("avg_ttfb_ms") or 0),
         "avg_performance_score": int(detail_payload.get("avg_performance_score") or 0),
@@ -492,6 +583,7 @@ def _seo_prompt_payload(detail_payload: dict[str, Any]) -> dict[str, Any]:
 def _weakest_funnel_step(rows: list[dict[str, Any]]) -> str | None:
     if not rows:
         return None
+
     candidates: list[tuple[float, str]] = []
     for row in rows:
         stage = str(row.get("stage") or "").strip()
@@ -499,8 +591,10 @@ def _weakest_funnel_step(rows: list[dict[str, Any]]) -> str | None:
             continue
         rate = float(row.get("next_step_rate_pct") or 0.0)
         candidates.append((rate, stage))
+
     if not candidates:
         return None
+
     candidates.sort(key=lambda item: item[0])
     return candidates[0][1]
 
@@ -523,16 +617,19 @@ def _conversion_prompt_payload(summary_payload: dict[str, Any]) -> dict[str, Any
         key=lambda row: int(row.get("clicks") or 0),
         reverse=True,
     )[:5]
+
     sorted_field_rows = sorted(
         [row for row in field_rows if isinstance(row, dict)],
         key=lambda row: (int(row.get("drop_off") or 0), int(row.get("errors") or 0)),
         reverse=True,
     )[:5]
+
     best_sections = sorted(
         [row for row in section_rows if isinstance(row, dict)],
         key=lambda row: int(row.get("conversions_after_section") or 0),
         reverse=True,
     )[:3]
+
     weak_sections = sorted(
         [row for row in section_rows if isinstance(row, dict)],
         key=lambda row: float(row.get("exit_after_section_rate_pct") or 0.0),
@@ -641,23 +738,24 @@ def _generate_recommendations(
     cache_scope: str,
     payload_for_model: dict[str, Any],
     system_prompt: str,
-    fallback_builder,
     force_refresh: bool,
+    period: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     enabled = bool(getattr(settings, "AI_RECOMMENDATIONS_ENABLED", False))
     has_key = bool(getattr(settings, "OPENAI_API_KEY", ""))
     timeout_seconds = float(getattr(settings, "AI_RECOMMENDATIONS_TIMEOUT_SECONDS", 20) or 20)
 
     if not _is_ai_enabled():
-        logger.warning(
-            "ai_recommendations disabled: module=%s enabled=%s has_key=%s",
-            module,
-            enabled,
-            has_key,
-        )
-        return fallback_builder(
-            "\u0420\u0435\u043a\u043e\u043c\u0435\u043d\u0434\u0430\u0446\u0438\u0438 \u0432\u0440\u0435\u043c\u0435\u043d\u043d\u043e \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u043d\u044b",
-            "AI-\u0430\u043d\u0430\u043b\u0438\u0437 \u043e\u0442\u043a\u043b\u044e\u0447\u0451\u043d \u0432 \u043d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0430\u0445 \u043e\u043a\u0440\u0443\u0436\u0435\u043d\u0438\u044f \u0438\u043b\u0438 \u043d\u0435 \u0437\u0430\u0434\u0430\u043d API-\u043a\u043b\u044e\u0447.",
+        return _build_error_response(
+            module=module,
+            model=model,
+            cache_scope=cache_scope,
+            payload_for_model=payload_for_model,
+            exc=OpenAIRequestError(
+                message="AI recommendations are disabled or OPENAI_API_KEY is missing.",
+                error_type="configuration_error",
+            ),
+            period=period,
         )
 
     cache_key = _cache_key(module=module, model=model, scope=cache_scope, payload=payload_for_model)
@@ -670,8 +768,9 @@ def _generate_recommendations(
                 cached_payload = dict(cached_payload)
                 cached_payload["cached"] = True
                 return cached_payload
+
             logger.info(
-                "ai_recommendations skip stale cache: module=%s model=%s cached_success=%s cached_source=%s",
+                "ai_recommendations skip cached non-ai payload: module=%s model=%s cached_success=%s cached_source=%s",
                 module,
                 model,
                 cached_success,
@@ -690,17 +789,23 @@ def _generate_recommendations(
     )
 
     user_prompt = (
-        "Analyze the data below and return JSON only without markdown.\\n"
-        'Format: {"title":"...","summary":"...","items":["..."],"priority":"high|medium|low"}\\n'
-        "Requirements: 3-7 concrete actions, practical style, based only on provided data.\\n"
-        "Important: response language must be Russian.\\n"
-        f"Data:\\n{json.dumps(payload_for_model, ensure_ascii=False)}"
+        "Analyze the data below and return JSON only without markdown.\n"
+        'Format: {"title":"...","summary":"...","items":["..."],"priority":"high|medium|low"}\n'
+        "Requirements: 3-7 concrete actions, practical style, based only on provided data.\n"
+        "Important: response language must be Russian.\n"
+        f"Data:\n{json.dumps(payload_for_model, ensure_ascii=False)}"
     )
 
     try:
-        raw_response = _request_openai(model=model, system_prompt=system_prompt, user_prompt=user_prompt)
+        raw_response = _request_openai(
+            model=model,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+        )
+
         response_status = str(raw_response.get("status") or "").strip()
         incomplete_details = raw_response.get("incomplete_details")
+
         logger.info(
             "ai_recommendations response meta: module=%s model=%s status=%s incomplete_details=%s",
             module,
@@ -708,19 +813,28 @@ def _generate_recommendations(
             response_status or "unknown",
             incomplete_details if isinstance(incomplete_details, dict) else None,
         )
+
         output_text = _extract_output_text(raw_response)
+
+        logger.info(
+            "ai_recommendations parsed output: module=%s model=%s output_items=%s extracted_text_len=%s",
+            module,
+            model,
+            len(raw_response.get("output") or []) if isinstance(raw_response.get("output"), list) else 0,
+            len(output_text),
+        )
+
         if not output_text:
-            response_status = str(raw_response.get("status") or "").strip()
             incomplete_reason = ""
-            incomplete_details = raw_response.get("incomplete_details")
             if isinstance(incomplete_details, dict):
                 incomplete_reason = str(incomplete_details.get("reason") or "").strip()
-            # If the model ran out of output budget, retry once with a larger max_output_tokens.
+
             if incomplete_reason == "max_output_tokens":
                 retry_max = min(
                     int(getattr(settings, "AI_RECOMMENDATIONS_MAX_OUTPUT_TOKENS", 900) or 900) * 2,
                     1800,
                 )
+
                 logger.warning(
                     "ai_recommendations retry due to incomplete output: module=%s model=%s reason=%s retry_max_output_tokens=%s",
                     module,
@@ -728,6 +842,7 @@ def _generate_recommendations(
                     incomplete_reason,
                     retry_max,
                 )
+
                 retry_response = _request_openai(
                     model=model,
                     system_prompt=system_prompt,
@@ -735,6 +850,15 @@ def _generate_recommendations(
                     max_output_tokens_override=retry_max,
                 )
                 retry_text = _extract_output_text(retry_response)
+
+                logger.info(
+                    "ai_recommendations retry parsed output: module=%s model=%s output_items=%s extracted_text_len=%s",
+                    module,
+                    model,
+                    len(retry_response.get("output") or []) if isinstance(retry_response.get("output"), list) else 0,
+                    len(retry_text),
+                )
+
                 if retry_text:
                     result = _normalize_ai_payload(module=module, raw_text=retry_text)
                     _cache_set_safe(
@@ -748,17 +872,16 @@ def _generate_recommendations(
                         model,
                         len(result.get("items") or []),
                     )
+                    if period:
+                        result["period"] = period
                     return result
-            details = []
-            if response_status:
-                details.append(f"status={response_status}")
-            if incomplete_reason:
-                details.append(f"reason={incomplete_reason}")
-            suffix = f" ({', '.join(details)})" if details else ""
+
             raise OpenAIRequestError(
-                f"OpenAI output is empty{suffix}",
+                message="OpenAI returned empty output.",
                 error_type="empty_output",
                 error_code=incomplete_reason or None,
+                response_status=response_status or None,
+                incomplete_details=incomplete_details if isinstance(incomplete_details, dict) else None,
             )
 
         result = _normalize_ai_payload(module=module, raw_text=output_text)
@@ -767,39 +890,33 @@ def _generate_recommendations(
             result,
             ttl_seconds=int(getattr(settings, "AI_RECOMMENDATIONS_TTL_SECONDS", 10800) or 10800),
         )
+
         logger.info(
             "ai_recommendations request success: module=%s model=%s items=%s",
             module,
             model,
             len(result.get("items") or []),
         )
+
+        if period:
+            result["period"] = period
+
         return result
-    except OpenAIRequestError as exc:
-        logger.error(
-            "ai_recommendations openai error: module=%s model=%s status=%s request_id=%s type=%s param=%s code=%s message=%s",
-            module,
-            model,
-            exc.status_code,
-            exc.request_id,
-            exc.error_type,
-            exc.error_param,
-            exc.error_code,
-            exc.message,
-        )
-        return fallback_builder(
-            "\u0420\u0435\u043a\u043e\u043c\u0435\u043d\u0434\u0430\u0446\u0438\u0438 \u0432\u0440\u0435\u043c\u0435\u043d\u043d\u043e \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u043d\u044b",
-            "\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u043f\u043e\u043b\u0443\u0447\u0438\u0442\u044c AI-\u0430\u043d\u0430\u043b\u0438\u0437. \u041f\u043e\u043f\u0440\u043e\u0431\u0443\u0439\u0442\u0435 \u043e\u0431\u043d\u043e\u0432\u0438\u0442\u044c \u0440\u0435\u043a\u043e\u043c\u0435\u043d\u0434\u0430\u0446\u0438\u0438 \u043f\u043e\u0437\u0436\u0435.",
-        )
+
     except Exception as exc:
         logger.exception(
-            "ai_recommendations unexpected error: module=%s model=%s error=%s",
+            "ai_recommendations failure: module=%s model=%s error=%s",
             module,
             model,
             exc,
         )
-        return fallback_builder(
-            "\u0420\u0435\u043a\u043e\u043c\u0435\u043d\u0434\u0430\u0446\u0438\u0438 \u0432\u0440\u0435\u043c\u0435\u043d\u043d\u043e \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u043d\u044b",
-            "\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u043f\u043e\u043b\u0443\u0447\u0438\u0442\u044c AI-\u0430\u043d\u0430\u043b\u0438\u0437. \u041f\u043e\u043f\u0440\u043e\u0431\u0443\u0439\u0442\u0435 \u043e\u0431\u043d\u043e\u0432\u0438\u0442\u044c \u0440\u0435\u043a\u043e\u043c\u0435\u043d\u0434\u0430\u0446\u0438\u0438 \u043f\u043e\u0437\u0436\u0435.",
+        return _build_error_response(
+            module=module,
+            model=model,
+            cache_scope=cache_scope,
+            payload_for_model=payload_for_model,
+            exc=exc,
+            period=period,
         )
 
 
@@ -813,19 +930,21 @@ def get_seo_ai_recommendations(
     seo_payload = _seo_prompt_payload(audit_payload)
     cache_scope = f"client:{client_id}:audit:{audit_id}"
     model = str(getattr(settings, "OPENAI_MODEL_SEO", "gpt-5-mini") or "gpt-5-mini")
+
     system_prompt = (
-        "You are a senior SEO analyst. Analyze only provided SEO audit data. "
+        "You are a senior SEO analyst. "
+        "Analyze only provided SEO audit data. "
         "Do not invent facts and avoid generic theory. "
         "List the most critical issues first, then quick wins. "
         "Keep recommendations concise, practical, and in Russian."
     )
+
     return _generate_recommendations(
         module="seo",
         model=model,
         cache_scope=cache_scope,
         payload_for_model=seo_payload,
         system_prompt=system_prompt,
-        fallback_builder=_seo_fallback,
         force_refresh=force_refresh,
     )
 
@@ -843,17 +962,69 @@ def get_conversion_ai_recommendations(
     to_label = str(period_to or "")
     cache_scope = f"client:{client_id}:from:{from_label}:to:{to_label}"
     model = str(getattr(settings, "OPENAI_MODEL_CONVERSION", "gpt-5-mini") or "gpt-5-mini")
+
     system_prompt = (
-        "You are a CRO and lead-generation expert. Analyze only user behavior analytics data. "
+        "You are a CRO and lead-generation expert. "
+        "Analyze only user behavior analytics data. "
         "Find where users drop off and what actions can increase leads. "
-        "Do not give SEO advice. Keep recommendations concise, practical, and in Russian."
+        "Do not give SEO advice. "
+        "Keep recommendations concise, practical, and in Russian."
     )
+
     return _generate_recommendations(
         module="conversion",
         model=model,
         cache_scope=cache_scope,
         payload_for_model=conversion_payload,
         system_prompt=system_prompt,
-        fallback_builder=_conversion_fallback,
         force_refresh=force_refresh,
+        period={
+            "date_from": from_label,
+            "date_to": to_label,
+        },
     )
+
+
+def run_ai_connectivity_check(model: str | None = None) -> dict[str, Any]:
+    selected_model = str(
+        model or getattr(settings, "OPENAI_MODEL_SEO", "gpt-5-mini") or "gpt-5-mini"
+    ).strip()
+
+    try:
+        raw = _request_openai(
+            model=selected_model,
+            system_prompt="Ответь строго одной короткой фразой на русском.",
+            user_prompt="Скажи: API работает.",
+        )
+        text = _extract_output_text(raw)
+
+        return {
+            "success": bool(text),
+            "source": "openai",
+            "model": raw.get("model") or selected_model,
+            "status": raw.get("status"),
+            "incomplete_details": raw.get("incomplete_details"),
+            "output_items": len(raw.get("output") or []) if isinstance(raw.get("output"), list) else 0,
+            "text": (text or "").strip(),
+            "debug": None,
+            "generated_at": timezone.now().isoformat(),
+        }
+
+    except Exception as exc:
+        return {
+            "success": False,
+            "source": "openai_error",
+            "model": selected_model,
+            "status": None,
+            "incomplete_details": None,
+            "output_items": 0,
+            "text": "",
+            "debug": _build_error_response(
+                module="connectivity_check",
+                model=selected_model,
+                cache_scope="connectivity-check",
+                payload_for_model={"ping": True},
+                exc=exc,
+            )["debug"],
+            "generated_at": timezone.now().isoformat(),
+        }
