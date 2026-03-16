@@ -11,7 +11,7 @@
           <span class="landing-header__brand-name text-[22px] font-semibold tracking-[-0.02em] text-[#1f2738]">{{ brand.name }}</span>
         </a>
 
-        <nav class="landing-header__desktop-nav hidden items-center gap-7 lg:flex" aria-label="Главная навигация">
+        <nav class="landing-header__desktop-nav hidden items-center gap-7 lg:flex" aria-label="Main navigation">
           <div
             v-for="item in nav"
             :key="`${item.label}-${item.href}`"
@@ -76,7 +76,7 @@
 
           <button
             type="button"
-            aria-label="Меню"
+            aria-label="Menu"
             class="landing-header__burger inline-flex h-10 w-10 items-center justify-center rounded-[10px] border border-[#d7dfee] bg-white text-[#2a3246] lg:hidden"
             @click="openMobileMenu"
           >
@@ -95,79 +95,101 @@
     </div>
 
     <Teleport to="body">
-      <div v-if="isMobileMenuOpen" class="mobile-menu-wrap lg:hidden">
-        <button class="mobile-menu-overlay" type="button" aria-label="Закрыть меню" @click="closeMobileMenu" />
+      <Transition name="mobile-menu-fade">
+        <div v-if="isMobileMenuOpen" class="mobile-menu-wrap lg:hidden">
+          <button class="mobile-menu-overlay" type="button" aria-label="Close menu" @click="closeMobileMenu" />
 
-        <aside class="mobile-menu-sheet" role="dialog" aria-modal="true" aria-label="Мобильное меню">
-          <div class="mobile-menu-head">
-            <span>Меню</span>
-            <button type="button" aria-label="Закрыть меню" @click="closeMobileMenu">
-              <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
-                <path d="M5 5L15 15M15 5L5 15" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" />
-              </svg>
-            </button>
-          </div>
+          <aside class="mobile-menu-sheet" role="dialog" aria-modal="true" aria-label="Mobile menu">
+            <div class="mobile-menu-head">
+              <button type="button" class="mobile-menu-head__brand" @click="onMobileBrandClick">
+                <img :src="brand.logoSrc || '/landing_media/brand/logo.svg'" :alt="brand.name" class="mobile-menu-head__logo" />
+                <span class="mobile-menu-head__title">{{ brand.name }}</span>
+              </button>
 
-          <nav class="mobile-menu-nav" aria-label="Мобильная навигация">
-            <div
-              v-for="item in nav"
-              :key="`mobile-${item.label}-${item.href}`"
-              class="mobile-menu-item"
-            >
-              <div class="mobile-menu-item__head">
-                <a :href="item.href" @click.prevent="onNavClick(item, true)">
-                  {{ item.label }}
-                </a>
+              <button type="button" class="mobile-menu-close" aria-label="Close menu" @click="closeMobileMenu">
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M6 6L18 18M18 6L6 18" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" />
+                </svg>
+              </button>
+            </div>
+
+            <nav class="mobile-menu-nav" aria-label="Mobile navigation">
+              <div
+                v-for="item in nav"
+                :key="`mobile-${item.label}-${item.href}`"
+                class="mobile-menu-item"
+                :class="{ 'mobile-menu-item--expanded': isMobileSubmenuOpen(item.label) }"
+              >
                 <button
-                  v-if="item.children?.length"
+                  v-if="isMobileAccordionItem(item)"
                   type="button"
-                  :aria-label="`Показать разделы пункта ${item.label}`"
-                  @click="toggleMobileSubmenu(item.label)"
+                  class="mobile-menu-item__trigger"
+                  :aria-expanded="isMobileSubmenuOpen(item.label)"
+                  @click="onMobileItemSelect(item)"
                 >
+                  <span class="mobile-menu-item__label">{{ item.label }}</span>
                   <svg
-                    viewBox="0 0 16 16"
+                    viewBox="0 0 18 18"
                     fill="none"
+                    class="mobile-menu-item__caret"
                     :class="{ 'mobile-menu-item__caret--open': isMobileSubmenuOpen(item.label) }"
                     aria-hidden="true"
                   >
                     <path
-                      d="M4 6.5L8 10L12 6.5"
+                      d="M4.6 7L9 11.1L13.4 7"
                       stroke="currentColor"
-                      stroke-width="1.6"
+                      stroke-width="1.8"
                       stroke-linecap="round"
                       stroke-linejoin="round"
                     />
                   </svg>
                 </button>
-              </div>
 
-              <div v-if="item.children?.length && isMobileSubmenuOpen(item.label)" class="mobile-menu-subnav">
                 <a
-                  v-for="child in item.children"
-                  :key="`mobile-${item.label}-${child.label}-${child.href}`"
-                  :href="child.href"
-                  @click.prevent="onNavChildClick(item, child, true)"
+                  v-else
+                  :href="item.href"
+                  class="mobile-menu-item__link"
+                  :class="{ 'mobile-menu-item__link--active': isItemActive(item) }"
+                  @click.prevent="onMobileItemSelect(item)"
                 >
-                  {{ child.label }}
+                  <span>{{ item.label }}</span>
+                  <svg viewBox="0 0 18 18" fill="none" class="mobile-menu-item__arrow" aria-hidden="true">
+                    <path d="M6.8 5.2L10.8 9L6.8 12.8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" />
+                  </svg>
                 </a>
-              </div>
-            </div>
-          </nav>
 
-          <div class="mobile-menu-actions">
-            <a
-              v-for="action in mobileActions"
-              :key="action.label"
-              :href="action.href"
-              :target="action.target || null"
-              :rel="action.rel || null"
-              @click="closeMobileMenu"
-            >
-              {{ action.label }}
-            </a>
-          </div>
-        </aside>
-      </div>
+                <Transition name="mobile-submenu">
+                  <div v-if="isMobileAccordionItem(item) && isMobileSubmenuOpen(item.label)" class="mobile-menu-subnav">
+                    <a
+                      v-for="child in item.children"
+                      :key="`mobile-${item.label}-${child.label}-${child.href}`"
+                      :href="child.href"
+                      @click.prevent="onNavChildClick(item, child, true)"
+                    >
+                      {{ child.label }}
+                    </a>
+                  </div>
+                </Transition>
+              </div>
+            </nav>
+
+            <div v-if="mobileActions.length" class="mobile-menu-actions">
+              <a
+                v-for="(action, index) in mobileActions"
+                :key="action.label"
+                :href="action.href"
+                :target="action.target || null"
+                :rel="action.rel || null"
+                class="mobile-menu-action"
+                :class="index === mobileActions.length - 1 ? 'mobile-menu-action--primary' : 'mobile-menu-action--secondary'"
+                @click="closeMobileMenu"
+              >
+                {{ action.label }}
+              </a>
+            </div>
+          </aside>
+        </div>
+      </Transition>
     </Teleport>
   </header>
 </template>
@@ -342,24 +364,50 @@ async function onBrandClick() {
   await router.push("/");
 }
 
+function isMobileAccordionItem(item) {
+  return Boolean(item?.children?.length);
+}
+
 function getDefaultMobileExpandedMap() {
   return props.nav.reduce((acc, item) => {
-    if (item?.children?.length) {
-      acc[item.label] = item.label === "Главная";
+    if (isMobileAccordionItem(item)) {
+      acc[item.label] = false;
     }
     return acc;
   }, {});
 }
 
 function toggleMobileSubmenu(label) {
-  mobileExpandedItems.value = {
-    ...mobileExpandedItems.value,
-    [label]: !mobileExpandedItems.value[label],
-  };
+  const currentlyOpen = Boolean(mobileExpandedItems.value[label]);
+
+  const nextState = Object.keys(mobileExpandedItems.value).reduce((acc, key) => {
+    acc[key] = false;
+    return acc;
+  }, {});
+
+  if (!currentlyOpen) {
+    nextState[label] = true;
+  }
+
+  mobileExpandedItems.value = nextState;
 }
 
 function isMobileSubmenuOpen(label) {
   return Boolean(mobileExpandedItems.value[label]);
+}
+
+async function onMobileBrandClick() {
+  await onBrandClick();
+  closeMobileMenu();
+}
+
+async function onMobileItemSelect(item) {
+  if (isMobileAccordionItem(item)) {
+    toggleMobileSubmenu(item.label);
+    return;
+  }
+
+  await onNavClick(item, true);
 }
 
 function openMobileMenu() {
@@ -392,6 +440,10 @@ watch(
   () => route.fullPath,
   () => {
     closeDesktopDropdown();
+
+    if (isMobileMenuOpen.value) {
+      closeMobileMenu();
+    }
   },
 );
 
@@ -595,169 +647,273 @@ onBeforeUnmount(() => {
   position: fixed;
   inset: 0;
   z-index: 140;
+  display: flex;
+  justify-content: flex-end;
 }
 
 .mobile-menu-overlay {
   position: absolute;
   inset: 0;
   border: 0;
-  background: rgba(18, 29, 50, 0.38);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
+  background: rgba(14, 23, 39, 0.52);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
 }
 
 .mobile-menu-sheet {
-  position: absolute;
-  right: 12px;
-  left: 12px;
-  top: 12px;
-  border-radius: 18px;
-  border: 1px solid rgba(214, 227, 246, 0.95);
+  position: relative;
+  z-index: 1;
+  width: min(100%, 420px);
+  height: 100%;
+  border-left: 1px solid rgba(202, 218, 241, 0.95);
   background:
     linear-gradient(
       180deg,
-      rgba(255, 255, 255, 0.94) 0%,
-      rgba(247, 252, 255, 0.88) 100%
+      rgba(251, 253, 255, 0.98) 0%,
+      rgba(241, 247, 255, 0.96) 100%
     );
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.9),
-    0 20px 40px rgba(34, 53, 90, 0.24);
-  padding: 14px;
+  box-shadow: -24px 0 46px rgba(31, 49, 85, 0.24);
+  padding: calc(14px + env(safe-area-inset-top)) 14px calc(18px + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow-y: auto;
 }
 
 .mobile-menu-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  color: #1f2a43;
-  font-size: 1.02rem;
-  font-weight: 700;
+  gap: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(212, 224, 244, 0.82);
 }
 
-.mobile-menu-head button {
-  width: 32px;
-  height: 32px;
-  border-radius: 10px;
-  border: 1px solid rgba(188, 208, 238, 0.9);
-  background: rgba(249, 253, 255, 0.95);
-  color: #4e79ba;
+.mobile-menu-head__brand {
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  background: transparent;
   display: inline-flex;
   align-items: center;
-  justify-content: center;
+  gap: 11px;
+  color: #1e2c47;
 }
 
-.mobile-menu-head svg {
-  width: 15px;
-  height: 15px;
-}
-
-.mobile-menu-nav {
-  margin-top: 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.mobile-menu-item {
+.mobile-menu-head__logo {
+  width: 40px;
+  height: 40px;
   border-radius: 12px;
-  border: 1px solid rgba(220, 232, 248, 0.95);
-  background: rgba(255, 255, 255, 0.72);
-  padding: 8px;
+  border: 1px solid rgba(193, 212, 242, 0.9);
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 6px 14px rgba(74, 110, 172, 0.14);
 }
 
-.mobile-menu-item__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.mobile-menu-item__head a {
-  color: #2a3244;
-  text-decoration: none;
-  font-size: 0.96rem;
+.mobile-menu-head__title {
+  display: block;
+  color: #1f2a43;
+  font-size: 1.08rem;
+  line-height: 1.22;
   font-weight: 700;
-  line-height: 1.35;
-  padding: 2px 4px;
+  letter-spacing: -0.01em;
 }
 
-.mobile-menu-item__head button {
-  width: 30px;
-  height: 30px;
-  border-radius: 9px;
-  border: 1px solid rgba(188, 208, 238, 0.9);
-  background: rgba(249, 253, 255, 0.95);
-  color: #4e79ba;
+.mobile-menu-close {
+  width: 52px;
+  height: 52px;
+  border-radius: 15px;
+  border: 1px solid rgba(182, 203, 236, 0.94);
+  background: rgba(251, 254, 255, 0.95);
+  color: #3f6cae;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
 }
 
-.mobile-menu-item__head svg {
-  width: 14px;
-  height: 14px;
-  transition: transform 0.2s ease;
+.mobile-menu-close svg {
+  width: 23px;
+  height: 23px;
+}
+
+.mobile-menu-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.mobile-menu-item {
+  border-radius: 16px;
+  border: 1px solid rgba(216, 229, 247, 0.96);
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.82);
+  padding: 6px;
+  transition: border-color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
+}
+
+.mobile-menu-item--expanded {
+  border-color: rgba(176, 203, 242, 0.96);
+  background:
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.95) 0%,
+      rgba(243, 249, 255, 0.92) 100%
+    );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.92),
+    0 10px 20px rgba(57, 88, 138, 0.11);
+}
+
+.mobile-menu-item__trigger,
+.mobile-menu-item__link {
+  width: 100%;
+  min-height: 52px;
+  border-radius: 12px;
+  border: 0;
+  background: transparent;
+  padding: 0 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: #23304a;
+  text-decoration: none;
+  font-size: 1.02rem;
+  line-height: 1.3;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  text-align: left;
+}
+
+.mobile-menu-item__link--active {
+  background: rgba(238, 246, 255, 0.92);
+  color: #255dab;
+}
+
+.mobile-menu-item__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobile-menu-item__caret,
+.mobile-menu-item__arrow {
+  width: 18px;
+  height: 18px;
+  color: #6183b8;
+  flex-shrink: 0;
+}
+
+.mobile-menu-item__caret {
+  transition: transform 0.24s ease, color 0.24s ease;
 }
 
 .mobile-menu-item__caret--open {
   transform: rotate(180deg);
+  color: #2d61b2;
 }
 
 .mobile-menu-subnav {
-  margin-top: 6px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding-left: 6px;
-}
-
-.mobile-menu-subnav a {
-  border-radius: 10px;
-  border: 1px solid rgba(220, 232, 248, 0.95);
-  background: rgba(244, 249, 255, 0.8);
-  color: #2a3244;
-  text-decoration: none;
-  font-size: 0.9rem;
-  font-weight: 600;
-  line-height: 1.35;
-  padding: 8px 10px;
-}
-
-.mobile-menu-actions {
-  margin-top: 10px;
   display: flex;
   flex-direction: column;
   gap: 8px;
+  padding: 8px 6px 4px;
 }
 
-.mobile-menu-actions a {
-  min-height: 42px;
+.mobile-menu-subnav a {
+  min-height: 46px;
   border-radius: 12px;
+  border: 1px solid rgba(216, 229, 247, 0.96);
+  background: rgba(252, 254, 255, 0.96);
+  color: #26334b;
+  text-decoration: none;
+  font-size: 0.94rem;
+  line-height: 1.3;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 12px;
+}
+
+.mobile-menu-actions {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(212, 224, 244, 0.82);
+}
+
+.mobile-menu-action {
+  min-height: 48px;
+  border-radius: 14px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   text-decoration: none;
-  font-size: 0.95rem;
+  font-size: 0.96rem;
+  line-height: 1.2;
   font-weight: 700;
 }
 
-.mobile-menu-actions a:first-child {
+.mobile-menu-action--secondary {
   border: 1px solid rgba(181, 206, 242, 0.95);
   background:
     linear-gradient(
       180deg,
-      rgba(255, 255, 255, 0.92) 0%,
-      rgba(233, 244, 255, 0.95) 100%
+      rgba(255, 255, 255, 0.94) 0%,
+      rgba(233, 244, 255, 0.98) 100%
     );
   color: #3f73c0;
 }
 
-.mobile-menu-actions a:last-child {
+.mobile-menu-action--primary {
   border: 1px solid rgba(66, 124, 232, 0.88);
   background-image: var(--brand-gradient);
   color: #fff;
-  box-shadow: 0 10px 20px rgba(47, 106, 255, 0.28);
+  box-shadow: 0 12px 24px rgba(47, 106, 255, 0.28);
+}
+
+.mobile-menu-fade-enter-active,
+.mobile-menu-fade-leave-active {
+  transition: opacity 0.24s ease;
+}
+
+.mobile-menu-fade-enter-from,
+.mobile-menu-fade-leave-to {
+  opacity: 0;
+}
+
+.mobile-menu-fade-enter-active .mobile-menu-sheet,
+.mobile-menu-fade-leave-active .mobile-menu-sheet {
+  transition: transform 0.32s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.2s ease;
+}
+
+.mobile-menu-fade-enter-from .mobile-menu-sheet,
+.mobile-menu-fade-leave-to .mobile-menu-sheet {
+  transform: translateX(26px);
+  opacity: 0;
+}
+
+.mobile-submenu-enter-active,
+.mobile-submenu-leave-active {
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.mobile-submenu-enter-from,
+.mobile-submenu-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+
+@media (min-width: 640px) {
+  .mobile-menu-sheet {
+    width: min(430px, calc(100% - 24px));
+    height: calc(100% - 24px);
+    margin: 12px;
+    border-radius: 24px;
+    border: 1px solid rgba(202, 218, 241, 0.95);
+  }
 }
 
 @media (min-width: 640px) {
@@ -794,3 +950,4 @@ onBeforeUnmount(() => {
   }
 }
 </style>
+
