@@ -25,6 +25,7 @@ MAX_RESOURCE_FETCH_BUDGET = 600
 SKIP_FILE_EXTENSIONS = (".pdf", ".jpg", ".jpeg", ".png", ".svg", ".zip", ".doc", ".docx", ".xls", ".xlsx")
 HEADING_TAG_RE = re.compile(r"^h[1-6]$")
 WORD_RE = re.compile(r"[A-Za-z0-9\u0400-\u04FF]+")
+PHONE_RE = re.compile(r"(\+?\d[\d\-\s\(\)]{7,}\d)")
 
 SPEED_ISSUE_TYPES = {
     "slow_response",
@@ -56,6 +57,44 @@ INDEXING_ISSUE_TYPES = {
     "sitemap_page_missing",
     "missing_meta_robots",
 }
+
+CTA_TEXT_HINTS = (
+    "оставить заявку",
+    "оставить запрос",
+    "заказать",
+    "купить",
+    "получить",
+    "связаться",
+    "отправить",
+    "консульта",
+    "перезвон",
+    "записаться",
+    "call",
+    "contact",
+    "request",
+    "submit",
+    "book",
+    "buy",
+    "order",
+)
+CTA_ATTR_HINTS = ("cta", "lead", "order", "buy", "request", "contact", "submit")
+OFFER_HINTS = (
+    "под ключ",
+    "под заказ",
+    "цена",
+    "стоимость",
+    "скидк",
+    "выгода",
+    "бесплатно",
+    "гарант",
+    "лучшее",
+    "best",
+    "offer",
+    "solution",
+)
+BENEFITS_HINTS = ("преимущ", "почему мы", "why us", "benefit", "feature", "reason")
+FAQ_HINTS = ("faq", "вопрос", "question", "часто задаваем")
+MESSENGER_HINTS = ("wa.me", "whatsapp", "t.me", "telegram", "viber", "vk.me", "facebook.com/messages")
 
 
 class AuditCancelledError(Exception):
@@ -688,6 +727,147 @@ def _calculate_speed_score(
     return score, SEOPage.SpeedStatus.CRITICAL
 
 
+def _normalize_text(value: str) -> str:
+    return _extract_text(value).strip().lower()
+
+
+def _tag_attr_probe(tag) -> str:
+    if tag is None:
+        return ""
+    parts: list[str] = []
+    for key in ("id", "class", "name", "role"):
+        raw = tag.get(key)
+        if isinstance(raw, list):
+            parts.extend(str(item) for item in raw if item)
+        elif raw:
+            parts.append(str(raw))
+    return _normalize_text(" ".join(parts))
+
+
+def _contains_any(text: str, hints: tuple[str, ...]) -> bool:
+    probe = _normalize_text(text)
+    if not probe:
+        return False
+    return any(item in probe for item in hints)
+
+
+def _collect_commercial_signals(soup: Optional[BeautifulSoup]) -> dict[str, bool]:
+    if not soup:
+        return {
+            "has_form": False,
+            "has_cta": False,
+            "has_phone_or_contact": False,
+            "has_messenger": False,
+            "has_offer_like_heading": False,
+            "has_benefits_block": False,
+            "has_faq": False,
+        }
+
+    text_body = _normalize_text(soup.get_text(" ", strip=True))
+    has_form = bool(soup.find("form"))
+    has_submit = bool(soup.find("button", attrs={"type": lambda v: str(v or "").strip().lower() == "submit"}))
+    has_submit = has_submit or bool(soup.find("input", attrs={"type": lambda v: str(v or "").strip().lower() == "submit"}))
+    if has_submit:
+        has_form = True
+
+    has_cta = False
+    for tag in soup.find_all(["a", "button", "input"]):
+        tag_text = ""
+        if tag.name == "input":
+            tag_text = str(tag.get("value") or "")
+        else:
+            tag_text = str(tag.get_text(" ", strip=True) or "")
+        if _contains_any(tag_text, CTA_TEXT_HINTS) or _contains_any(_tag_attr_probe(tag), CTA_ATTR_HINTS):
+            has_cta = True
+            break
+
+    has_phone_or_contact = bool(soup.find("a", href=lambda v: str(v or "").strip().lower().startswith("tel:")))
+    has_phone_or_contact = has_phone_or_contact or bool(
+        soup.find("a", href=lambda v: str(v or "").strip().lower().startswith("mailto:"))
+    )
+    has_phone_or_contact = has_phone_or_contact or bool(PHONE_RE.search(text_body))
+    has_phone_or_contact = has_phone_or_contact or _contains_any(text_body, ("контакт", "contact", "связаться"))
+
+    has_messenger = bool(
+        soup.find("a", href=lambda v: _contains_any(str(v or ""), MESSENGER_HINTS))
+    )
+
+    heading_texts = []
+    for tag in soup.find_all(["h1", "h2"])[:4]:
+        heading_texts.append(str(tag.get_text(" ", strip=True) or ""))
+    has_offer_like_heading = _contains_any(" ".join(heading_texts), OFFER_HINTS)
+
+    has_benefits_block = False
+    for tag in soup.find_all(["section", "div", "ul", "ol"]):
+        probe = f"{_tag_attr_probe(tag)} {_normalize_text(tag.get_text(' ', strip=True))}"
+        if _contains_any(probe, BENEFITS_HINTS):
+            has_benefits_block = True
+            break
+    if not has_benefits_block:
+        list_items = soup.find_all("li")
+        if len(list_items) >= 4:
+            has_benefits_block = True
+
+    has_faq = False
+    for tag in soup.find_all(["section", "div", "details", "summary", "h2", "h3"]):
+        probe = f"{_tag_attr_probe(tag)} {_normalize_text(tag.get_text(' ', strip=True))}"
+        if _contains_any(probe, FAQ_HINTS):
+            has_faq = True
+            break
+
+    return {
+        "has_form": has_form,
+        "has_cta": has_cta,
+        "has_phone_or_contact": has_phone_or_contact,
+        "has_messenger": has_messenger,
+        "has_offer_like_heading": has_offer_like_heading,
+        "has_benefits_block": has_benefits_block,
+        "has_faq": has_faq,
+    }
+
+
+def _score_commercial_signals(signals: dict[str, bool]) -> tuple[int, str]:
+    score = 0
+    score += 28 if signals.get("has_form") else 0
+    score += 20 if signals.get("has_cta") else 0
+    score += 16 if signals.get("has_phone_or_contact") else 0
+    score += 8 if signals.get("has_messenger") else 0
+    score += 12 if signals.get("has_offer_like_heading") else 0
+    score += 10 if signals.get("has_benefits_block") else 0
+    score += 6 if signals.get("has_faq") else 0
+    score = max(0, min(100, int(score)))
+    if score >= 70:
+        return score, SEOPage.CommercialStatus.GOOD
+    if score >= 40:
+        return score, SEOPage.CommercialStatus.WARNING
+    return score, SEOPage.CommercialStatus.CRITICAL
+
+
+def _update_page_commercial_fields(page: SEOPage, signals: dict[str, bool], score: int, status: str) -> None:
+    page.has_form = bool(signals.get("has_form"))
+    page.has_cta = bool(signals.get("has_cta"))
+    page.has_phone_or_contact = bool(signals.get("has_phone_or_contact"))
+    page.has_messenger = bool(signals.get("has_messenger"))
+    page.has_offer_like_heading = bool(signals.get("has_offer_like_heading"))
+    page.has_benefits_block = bool(signals.get("has_benefits_block"))
+    page.has_faq = bool(signals.get("has_faq"))
+    page.commercial_readiness_score = int(score or 0)
+    page.commercial_status = str(status or SEOPage.CommercialStatus.WARNING)
+    page.save(
+        update_fields=[
+            "has_form",
+            "has_cta",
+            "has_phone_or_contact",
+            "has_messenger",
+            "has_offer_like_heading",
+            "has_benefits_block",
+            "has_faq",
+            "commercial_readiness_score",
+            "commercial_status",
+        ]
+    )
+
+
 def _analyze_page_content(
     page: SEOPage,
     *,
@@ -700,6 +880,10 @@ def _analyze_page_content(
     response: Optional[requests.Response],
     soup: Optional[BeautifulSoup],
 ) -> None:
+    commercial_signals = _collect_commercial_signals(soup if status_code == 200 else None)
+    commercial_score, commercial_status = _score_commercial_signals(commercial_signals)
+    _update_page_commercial_fields(page, commercial_signals, commercial_score, commercial_status)
+
     if status_code != 200:
         _create_issue(page, "bad_status", SEOIssue.Severity.HIGH)
 

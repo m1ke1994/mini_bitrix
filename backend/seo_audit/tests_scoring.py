@@ -4,7 +4,13 @@ from django.test import TestCase
 
 from clients.models import Client
 from seo_audit.models import SEOIssue, SEOPage, SiteSEOAudit
-from seo_audit.services.scoring import recalculate_audit_score
+from seo_audit.services.scoring import (
+    build_audit_comparison,
+    build_commercial_summary,
+    build_fix_plan,
+    build_issue_groups,
+    recalculate_audit_score,
+)
 
 
 class SEOScoreCalculationTests(TestCase):
@@ -104,3 +110,152 @@ class SEOScoreCalculationTests(TestCase):
         self.assertEqual(audit.pages_count, 2)
         self.assertEqual(audit.pages_with_speed_issues, 0)
         self.assertEqual(audit.pages_with_indexing_issues, 0)
+
+
+class SEOProductScoringHelpersTests(TestCase):
+    def setUp(self):
+        user_model = get_user_model()
+        self.user = user_model.objects.create_user(
+            username="seo-product-owner",
+            email="seo-product-owner@example.com",
+            password="pass12345",
+        )
+        self.client_obj = Client.objects.create(owner=self.user, name="SEO Product Client")
+
+    def test_issue_groups_and_fix_plan_are_built_from_payload(self):
+        audit = SiteSEOAudit.objects.create(
+            client=self.client_obj,
+            domain="grouped.example.com",
+            has_robots_txt=False,
+            has_sitemap_xml=False,
+            pages_count=10,
+        )
+        issues_payload = [
+            {
+                "issue_type": "missing_title",
+                "issue_title": "Отсутствует title",
+                "severity": "high",
+                "page_url": "https://grouped.example.com/a",
+            },
+            {
+                "issue_type": "missing_title",
+                "issue_title": "Отсутствует title",
+                "severity": "high",
+                "page_url": "https://grouped.example.com/b",
+            },
+            {
+                "issue_type": "missing_sitemap",
+                "issue_title": "Отсутствует sitemap.xml",
+                "severity": "medium",
+                "page_url": "https://grouped.example.com/",
+            },
+        ]
+        pages_payload = [
+            {
+                "id": 1,
+                "url": "https://grouped.example.com/a",
+                "commercial_status": SEOPage.CommercialStatus.CRITICAL,
+                "commercial_readiness_score": 20,
+                "has_form": False,
+                "has_cta": False,
+                "has_phone_or_contact": False,
+                "has_messenger": False,
+                "has_offer_like_heading": False,
+                "has_benefits_block": False,
+                "has_faq": False,
+            },
+            {
+                "id": 2,
+                "url": "https://grouped.example.com/b",
+                "commercial_status": SEOPage.CommercialStatus.WARNING,
+                "commercial_readiness_score": 52,
+                "has_form": True,
+                "has_cta": False,
+                "has_phone_or_contact": True,
+                "has_messenger": False,
+                "has_offer_like_heading": False,
+                "has_benefits_block": False,
+                "has_faq": False,
+            },
+        ]
+
+        issue_groups = build_issue_groups(issues_payload)
+        self.assertGreaterEqual(len(issue_groups), 2)
+        missing_title_group = next((item for item in issue_groups if item["issue_type"] == "missing_title"), None)
+        self.assertIsNotNone(missing_title_group)
+        self.assertEqual(missing_title_group["pages_affected"], 2)
+        self.assertEqual(missing_title_group["priority_key"], "urgent")
+
+        commercial_summary = build_commercial_summary(pages_payload)
+        self.assertTrue(commercial_summary["has_data"])
+        self.assertEqual(commercial_summary["critical_pages"], 1)
+        self.assertEqual(commercial_summary["warning_pages"], 1)
+
+        fix_plan = build_fix_plan(
+            audit=audit,
+            issue_groups=issue_groups,
+            commercial_summary=commercial_summary,
+        )
+        self.assertGreaterEqual(len(fix_plan), 2)
+        self.assertEqual(fix_plan[0]["priority_key"], "urgent")
+        self.assertTrue(any(item["title"] == "Не найден robots.txt" for item in fix_plan))
+        self.assertTrue(any(item["title"] == "Не найден sitemap.xml" for item in fix_plan))
+
+    def test_audit_comparison_reports_new_and_fixed_issues(self):
+        domain = "compare.example.com"
+        previous = SiteSEOAudit.objects.create(
+            client=self.client_obj,
+            domain=domain,
+            status=SiteSEOAudit.Status.DONE,
+            has_robots_txt=False,
+            has_sitemap_xml=False,
+            pages_with_speed_issues=2,
+            pages_with_indexing_issues=3,
+        )
+        current = SiteSEOAudit.objects.create(
+            client=self.client_obj,
+            domain=domain,
+            status=SiteSEOAudit.Status.DONE,
+            has_robots_txt=True,
+            has_sitemap_xml=True,
+            pages_with_speed_issues=1,
+            pages_with_indexing_issues=1,
+        )
+        previous_page = SEOPage.objects.create(
+            audit=previous,
+            url="https://compare.example.com/",
+            status_code=200,
+            ttfb_ms=1200,
+            performance_score=48,
+            speed_status=SEOPage.SpeedStatus.WARNING,
+            indexability_status=SEOPage.IndexabilityStatus.UNKNOWN,
+        )
+        current_page = SEOPage.objects.create(
+            audit=current,
+            url="https://compare.example.com/",
+            status_code=200,
+            ttfb_ms=420,
+            performance_score=88,
+            speed_status=SEOPage.SpeedStatus.GOOD,
+            indexability_status=SEOPage.IndexabilityStatus.INDEXABLE,
+        )
+        SEOIssue.objects.create(
+            page=previous_page,
+            issue_type="missing_title",
+            severity=SEOIssue.Severity.HIGH,
+            recommendation="-",
+        )
+        SEOIssue.objects.create(
+            page=current_page,
+            issue_type="missing_description",
+            severity=SEOIssue.Severity.LOW,
+            recommendation="-",
+        )
+
+        comparison = build_audit_comparison(current_audit=current, previous_audit=previous)
+        self.assertTrue(comparison["has_data"])
+        self.assertIn(comparison["trend"], {"better", "stable", "worse"})
+        self.assertEqual(comparison["robots_txt"]["status"], "appeared")
+        self.assertEqual(comparison["sitemap_xml"]["status"], "appeared")
+        self.assertEqual(comparison["new_issues_count"], 1)
+        self.assertEqual(comparison["fixed_issues_count"], 1)

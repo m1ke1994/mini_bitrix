@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <DashboardSeoAudit />
 </template>
 
@@ -8,8 +8,8 @@ import DashboardSeoAudit from "~/views/DashboardSeoAudit.vue";
 definePageMeta({
   noindex: true,
   seo: {
-    title: "SEO аудит",
-    description: "Базовый SEO-аудит сайта в кабинете TrackNode.",
+    title: "SEO-аудит сайта: что чинить первым",
+    description: "Продуктовый SEO-аудит: приоритетный план исправлений, сравнение аудитов, коммерческая готовность страниц и экспорт отчёта.",
   },
 });
 </script>

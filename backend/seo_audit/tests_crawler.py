@@ -42,6 +42,19 @@ class SEOCrawlerServiceTests(TestCase):
                   <body>
                     <h1>Home</h1>
                     <p>Welcome to the home page.</p>
+                    <section class="benefits">
+                      <ul>
+                        <li>Fast onboarding</li>
+                        <li>Transparent pricing</li>
+                        <li>Dedicated support</li>
+                        <li>Growth tracking</li>
+                      </ul>
+                    </section>
+                    <form action="/lead" method="post">
+                      <input type="text" name="name">
+                      <button type="submit">Оставить заявку</button>
+                    </form>
+                    <a href="tel:+79990001122">+7 (999) 000-11-22</a>
                     <a href="/about">About</a>
                     <a href="https://external.example.org/">External</a>
                   </body>
@@ -59,6 +72,10 @@ class SEOCrawlerServiceTests(TestCase):
                     <h1>About</h1>
                     <h1>Second heading</h1>
                     <p>About page text content.</p>
+                    <section id="faq">
+                      <h2>FAQ</h2>
+                      <details><summary>Question?</summary><p>Answer.</p></details>
+                    </section>
                     <a href="/missing">Broken page</a>
                   </body>
                 </html>
@@ -118,3 +135,18 @@ class SEOCrawlerServiceTests(TestCase):
         self.assertTrue(SEOIssue.objects.filter(page__audit=audit, issue_type="multiple_h1").exists())
         self.assertTrue(SEOIssue.objects.filter(page__audit=audit, issue_type="bad_status").exists())
         self.assertTrue(SEOIssue.objects.filter(page__audit=audit, issue_type="missing_canonical").exists())
+
+        home_page = SEOPage.objects.get(audit=audit, url="https://example.com/")
+        self.assertTrue(home_page.has_form)
+        self.assertTrue(home_page.has_cta)
+        self.assertTrue(home_page.has_phone_or_contact)
+        self.assertTrue(home_page.has_benefits_block)
+        self.assertGreater(home_page.commercial_readiness_score, 0)
+        self.assertIn(
+            home_page.commercial_status,
+            {
+                SEOPage.CommercialStatus.GOOD,
+                SEOPage.CommercialStatus.WARNING,
+                SEOPage.CommercialStatus.CRITICAL,
+            },
+        )

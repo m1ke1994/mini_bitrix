@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 from django.db import models
 
 from clients.models import Client
@@ -6,11 +6,11 @@ from clients.models import Client
 
 class SiteSEOAudit(models.Model):
     class Status(models.TextChoices):
-        PENDING = "pending", "В очереди"
-        RUNNING = "running", "Выполняется"
-        DONE = "done", "Готово"
-        ERROR = "error", "Ошибка"
-        STOPPED = "stopped", "Остановлено"
+        PENDING = "pending", "Pending"
+        RUNNING = "running", "Running"
+        DONE = "done", "Done"
+        ERROR = "error", "Error"
+        STOPPED = "stopped", "Stopped"
 
     client = models.ForeignKey(Client, on_delete=models.CASCADE, related_name="seo_audits")
     domain = models.CharField(max_length=255, db_index=True)
@@ -34,22 +34,27 @@ class SiteSEOAudit(models.Model):
         ordering = ("-created_at",)
 
     def __str__(self) -> str:
-        return f"SEO-аудит #{self.pk} {self.domain} ({self.status})"
+        return f"SEO audit #{self.pk} {self.domain} ({self.status})"
 
 
 class SEOPage(models.Model):
     class SpeedStatus(models.TextChoices):
-        UNKNOWN = "unknown", "Не определено"
-        GOOD = "good", "Хорошо"
-        WARNING = "warning", "Есть замечания"
-        CRITICAL = "critical", "Критично"
+        UNKNOWN = "unknown", "Unknown"
+        GOOD = "good", "Good"
+        WARNING = "warning", "Warning"
+        CRITICAL = "critical", "Critical"
 
     class IndexabilityStatus(models.TextChoices):
-        UNKNOWN = "unknown", "Не определено"
-        INDEXABLE = "indexable", "Индексируется"
+        UNKNOWN = "unknown", "Unknown"
+        INDEXABLE = "indexable", "Indexable"
         NOINDEX = "noindex", "Noindex"
-        BLOCKED = "blocked", "Заблокировано robots.txt"
-        CONFLICT = "conflict", "Конфликт индексации"
+        BLOCKED = "blocked", "Blocked by robots.txt"
+        CONFLICT = "conflict", "Indexability conflict"
+
+    class CommercialStatus(models.TextChoices):
+        GOOD = "good", "Ready for leads"
+        WARNING = "warning", "Needs improvement"
+        CRITICAL = "critical", "Weak conversion readiness"
 
     audit = models.ForeignKey(SiteSEOAudit, on_delete=models.CASCADE, related_name="pages")
     url = models.TextField()
@@ -85,6 +90,20 @@ class SEOPage(models.Model):
     in_sitemap = models.BooleanField(default=False)
     blocked_by_robots = models.BooleanField(default=False)
 
+    has_form = models.BooleanField(default=False)
+    has_cta = models.BooleanField(default=False)
+    has_phone_or_contact = models.BooleanField(default=False)
+    has_messenger = models.BooleanField(default=False)
+    has_offer_like_heading = models.BooleanField(default=False)
+    has_benefits_block = models.BooleanField(default=False)
+    has_faq = models.BooleanField(default=False)
+    commercial_readiness_score = models.PositiveSmallIntegerField(default=0)
+    commercial_status = models.CharField(
+        max_length=16,
+        choices=CommercialStatus.choices,
+        default=CommercialStatus.WARNING,
+    )
+
     class Meta:
         ordering = ("url", "id")
         indexes = [
@@ -92,7 +111,7 @@ class SEOPage(models.Model):
         ]
 
     def __str__(self) -> str:
-        return f"SEO-страница #{self.pk} ({self.status_code}) {self.url}"
+        return f"SEO page #{self.pk} ({self.status_code}) {self.url}"
 
 
 class SEOIssue(models.Model):
@@ -144,9 +163,9 @@ class SEOIssue(models.Model):
         SITEMAP_MISMATCH = "sitemap_mismatch", "sitemap_mismatch"
 
     class Severity(models.TextChoices):
-        LOW = "low", "Низкая"
-        MEDIUM = "medium", "Средняя"
-        HIGH = "high", "Критичная"
+        LOW = "low", "Low"
+        MEDIUM = "medium", "Medium"
+        HIGH = "high", "High"
 
     page = models.ForeignKey(SEOPage, on_delete=models.CASCADE, related_name="issues")
     issue_type = models.CharField(max_length=64, choices=IssueType.choices)
@@ -157,4 +176,4 @@ class SEOIssue(models.Model):
         ordering = ("page__url", "id")
 
     def __str__(self) -> str:
-        return f"SEO-ошибка #{self.pk} {self.issue_type} ({self.severity})"
+        return f"SEO issue #{self.pk} {self.issue_type} ({self.severity})"

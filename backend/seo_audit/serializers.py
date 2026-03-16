@@ -4,7 +4,7 @@ from urllib.parse import urlparse
 from rest_framework import serializers
 
 from seo_audit.models import SEOIssue, SEOPage, SiteSEOAudit
-from seo_audit.services.messages import get_issue_title
+from seo_audit.services.messages import get_commercial_recommendations, get_commercial_status_label, get_issue_title
 
 
 class SEOAuditStartSerializer(serializers.Serializer):
@@ -22,6 +22,27 @@ class SEOAuditStartSerializer(serializers.Serializer):
 
 
 class SEOPageSerializer(serializers.ModelSerializer):
+    commercial_signals = serializers.SerializerMethodField()
+    commercial_recommendations = serializers.SerializerMethodField()
+    commercial_status_label = serializers.SerializerMethodField()
+
+    def get_commercial_signals(self, obj):
+        return {
+            "has_form": bool(getattr(obj, "has_form", False)),
+            "has_cta": bool(getattr(obj, "has_cta", False)),
+            "has_phone_or_contact": bool(getattr(obj, "has_phone_or_contact", False)),
+            "has_messenger": bool(getattr(obj, "has_messenger", False)),
+            "has_offer_like_heading": bool(getattr(obj, "has_offer_like_heading", False)),
+            "has_benefits_block": bool(getattr(obj, "has_benefits_block", False)),
+            "has_faq": bool(getattr(obj, "has_faq", False)),
+        }
+
+    def get_commercial_recommendations(self, obj):
+        return get_commercial_recommendations(self.get_commercial_signals(obj))
+
+    def get_commercial_status_label(self, obj):
+        return get_commercial_status_label(getattr(obj, "commercial_status", "warning"))
+
     class Meta:
         model = SEOPage
         fields = (
@@ -50,6 +71,18 @@ class SEOPageSerializer(serializers.ModelSerializer):
             "indexability_status",
             "in_sitemap",
             "blocked_by_robots",
+            "has_form",
+            "has_cta",
+            "has_phone_or_contact",
+            "has_messenger",
+            "has_offer_like_heading",
+            "has_benefits_block",
+            "has_faq",
+            "commercial_readiness_score",
+            "commercial_status",
+            "commercial_status_label",
+            "commercial_signals",
+            "commercial_recommendations",
         )
 
 

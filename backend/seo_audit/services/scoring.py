@@ -4,6 +4,13 @@ from __future__ import annotations
 from collections import defaultdict
 
 from seo_audit.models import SEOIssue, SEOPage, SiteSEOAudit
+from seo_audit.services.messages import (
+    get_commercial_recommendations,
+    get_commercial_status_label,
+    get_issue_group_meta,
+    get_issue_title,
+    get_priority_label,
+)
 
 SPEED_ISSUE_TYPES = {
     "slow_response",
@@ -420,4 +427,377 @@ def recalculate_audit_score(audit: SiteSEOAudit) -> dict[str, object]:
         "low_issues": int(severity_counts[SEOIssue.Severity.LOW]),
         "score_components": snapshot["score_components"],
         "score_inputs": snapshot["score_inputs"],
+    }
+
+
+SEVERITY_PRIORITY_WEIGHT = {
+    SEOIssue.Severity.HIGH: 3,
+    SEOIssue.Severity.MEDIUM: 2,
+    SEOIssue.Severity.LOW: 1,
+}
+
+PRIORITY_SORT_WEIGHT = {
+    "urgent": 3,
+    "important": 2,
+    "later": 1,
+}
+
+
+def _normalize_severity(value: str) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in SEVERITY_PRIORITY_WEIGHT:
+        return normalized
+    return SEOIssue.Severity.LOW
+
+
+def _priority_from_severity(severity: str, default_priority: str) -> str:
+    normalized = _normalize_severity(severity)
+    if normalized == SEOIssue.Severity.HIGH:
+        return "urgent"
+    if normalized == SEOIssue.Severity.MEDIUM:
+        return "important" if default_priority != "urgent" else "urgent"
+    return default_priority if default_priority in PRIORITY_SORT_WEIGHT else "later"
+
+
+def _max_severity(left: str, right: str) -> str:
+    l = _normalize_severity(left)
+    r = _normalize_severity(right)
+    return l if SEVERITY_PRIORITY_WEIGHT[l] >= SEVERITY_PRIORITY_WEIGHT[r] else r
+
+
+def build_issue_groups(issues_payload: list[dict]) -> list[dict]:
+    grouped: dict[str, dict] = {}
+    for issue in issues_payload or []:
+        issue_type = str(issue.get("issue_type") or "").strip().lower()
+        if not issue_type:
+            continue
+        severity = _normalize_severity(issue.get("severity"))
+        page_url = str(issue.get("page_url") or "").strip()
+        meta = get_issue_group_meta(issue_type)
+        entry = grouped.get(issue_type)
+        if not entry:
+            entry = {
+                "issue_type": issue_type,
+                "title": str(issue.get("issue_title") or get_issue_title(issue_type) or issue_type),
+                "group_key": meta["group_key"],
+                "group_label": meta["label"],
+                "description": meta["description"],
+                "target_block": meta["target_block"],
+                "severity": severity,
+                "issues_count": 0,
+                "pages_affected": set(),
+                "pages": [],
+                "priority_key": _priority_from_severity(severity, meta["default_priority"]),
+            }
+            grouped[issue_type] = entry
+
+        entry["issues_count"] += 1
+        entry["severity"] = _max_severity(entry["severity"], severity)
+        entry["priority_key"] = _priority_from_severity(entry["severity"], meta["default_priority"])
+        if page_url and page_url not in entry["pages_affected"]:
+            entry["pages_affected"].add(page_url)
+            if len(entry["pages"]) < 25:
+                entry["pages"].append(page_url)
+
+    rows: list[dict] = []
+    for entry in grouped.values():
+        rows.append(
+            {
+                "issue_type": entry["issue_type"],
+                "title": entry["title"],
+                "group_key": entry["group_key"],
+                "group_label": entry["group_label"],
+                "description": entry["description"],
+                "target_block": entry["target_block"],
+                "severity": entry["severity"],
+                "issues_count": int(entry["issues_count"]),
+                "pages_affected": int(len(entry["pages_affected"])),
+                "pages": entry["pages"],
+                "priority_key": entry["priority_key"],
+                "priority_label": get_priority_label(entry["priority_key"]),
+            }
+        )
+
+    rows.sort(
+        key=lambda item: (
+            PRIORITY_SORT_WEIGHT.get(item["priority_key"], 0),
+            SEVERITY_PRIORITY_WEIGHT.get(item["severity"], 0),
+            item["pages_affected"],
+            item["issues_count"],
+        ),
+        reverse=True,
+    )
+    return rows
+
+
+def enrich_commercial_pages(pages_payload: list[dict]) -> list[dict]:
+    enriched = []
+    for row in pages_payload or []:
+        signals = {
+            "has_form": bool(row.get("has_form")),
+            "has_cta": bool(row.get("has_cta")),
+            "has_phone_or_contact": bool(row.get("has_phone_or_contact")),
+            "has_messenger": bool(row.get("has_messenger")),
+            "has_offer_like_heading": bool(row.get("has_offer_like_heading")),
+            "has_benefits_block": bool(row.get("has_benefits_block")),
+            "has_faq": bool(row.get("has_faq")),
+        }
+        status_key = str(row.get("commercial_status") or SEOPage.CommercialStatus.WARNING)
+        enriched.append(
+            {
+                **row,
+                "commercial_signals": signals,
+                "commercial_recommendations": get_commercial_recommendations(signals),
+                "commercial_status_label": get_commercial_status_label(status_key),
+            }
+        )
+    return enriched
+
+
+def build_commercial_summary(pages_payload: list[dict]) -> dict[str, object]:
+    pages = enrich_commercial_pages(pages_payload)
+    total = len(pages)
+    if total == 0:
+        return {
+            "has_data": False,
+            "pages_total": 0,
+            "avg_score": 0,
+            "good_pages": 0,
+            "warning_pages": 0,
+            "critical_pages": 0,
+            "signals_presence": {},
+            "top_recommendations": [],
+            "pages": [],
+        }
+
+    good_pages = 0
+    warning_pages = 0
+    critical_pages = 0
+    score_sum = 0
+    signal_counts = defaultdict(int)
+    recommendation_counts = defaultdict(int)
+    for row in pages:
+        status_key = str(row.get("commercial_status") or SEOPage.CommercialStatus.WARNING)
+        if status_key == SEOPage.CommercialStatus.GOOD:
+            good_pages += 1
+        elif status_key == SEOPage.CommercialStatus.CRITICAL:
+            critical_pages += 1
+        else:
+            warning_pages += 1
+
+        score_sum += int(row.get("commercial_readiness_score") or 0)
+        signals = row.get("commercial_signals") or {}
+        for signal_key, value in signals.items():
+            if bool(value):
+                signal_counts[signal_key] += 1
+        for recommendation in row.get("commercial_recommendations") or []:
+            recommendation_counts[recommendation] += 1
+
+    top_recommendations = sorted(
+        [
+            {"text": text, "pages_affected": count}
+            for text, count in recommendation_counts.items()
+            if count > 0
+        ],
+        key=lambda item: item["pages_affected"],
+        reverse=True,
+    )[:7]
+
+    return {
+        "has_data": True,
+        "pages_total": total,
+        "avg_score": int(round(score_sum / total)),
+        "good_pages": good_pages,
+        "warning_pages": warning_pages,
+        "critical_pages": critical_pages,
+        "signals_presence": {key: int(value) for key, value in signal_counts.items()},
+        "top_recommendations": top_recommendations,
+        "pages": pages,
+    }
+
+
+def build_fix_plan(
+    *,
+    audit: SiteSEOAudit,
+    issue_groups: list[dict],
+    commercial_summary: dict[str, object],
+) -> list[dict]:
+    plan: list[dict] = []
+    for item in issue_groups[:7]:
+        if int(item.get("pages_affected") or 0) <= 0:
+            continue
+        plan.append(
+            {
+                "title": item["title"],
+                "why_it_matters": item["description"],
+                "pages_affected": int(item["pages_affected"]),
+                "priority_key": item["priority_key"],
+                "priority_label": item["priority_label"],
+                "target_block": item["target_block"],
+            }
+        )
+
+    critical_commercial_pages = int(commercial_summary.get("critical_pages") or 0)
+    warning_commercial_pages = int(commercial_summary.get("warning_pages") or 0)
+    total_pages = int(commercial_summary.get("pages_total") or 0)
+    if total_pages > 0 and (critical_commercial_pages > 0 or warning_commercial_pages > 0):
+        priority_key = "urgent" if critical_commercial_pages > 0 else "important"
+        plan.append(
+            {
+                "title": "Недостаточная коммерческая готовность страниц",
+                "why_it_matters": "Страницы могут не доводить посетителя до заявки из-за слабых конверсионных элементов.",
+                "pages_affected": critical_commercial_pages + warning_commercial_pages,
+                "priority_key": priority_key,
+                "priority_label": get_priority_label(priority_key),
+                "target_block": "Коммерческий SEO-аудит страницы",
+            }
+        )
+
+    if not bool(audit.has_robots_txt):
+        plan.append(
+            {
+                "title": "Не найден robots.txt",
+                "why_it_matters": "Поисковым системам сложнее правильно обходить сайт.",
+                "pages_affected": int(audit.pages_count or 0),
+                "priority_key": "urgent",
+                "priority_label": get_priority_label("urgent"),
+                "target_block": "Индексация",
+            }
+        )
+    if not bool(audit.has_sitemap_xml):
+        plan.append(
+            {
+                "title": "Не найден sitemap.xml",
+                "why_it_matters": "Часть страниц может индексироваться хуже, чем должна.",
+                "pages_affected": int(audit.pages_count or 0),
+                "priority_key": "urgent",
+                "priority_label": get_priority_label("urgent"),
+                "target_block": "Индексация",
+            }
+        )
+
+    deduplicated: dict[str, dict] = {}
+    for item in plan:
+        key = f"{item['title']}|{item['target_block']}"
+        if key not in deduplicated:
+            deduplicated[key] = item
+            continue
+        if int(item.get("pages_affected") or 0) > int(deduplicated[key].get("pages_affected") or 0):
+            deduplicated[key] = item
+
+    rows = list(deduplicated.values())
+    rows.sort(
+        key=lambda item: (
+            PRIORITY_SORT_WEIGHT.get(item["priority_key"], 0),
+            int(item.get("pages_affected") or 0),
+        ),
+        reverse=True,
+    )
+    return rows[:7]
+
+
+def _bool_state_transition(previous: bool, current: bool) -> str:
+    if previous and current:
+        return "without_changes"
+    if previous and not current:
+        return "missing_now"
+    if not previous and current:
+        return "appeared"
+    return "without_changes"
+
+
+def build_audit_comparison(
+    *,
+    current_audit: SiteSEOAudit,
+    previous_audit: SiteSEOAudit,
+) -> dict[str, object]:
+    current_breakdown = calculate_audit_score_breakdown(current_audit)
+    previous_breakdown = calculate_audit_score_breakdown(previous_audit)
+
+    current_issues = set(
+        SEOIssue.objects.filter(page__audit=current_audit)
+        .select_related("page")
+        .values_list("issue_type", "page__url")
+    )
+    previous_issues = set(
+        SEOIssue.objects.filter(page__audit=previous_audit)
+        .select_related("page")
+        .values_list("issue_type", "page__url")
+    )
+    new_issues = current_issues - previous_issues
+    fixed_issues = previous_issues - current_issues
+
+    score_delta = int(current_breakdown["score"]) - int(previous_breakdown["score"])
+    if score_delta > 2 and len(new_issues) <= len(fixed_issues):
+        trend = "better"
+        trend_label = "Стало лучше"
+    elif score_delta < -2 and len(new_issues) > len(fixed_issues):
+        trend = "worse"
+        trend_label = "Появились новые проблемы"
+    else:
+        trend = "stable"
+        trend_label = "Без заметных изменений"
+
+    robots_transition = _bool_state_transition(bool(previous_audit.has_robots_txt), bool(current_audit.has_robots_txt))
+    sitemap_transition = _bool_state_transition(bool(previous_audit.has_sitemap_xml), bool(current_audit.has_sitemap_xml))
+
+    return {
+        "has_data": True,
+        "trend": trend,
+        "trend_label": trend_label,
+        "current_audit_id": current_audit.id,
+        "previous_audit_id": previous_audit.id,
+        "score": {
+            "before": int(previous_breakdown["score"]),
+            "after": int(current_breakdown["score"]),
+            "delta": score_delta,
+        },
+        "issues": {
+            "high": {
+                "before": int(previous_breakdown["high_issues"]),
+                "after": int(current_breakdown["high_issues"]),
+                "delta": int(current_breakdown["high_issues"]) - int(previous_breakdown["high_issues"]),
+            },
+            "medium": {
+                "before": int(previous_breakdown["medium_issues"]),
+                "after": int(current_breakdown["medium_issues"]),
+                "delta": int(current_breakdown["medium_issues"]) - int(previous_breakdown["medium_issues"]),
+            },
+            "low": {
+                "before": int(previous_breakdown["low_issues"]),
+                "after": int(current_breakdown["low_issues"]),
+                "delta": int(current_breakdown["low_issues"]) - int(previous_breakdown["low_issues"]),
+            },
+        },
+        "speed_pages": {
+            "before": int(previous_audit.pages_with_speed_issues or 0),
+            "after": int(current_audit.pages_with_speed_issues or 0),
+            "delta": int(current_audit.pages_with_speed_issues or 0) - int(previous_audit.pages_with_speed_issues or 0),
+        },
+        "indexing_pages": {
+            "before": int(previous_audit.pages_with_indexing_issues or 0),
+            "after": int(current_audit.pages_with_indexing_issues or 0),
+            "delta": int(current_audit.pages_with_indexing_issues or 0)
+            - int(previous_audit.pages_with_indexing_issues or 0),
+        },
+        "robots_txt": {
+            "before": bool(previous_audit.has_robots_txt),
+            "after": bool(current_audit.has_robots_txt),
+            "status": robots_transition,
+        },
+        "sitemap_xml": {
+            "before": bool(previous_audit.has_sitemap_xml),
+            "after": bool(current_audit.has_sitemap_xml),
+            "status": sitemap_transition,
+        },
+        "new_issues_count": len(new_issues),
+        "fixed_issues_count": len(fixed_issues),
+        "new_issues": [
+            {"issue_type": item[0], "issue_title": get_issue_title(item[0]), "page_url": item[1]}
+            for item in sorted(new_issues)
+        ][:25],
+        "fixed_issues": [
+            {"issue_type": item[0], "issue_title": get_issue_title(item[0]), "page_url": item[1]}
+            for item in sorted(fixed_issues)
+        ][:25],
     }

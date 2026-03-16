@@ -202,3 +202,156 @@ def get_issue_title(issue_type: str) -> str:
 
 def get_issue_recommendation(issue_type: str) -> str:
     return get_issue_message(issue_type).get("recommendation", "")
+
+
+ISSUE_GROUP_PRESETS = {
+    "robots": {
+        "label": "Проблемы с robots.txt",
+        "description": "Поисковым системам сложнее корректно обходить сайт.",
+        "target_block": "Индексация",
+        "default_priority": "urgent",
+    },
+    "sitemap": {
+        "label": "Проблемы с sitemap.xml",
+        "description": "Часть страниц может индексироваться хуже, чем должна.",
+        "target_block": "Индексация",
+        "default_priority": "urgent",
+    },
+    "titles": {
+        "label": "Проблемы с title и description",
+        "description": "Страницы хуже выглядят в выдаче и получают меньше переходов.",
+        "target_block": "Страницы",
+        "default_priority": "important",
+    },
+    "headings": {
+        "label": "Проблемы со структурой заголовков",
+        "description": "Поисковику и пользователю сложнее понимать содержание страницы.",
+        "target_block": "Страницы",
+        "default_priority": "important",
+    },
+    "speed": {
+        "label": "Проблемы скорости и веса страниц",
+        "description": "Медленная загрузка ухудшает поведение пользователей и конверсию.",
+        "target_block": "Скорость и производительность",
+        "default_priority": "important",
+    },
+    "indexability": {
+        "label": "Проблемы индексации страниц",
+        "description": "Страницы могут индексироваться некорректно.",
+        "target_block": "Индексация",
+        "default_priority": "important",
+    },
+    "commercial": {
+        "label": "Проблемы коммерческой готовности",
+        "description": "Страницы слабо подготовлены к заявкам и обращениям.",
+        "target_block": "Коммерческий SEO-аудит страницы",
+        "default_priority": "important",
+    },
+    "status": {
+        "label": "Страницы с ошибками ответа",
+        "description": "Некоторые страницы недоступны или возвращают ошибки.",
+        "target_block": "Ошибки",
+        "default_priority": "urgent",
+    },
+    "other": {
+        "label": "Другие SEO-замечания",
+        "description": "Есть дополнительные точки улучшения сайта.",
+        "target_block": "Ошибки",
+        "default_priority": "later",
+    },
+}
+
+ISSUE_TYPE_TO_GROUP = {
+    "missing_robots_txt": "robots",
+    "robots_disallow_all": "robots",
+    "robots_missing_sitemap": "robots",
+    "missing_sitemap": "sitemap",
+    "bad_sitemap_status": "sitemap",
+    "sitemap_mismatch": "sitemap",
+    "sitemap_page_missing": "sitemap",
+    "missing_title": "titles",
+    "bad_title_length": "titles",
+    "title_too_short": "titles",
+    "title_too_long": "titles",
+    "missing_description": "titles",
+    "description_too_short": "titles",
+    "description_too_long": "titles",
+    "duplicate_title": "titles",
+    "missing_h1": "headings",
+    "multiple_h1": "headings",
+    "long_h1": "headings",
+    "heading_hierarchy_gap": "headings",
+    "slow_response": "speed",
+    "large_page_size": "speed",
+    "slow_ttfb": "speed",
+    "large_html_size": "speed",
+    "too_many_js": "speed",
+    "too_many_css": "speed",
+    "too_many_images": "speed",
+    "heavy_js_payload": "speed",
+    "heavy_css_payload": "speed",
+    "heavy_images_payload": "speed",
+    "heavy_page_payload": "speed",
+    "missing_canonical": "indexability",
+    "invalid_canonical": "indexability",
+    "canonical_conflict": "indexability",
+    "page_noindex": "indexability",
+    "page_nofollow": "indexability",
+    "blocked_by_robots": "indexability",
+    "missing_meta_robots": "indexability",
+    "bad_status": "status",
+    "network_error": "status",
+    "redirect": "status",
+}
+
+PRIORITY_LABELS = {
+    "urgent": "Срочно",
+    "important": "Важно",
+    "later": "Потом",
+}
+
+COMMERCIAL_SIGNAL_RECOMMENDATIONS = {
+    "has_form": "Добавьте форму заявки на видимом месте страницы.",
+    "has_cta": "Добавьте заметную CTA-кнопку с понятным действием.",
+    "has_phone_or_contact": "Добавьте телефон, email или явный блок контактов.",
+    "has_messenger": "Добавьте удобный канал связи в мессенджере (Telegram/WhatsApp).",
+    "has_offer_like_heading": "Сделайте первый экран понятным: оффер, выгода и для кого услуга.",
+    "has_benefits_block": "Добавьте блок преимуществ и причин выбрать вашу компанию.",
+    "has_faq": "Добавьте FAQ или ответы на частые вопросы для снятия возражений.",
+}
+
+COMMERCIAL_STATUS_LABELS = {
+    "good": "Готова к заявкам",
+    "warning": "Есть замечания",
+    "critical": "Слабо подготовлена к конверсии",
+}
+
+
+def get_issue_group_meta(issue_type: str) -> dict[str, str]:
+    normalized = str(issue_type or "").strip().lower()
+    group_key = ISSUE_TYPE_TO_GROUP.get(normalized, "other")
+    preset = ISSUE_GROUP_PRESETS.get(group_key, ISSUE_GROUP_PRESETS["other"])
+    return {
+        "group_key": group_key,
+        "label": preset["label"],
+        "description": preset["description"],
+        "target_block": preset["target_block"],
+        "default_priority": preset["default_priority"],
+    }
+
+
+def get_priority_label(priority_key: str) -> str:
+    return PRIORITY_LABELS.get(str(priority_key or "").strip().lower(), PRIORITY_LABELS["later"])
+
+
+def get_commercial_recommendations(signals: dict[str, bool]) -> list[str]:
+    rows: list[str] = []
+    for key, text in COMMERCIAL_SIGNAL_RECOMMENDATIONS.items():
+        if not bool((signals or {}).get(key)):
+            rows.append(text)
+    return rows
+
+
+def get_commercial_status_label(status_key: str) -> str:
+    normalized = str(status_key or "").strip().lower()
+    return COMMERCIAL_STATUS_LABELS.get(normalized, COMMERCIAL_STATUS_LABELS["warning"])
