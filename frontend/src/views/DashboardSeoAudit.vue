@@ -2,9 +2,14 @@
   <section class="dashboard-section seo-audit-page">
     <p v-if="error" class="error">{{ error }}</p>
 
-    <div id="seo-overview" class="chart-card seo-section-card">
+    <div id="seo-overview" class="chart-card seo-section-card seo-overview-card">
       <div class="card-head card-head-wrap">
-        <h2>SEO-аудит сайта</h2>
+        <div class="section-headline">
+          <h2>SEO-аудит сайта</h2>
+          <p class="section-subtitle">
+            Запустите аудит домена, чтобы увидеть технические проблемы, точки роста и приоритеты исправлений.
+          </p>
+        </div>
         <button type="button" class="seo-export-btn" :disabled="!canExport" @click="exportReport">
           {{ exporting ? "Подготовка..." : "Экспортировать отчёт" }}
         </button>
@@ -21,6 +26,7 @@
             autocomplete="off"
           />
         </label>
+
         <button
           type="button"
           class="seo-start-btn"
@@ -30,6 +36,7 @@
         >
           {{ starting ? "Запуск..." : "Запустить аудит" }}
         </button>
+
         <button type="button" class="seo-stop-btn" :disabled="!canStopAudit" @click="stopAudit">
           {{ stopping ? "Остановка..." : "Остановить аудит" }}
         </button>
@@ -47,35 +54,58 @@
 
     <div v-if="auditId" class="chart-card seo-section-card seo-ai-card">
       <div class="card-head card-head-wrap">
-        <h2>AI-рекомендации по SEO</h2>
+        <div class="section-headline">
+          <h2>AI-рекомендации по SEO</h2>
+          <p class="section-subtitle">
+            После завершения аудита сервис соберёт краткий вывод и структурированный план исправлений.
+          </p>
+        </div>
         <button
           type="button"
           class="seo-ai-refresh-btn"
-          :disabled="seoAiLoading || isInProgress"
-          @click="refreshSeoAiRecommendations"
+          :disabled="!canRunSeoAiAnalysis"
+          @click="runSeoAiAnalysis"
         >
-          {{ seoAiLoading ? "Обновление..." : "Обновить рекомендации" }}
+          {{ seoAiLoading ? "Анализ..." : "Запустить AI-анализ SEO" }}
         </button>
       </div>
-      <p class="muted block-hint">
-        Короткие приоритеты по текущему аудиту: что исправить в первую очередь, чтобы быстрее поднять SEO-результат.
+
+      <p v-if="isInProgress" class="muted">
+        Сначала дождитесь завершения текущего SEO-аудита.
       </p>
-      <p v-if="seoAiLoading" class="muted">Готовим рекомендации...</p>
-      <p v-else-if="isInProgress" class="muted">AI-рекомендации появятся после завершения текущего аудита.</p>
-      <template v-else>
-        <p class="seo-ai-summary">{{ seoAiRecommendations.summary }}</p>
-        <div class="seo-ai-meta">
-          <span class="priority-pill" :class="seoAiPriorityClass(seoAiRecommendations.priority)">
-            Приоритет: {{ seoAiPriorityLabel(seoAiRecommendations.priority) }}
-          </span>
-          <span class="muted">
-            {{ seoAiRecommendations.source === "ai" ? "Источник: AI" : "Источник: fallback" }}
-          </span>
-          <span v-if="seoAiRecommendations.cached" class="muted">Кэшированный ответ</span>
+
+      <template v-if="!seoAiStarted && !seoAiLoading">
+        <div class="seo-empty-panel">
+          <p class="muted seo-ai-placeholder">
+            Рекомендации ещё не загружены. Нажмите «Запустить AI-анализ SEO», чтобы получить приоритетные задачи и
+            пошаговые действия по исправлению найденных проблем.
+          </p>
+        </div>
+      </template>
+
+      <p v-else-if="seoAiLoading" class="muted">
+        Анализируем результаты аудита и формируем рекомендации...
+      </p>
+
+      <template v-else-if="seoAiHasResult">
+        <div class="seo-ai-summary-box">
+          <p class="seo-ai-summary">{{ seoAiRecommendations.summary }}</p>
+
+          <div class="seo-ai-meta">
+            <span class="priority-pill" :class="seoAiPriorityClass(seoAiRecommendations.priority)">
+              Приоритет: {{ seoAiPriorityLabel(seoAiRecommendations.priority) }}
+            </span>
+            <span class="seo-meta-chip">Источник: AI</span>
+            <span v-if="seoAiRecommendations.cached" class="seo-meta-chip">Кэшированный ответ</span>
+          </div>
         </div>
 
         <div v-if="seoAiOverviewChips.length" class="seo-ai-overview">
-          <span v-for="(chip, idx) in seoAiOverviewChips" :key="`seo-ai-chip-${idx}`" class="seo-ai-overview-chip">
+          <span
+            v-for="(chip, idx) in seoAiOverviewChips"
+            :key="`seo-ai-chip-${idx}`"
+            class="seo-ai-overview-chip"
+          >
             {{ chip }}
           </span>
         </div>
@@ -83,7 +113,9 @@
         <section v-if="seoAiHighlights.length" class="seo-ai-section">
           <h3>Краткий вывод</h3>
           <ul class="seo-ai-list">
-            <li v-for="(item, idx) in seoAiHighlights" :key="`seo-ai-highlight-${idx}`">{{ item }}</li>
+            <li v-for="(item, idx) in seoAiHighlights" :key="`seo-ai-highlight-${idx}`">
+              {{ item }}
+            </li>
           </ul>
         </section>
 
@@ -142,13 +174,17 @@
         <section class="seo-ai-section">
           <h3>Что именно исправить</h3>
           <ul v-if="seoAiActionItems.length" class="seo-ai-list">
-            <li v-for="(item, idx) in seoAiActionItems" :key="`seo-ai-action-${idx}`">{{ item }}</li>
+            <li v-for="(item, idx) in seoAiActionItems" :key="`seo-ai-action-${idx}`">
+              {{ item }}
+            </li>
           </ul>
-          <p v-else class="muted empty-state">Пока нет готовых рекомендаций. Попробуйте обновить позже.</p>
+          <p v-else class="muted empty-state">
+            AI не вернул список действий. Запустите анализ ещё раз.
+          </p>
         </section>
-
-        <p v-if="seoAiError" class="muted seo-ai-error">{{ seoAiError }}</p>
       </template>
+
+      <p v-else class="muted seo-ai-error">{{ seoAiFailureMessage }}</p>
     </div>
 
     <div v-if="auditId" class="seo-anchor-nav-wrap">
@@ -213,130 +249,33 @@
       </article>
     </div>
 
-    <div v-if="auditId" class="chart-card seo-section-card seo-breakdown-card-wrap">
-      <div class="card-head">
-        <h2>Разбивка ошибок</h2>
-      </div>
-      <p class="muted block-hint">Краткая сводка по приоритетам, чтобы быстрее понять масштаб работ.</p>
-      <div class="seo-breakdown-grid">
-        <article class="seo-breakdown-card seo-breakdown-high">
-          <span>Критичные</span>
-          <strong>{{ breakdown.high_issues }}</strong>
-          <small class="muted">Страниц: {{ breakdownAffectedPages.high }}</small>
-        </article>
-        <article class="seo-breakdown-card seo-breakdown-medium">
-          <span>Средние</span>
-          <strong>{{ breakdown.medium_issues }}</strong>
-          <small class="muted">Страниц: {{ breakdownAffectedPages.medium }}</small>
-        </article>
-        <article class="seo-breakdown-card seo-breakdown-low">
-          <span>Низкие</span>
-          <strong>{{ breakdown.low_issues }}</strong>
-          <small class="muted">Страниц: {{ breakdownAffectedPages.low }}</small>
-        </article>
-      </div>
-    </div>
-
-    <div id="seo-plan" v-if="auditId" class="chart-card seo-section-card">
-      <div class="card-head">
-        <h2>План исправлений: что чинить первым</h2>
-      </div>
-      <p class="muted block-hint">
-        Начните с верхних задач: они дают самый быстрый эффект для SEO и заявок.
-      </p>
-      <div v-if="fixPlan.length" class="fix-plan-list">
-        <article v-for="(item, index) in fixPlan" :key="`${item.title}-${index}`" class="fix-plan-item">
-          <div class="fix-plan-head">
-            <strong>{{ item.title }}</strong>
-            <span class="priority-pill" :class="priorityClass(item.priority_key)">{{ item.priority_label }}</span>
-          </div>
-          <p class="muted">{{ item.why_it_matters }}</p>
-          <div class="fix-plan-meta">
-            <span>Затронуто страниц: <strong>{{ item.pages_affected }}</strong></span>
-            <span>Где смотреть: <strong>{{ item.target_block }}</strong></span>
-          </div>
-        </article>
-      </div>
-      <p v-else class="muted empty-state">Пока нет заметных проблем. Запустите аудит после обновлений на сайте.</p>
-    </div>
-
-    <div id="seo-groups" v-if="auditId" class="chart-card seo-section-card">
-      <div class="card-head card-head-wrap">
-        <h2>Группировка проблем по типам</h2>
-        <button type="button" class="collapse-btn" @click="toggleBlock('issueGroups')">
-          {{ collapsed.issueGroups ? "Развернуть" : "Свернуть" }}
-        </button>
-      </div>
-      <p class="muted block-hint">
-        Блок помогает понять, какие ошибки лучше исправлять пакетно.
-      </p>
-
-      <template v-if="!collapsed.issueGroups">
-        <div v-if="issueGroups.length" class="table-wrap">
-          <table class="table">
-            <thead>
-              <tr>
-                <th>Тип проблемы</th>
-                <th>Страниц</th>
-                <th>Уровень</th>
-                <th>Почему важно</th>
-                <th>Действие</th>
-              </tr>
-            </thead>
-            <tbody>
-              <template v-for="group in issueGroups" :key="group.issue_type">
-                <tr>
-                  <td>{{ group.title }}</td>
-                  <td>{{ group.pages_affected }}</td>
-                  <td>
-                    <span class="severity-pill" :class="`severity-${group.severity}`">
-                      {{ severityLabel(group.severity) }}
-                    </span>
-                  </td>
-                  <td>{{ group.description }}</td>
-                  <td>
-                    <button
-                      type="button"
-                      class="issue-pages-toggle"
-                      :disabled="!group.pages_affected"
-                      @click="toggleIssueGroupPages(group.issue_type)"
-                    >
-                      {{ isIssueGroupExpanded(group.issue_type) ? "Скрыть страницы" : `Показать страницы (${group.pages_affected})` }}
-                    </button>
-                  </td>
-                </tr>
-                <tr v-if="isIssueGroupExpanded(group.issue_type)">
-                  <td colspan="5">
-                    <div v-if="group.pages?.length" class="issue-pages-list">
-                      <span v-for="pageUrl in group.pages" :key="`${group.issue_type}-${pageUrl}`">{{ pageUrl }}</span>
-                    </div>
-                    <p v-else class="muted">Список страниц для этого типа пока не сформирован.</p>
-                  </td>
-                </tr>
-              </template>
-            </tbody>
-          </table>
-        </div>
-        <p v-else class="muted empty-state">Проблемы по типам пока не обнаружены.</p>
-      </template>
-    </div>
-
     <div id="seo-compare" v-if="auditId" class="chart-card seo-section-card">
       <div class="card-head card-head-wrap">
-        <h2>Сравнение аудитов во времени</h2>
-        <button type="button" class="seo-compare-btn" :disabled="!canCompare || comparisonLoading" @click="compareAudits">
+        <div class="section-headline">
+          <h2>Сравнение аудитов во времени</h2>
+          <p class="section-subtitle">
+            Здесь пользователь видит, что улучшилось, что ухудшилось и где сайт остался без изменений.
+          </p>
+        </div>
+        <button
+          type="button"
+          class="seo-compare-btn"
+          :disabled="!canCompare || comparisonLoading"
+          @click="compareAudits"
+        >
           {{ comparisonLoading ? "Сравнение..." : "Сравнить аудит" }}
         </button>
       </div>
-      <p class="muted block-hint">
-        Сравнение показывает прогресс: что исправлено, что ухудшилось и как изменился сайт.
-      </p>
 
       <div v-if="historyRows.length" class="compare-controls">
         <label class="seo-field">
           <span class="seo-field-label">Сравнить с аудитом</span>
           <select v-model="selectedCompareAuditId" class="seo-select">
-            <option v-for="item in historyRows" :key="`history-${item.audit_id}`" :value="String(item.audit_id)">
+            <option
+              v-for="item in historyRows"
+              :key="`history-${item.audit_id}`"
+              :value="String(item.audit_id)"
+            >
               #{{ item.audit_id }} · {{ formatDate(item.created_at) }} · SEO {{ item.score }}
             </option>
           </select>
@@ -344,92 +283,235 @@
       </div>
 
       <div v-if="comparisonPayload?.has_data" class="comparison-wrap">
-        <p class="comparison-trend" :class="comparisonTrendClass(comparisonPayload?.trend)">
-          {{ comparisonTrendLabel(comparisonPayload) }}
-        </p>
+        <div class="comparison-topline">
+          <p class="comparison-trend" :class="comparisonTrendClass(comparisonPayload?.trend)">
+            {{ comparisonTrendLabel(comparisonPayload) }}
+          </p>
+          <span class="comparison-note muted">Сравнение текущего аудита с выбранным предыдущим отчётом</span>
+        </div>
+
         <div class="comparison-grid">
-          <article class="comparison-card">
-            <span>SEO-оценка</span>
-            <strong>{{ compareTransition(comparisonPayload.score) }}</strong>
-            <small>{{ compareDelta(comparisonPayload.score) }}</small>
+          <article class="comparison-card comparison-card-featured">
+            <div class="comparison-card-head">
+              <span>SEO-оценка</span>
+              <strong :class="scoreClassByValue(comparisonPayload.score?.after)">
+                {{ comparisonPayload.score?.after ?? 0 }}
+              </strong>
+            </div>
+            <div class="comparison-values">
+              <div>
+                <small>Было</small>
+                <b>{{ comparisonPayload.score?.before ?? 0 }}</b>
+              </div>
+              <div>
+                <small>Стало</small>
+                <b>{{ comparisonPayload.score?.after ?? 0 }}</b>
+              </div>
+              <div>
+                <small>Изменение</small>
+                <b :class="deltaClass(comparisonPayload.score?.delta)">
+                  {{ compareDelta(comparisonPayload.score) }}
+                </b>
+              </div>
+            </div>
           </article>
+
           <article class="comparison-card">
-            <span>Критичные ошибки</span>
-            <strong>{{ compareTransition(comparisonPayload.issues?.high) }}</strong>
-            <small>{{ compareDelta(comparisonPayload.issues?.high) }}</small>
+            <div class="comparison-card-head">
+              <span>Критичные ошибки</span>
+              <strong>{{ comparisonPayload.issues?.high?.after ?? 0 }}</strong>
+            </div>
+            <div class="comparison-values">
+              <div>
+                <small>Было</small>
+                <b>{{ comparisonPayload.issues?.high?.before ?? 0 }}</b>
+              </div>
+              <div>
+                <small>Стало</small>
+                <b>{{ comparisonPayload.issues?.high?.after ?? 0 }}</b>
+              </div>
+              <div>
+                <small>Изменение</small>
+                <b :class="deltaClass(reverseDelta(comparisonPayload.issues?.high?.delta))">
+                  {{ compareDelta(comparisonPayload.issues?.high) }}
+                </b>
+              </div>
+            </div>
           </article>
+
           <article class="comparison-card">
-            <span>Средние ошибки</span>
-            <strong>{{ compareTransition(comparisonPayload.issues?.medium) }}</strong>
-            <small>{{ compareDelta(comparisonPayload.issues?.medium) }}</small>
+            <div class="comparison-card-head">
+              <span>Средние ошибки</span>
+              <strong>{{ comparisonPayload.issues?.medium?.after ?? 0 }}</strong>
+            </div>
+            <div class="comparison-values">
+              <div>
+                <small>Было</small>
+                <b>{{ comparisonPayload.issues?.medium?.before ?? 0 }}</b>
+              </div>
+              <div>
+                <small>Стало</small>
+                <b>{{ comparisonPayload.issues?.medium?.after ?? 0 }}</b>
+              </div>
+              <div>
+                <small>Изменение</small>
+                <b :class="deltaClass(reverseDelta(comparisonPayload.issues?.medium?.delta))">
+                  {{ compareDelta(comparisonPayload.issues?.medium) }}
+                </b>
+              </div>
+            </div>
           </article>
+
           <article class="comparison-card">
-            <span>Низкие ошибки</span>
-            <strong>{{ compareTransition(comparisonPayload.issues?.low) }}</strong>
-            <small>{{ compareDelta(comparisonPayload.issues?.low) }}</small>
+            <div class="comparison-card-head">
+              <span>Низкие ошибки</span>
+              <strong>{{ comparisonPayload.issues?.low?.after ?? 0 }}</strong>
+            </div>
+            <div class="comparison-values">
+              <div>
+                <small>Было</small>
+                <b>{{ comparisonPayload.issues?.low?.before ?? 0 }}</b>
+              </div>
+              <div>
+                <small>Стало</small>
+                <b>{{ comparisonPayload.issues?.low?.after ?? 0 }}</b>
+              </div>
+              <div>
+                <small>Изменение</small>
+                <b :class="deltaClass(reverseDelta(comparisonPayload.issues?.low?.delta))">
+                  {{ compareDelta(comparisonPayload.issues?.low) }}
+                </b>
+              </div>
+            </div>
           </article>
+
           <article class="comparison-card">
-            <span>Проблемы скорости</span>
-            <strong>{{ compareTransition(comparisonPayload.speed_pages) }}</strong>
-            <small>{{ compareDelta(comparisonPayload.speed_pages) }}</small>
+            <div class="comparison-card-head">
+              <span>Проблемы скорости</span>
+              <strong>{{ comparisonPayload.speed_pages?.after ?? 0 }}</strong>
+            </div>
+            <div class="comparison-values">
+              <div>
+                <small>Было</small>
+                <b>{{ comparisonPayload.speed_pages?.before ?? 0 }}</b>
+              </div>
+              <div>
+                <small>Стало</small>
+                <b>{{ comparisonPayload.speed_pages?.after ?? 0 }}</b>
+              </div>
+              <div>
+                <small>Изменение</small>
+                <b :class="deltaClass(reverseDelta(comparisonPayload.speed_pages?.delta))">
+                  {{ compareDelta(comparisonPayload.speed_pages) }}
+                </b>
+              </div>
+            </div>
           </article>
+
           <article class="comparison-card">
-            <span>Проблемы индексации</span>
-            <strong>{{ compareTransition(comparisonPayload.indexing_pages) }}</strong>
-            <small>{{ compareDelta(comparisonPayload.indexing_pages) }}</small>
+            <div class="comparison-card-head">
+              <span>Проблемы индексации</span>
+              <strong>{{ comparisonPayload.indexing_pages?.after ?? 0 }}</strong>
+            </div>
+            <div class="comparison-values">
+              <div>
+                <small>Было</small>
+                <b>{{ comparisonPayload.indexing_pages?.before ?? 0 }}</b>
+              </div>
+              <div>
+                <small>Стало</small>
+                <b>{{ comparisonPayload.indexing_pages?.after ?? 0 }}</b>
+              </div>
+              <div>
+                <small>Изменение</small>
+                <b :class="deltaClass(reverseDelta(comparisonPayload.indexing_pages?.delta))">
+                  {{ compareDelta(comparisonPayload.indexing_pages) }}
+                </b>
+              </div>
+            </div>
           </article>
         </div>
 
         <div class="comparison-index-files">
-          <article>
-            <span class="muted">robots.txt:</span>
-            <strong>{{ boolTransitionLabel(comparisonPayload.robots_txt.status) }}</strong>
+          <article class="comparison-file-card">
+            <span class="muted">robots.txt</span>
+            <strong>{{ boolTransitionLabel(comparisonPayload.robots_txt?.status) }}</strong>
           </article>
-          <article>
-            <span class="muted">sitemap.xml:</span>
-            <strong>{{ boolTransitionLabel(comparisonPayload.sitemap_xml.status) }}</strong>
+          <article class="comparison-file-card">
+            <span class="muted">sitemap.xml</span>
+            <strong>{{ boolTransitionLabel(comparisonPayload.sitemap_xml?.status) }}</strong>
           </article>
         </div>
 
         <div class="comparison-lists">
-          <article>
-            <h3>Новые проблемы</h3>
-            <p class="muted small">{{ comparisonPayload.new_issues_count }} шт.</p>
+          <article class="comparison-list-card">
+            <div class="comparison-list-head">
+              <h3>Новые проблемы</h3>
+              <span class="comparison-counter comparison-counter-warn">
+                {{ comparisonPayload.new_issues_count }} шт.
+              </span>
+            </div>
+
             <ul v-if="comparisonPayload.new_issues?.length" class="comparison-issue-list">
-              <li v-for="item in comparisonPayload.new_issues" :key="`new-${item.issue_type}-${item.page_url}`">
-                {{ item.issue_title }} — {{ item.page_url }}
+              <li
+                v-for="item in comparisonPayload.new_issues"
+                :key="`new-${item.issue_type}-${item.page_url}`"
+              >
+                <strong>{{ item.issue_title }}</strong>
+                <span>{{ item.page_url }}</span>
               </li>
             </ul>
             <p v-else class="muted">Новых проблем не найдено.</p>
           </article>
-          <article>
-            <h3>Исправленные проблемы</h3>
-            <p class="muted small">{{ comparisonPayload.fixed_issues_count }} шт.</p>
+
+          <article class="comparison-list-card">
+            <div class="comparison-list-head">
+              <h3>Исправленные проблемы</h3>
+              <span class="comparison-counter comparison-counter-good">
+                {{ comparisonPayload.fixed_issues_count }} шт.
+              </span>
+            </div>
+
             <ul v-if="comparisonPayload.fixed_issues?.length" class="comparison-issue-list">
-              <li v-for="item in comparisonPayload.fixed_issues" :key="`fixed-${item.issue_type}-${item.page_url}`">
-                {{ item.issue_title }} — {{ item.page_url }}
+              <li
+                v-for="item in comparisonPayload.fixed_issues"
+                :key="`fixed-${item.issue_type}-${item.page_url}`"
+              >
+                <strong>{{ item.issue_title }}</strong>
+                <span>{{ item.page_url }}</span>
               </li>
             </ul>
             <p v-else class="muted">Исправленных проблем пока нет.</p>
           </article>
         </div>
       </div>
-      <p v-else class="muted empty-state">{{ comparisonPayload?.reason || "Для сравнения нужен завершённый аудит." }}</p>
+
+      <p v-else class="muted empty-state">
+        {{ comparisonPayload?.reason || "Для сравнения нужен завершённый аудит." }}
+      </p>
     </div>
 
     <div id="seo-performance" v-if="auditId" class="chart-card seo-section-card">
       <div class="card-head card-head-wrap">
-        <h2>Скорость и производительность</h2>
+        <div class="section-headline">
+          <h2>Скорость и производительность</h2>
+          <p class="section-subtitle">
+            Оценка строится по времени ответа, весу страницы и объёму подключённых ресурсов.
+          </p>
+        </div>
         <button type="button" class="collapse-btn" @click="toggleBlock('speed')">
           {{ collapsed.speed ? "Развернуть" : "Свернуть" }}
         </button>
       </div>
-      <p class="muted block-hint">Оценка построена по времени ответа, размеру страницы и объёму ресурсов.</p>
-      <p class="muted tech-summary">Проверено страниц: {{ pages.length }} · Со скоростными проблемами: {{ pagesWithSpeedIssues }}</p>
+
+      <div class="inline-summary-chips">
+        <span class="summary-chip">Проверено страниц: {{ pages.length }}</span>
+        <span class="summary-chip">Со скоростными проблемами: {{ pagesWithSpeedIssues }}</span>
+      </div>
 
       <template v-if="!collapsed.speed">
-        <div class="table-wrap">
-          <table class="table">
+        <div class="table-wrap responsive-table-wrap">
+          <table class="table mobile-stack-table">
             <thead>
               <tr>
                 <th>URL</th>
@@ -444,22 +526,26 @@
             </thead>
             <tbody>
               <tr v-for="page in pages" :key="`speed-${page.id}`">
-                <td class="url-cell">{{ page.url }}</td>
-                <td>{{ formatMs(page.ttfb_ms) }}</td>
-                <td>{{ formatBytes(page.html_size_bytes) }}</td>
-                <td>{{ page.js_files_count || 0 }} / {{ page.css_files_count || 0 }} / {{ page.images_count || 0 }}</td>
-                <td>
+                <td data-label="URL" class="url-cell">{{ page.url }}</td>
+                <td data-label="Ответ сервера (TTFB)">{{ formatMs(page.ttfb_ms) }}</td>
+                <td data-label="Размер HTML">{{ formatBytes(page.html_size_bytes) }}</td>
+                <td data-label="Файлы JS/CSS/изображения">
+                  {{ page.js_files_count || 0 }} / {{ page.css_files_count || 0 }} / {{ page.images_count || 0 }}
+                </td>
+                <td data-label="Вес JS/CSS/изображений">
                   {{ formatBytes(page.total_js_bytes) }} /
                   {{ formatBytes(page.total_css_bytes) }} /
                   {{ formatBytes(page.total_image_bytes) }}
                 </td>
-                <td :class="scoreClassByValue(page.performance_score)">{{ page.performance_score ?? 0 }}</td>
-                <td>
+                <td data-label="Оценка" :class="scoreClassByValue(page.performance_score)">
+                  {{ page.performance_score ?? 0 }}
+                </td>
+                <td data-label="Статус">
                   <span class="severity-pill" :class="speedStatusClass(page.speed_status)">
                     {{ speedStatusLabel(page.speed_status) }}
                   </span>
                 </td>
-                <td>
+                <td data-label="Проблемы">
                   <span v-if="pageSpeedIssues(page).length" class="issue-inline-list">
                     {{ pageSpeedIssues(page).map(issueLabel).join(", ") }}
                   </span>
@@ -477,34 +563,39 @@
 
     <div id="seo-indexing" v-if="auditId" class="chart-card seo-section-card">
       <div class="card-head card-head-wrap">
-        <h2>Индексация</h2>
+        <div class="section-headline">
+          <h2>Индексация</h2>
+          <p class="section-subtitle">
+            Проверка показывает, как поисковые системы видят и обходят страницы сайта.
+          </p>
+        </div>
         <button type="button" class="collapse-btn" @click="toggleBlock('indexing')">
           {{ collapsed.indexing ? "Развернуть" : "Свернуть" }}
         </button>
       </div>
-      <p class="muted block-hint">Проверка показывает, как поисковые системы видят и обходят страницы.</p>
+
       <div class="indexing-summary">
-        <div>
-          <span class="muted">robots.txt:</span>
+        <div class="summary-box">
+          <span class="muted">robots.txt</span>
           <strong :class="hasRobotsTxt ? 'status-done' : 'status-error'">
             {{ hasRobotsTxt ? "доступен" : "не найден" }}
           </strong>
         </div>
-        <div>
-          <span class="muted">sitemap.xml:</span>
+        <div class="summary-box">
+          <span class="muted">sitemap.xml</span>
           <strong :class="hasSitemapXml ? 'status-done' : 'status-error'">
             {{ hasSitemapXml ? "доступен" : "не найден или некорректен" }}
           </strong>
         </div>
-        <div>
-          <span class="muted">URL в sitemap:</span>
+        <div class="summary-box">
+          <span class="muted">URL в sitemap</span>
           <strong>{{ audit?.sitemap_urls_count ?? 0 }}</strong>
         </div>
       </div>
 
       <template v-if="!collapsed.indexing">
-        <div class="table-wrap">
-          <table class="table">
+        <div class="table-wrap responsive-table-wrap">
+          <table class="table mobile-stack-table">
             <thead>
               <tr>
                 <th>URL</th>
@@ -518,17 +609,17 @@
             </thead>
             <tbody>
               <tr v-for="page in pages" :key="`indexing-${page.id}`">
-                <td class="url-cell">{{ page.url }}</td>
-                <td>{{ page.meta_robots || "—" }}</td>
-                <td class="url-cell">{{ page.canonical_url || "—" }}</td>
-                <td>
+                <td data-label="URL" class="url-cell">{{ page.url }}</td>
+                <td data-label="Мета-тег robots">{{ page.meta_robots || "—" }}</td>
+                <td data-label="Canonical URL" class="url-cell">{{ page.canonical_url || "—" }}</td>
+                <td data-label="Индексация">
                   <span class="severity-pill" :class="indexabilityStatusClass(page.indexability_status)">
                     {{ indexabilityStatusLabel(page.indexability_status) }}
                   </span>
                 </td>
-                <td>{{ yesNo(page.in_sitemap) }}</td>
-                <td>{{ yesNo(page.blocked_by_robots) }}</td>
-                <td>
+                <td data-label="В sitemap">{{ yesNo(page.in_sitemap) }}</td>
+                <td data-label="Блок robots">{{ yesNo(page.blocked_by_robots) }}</td>
+                <td data-label="Проблемы">
                   <span v-if="pageIndexingIssues(page).length" class="issue-inline-list">
                     {{ pageIndexingIssues(page).map(issueLabel).join(", ") }}
                   </span>
@@ -546,17 +637,24 @@
 
     <div id="seo-pages" v-if="auditId" class="chart-card seo-section-card">
       <div class="card-head card-head-wrap">
-        <h2>Страницы</h2>
+        <div class="section-headline">
+          <h2>Страницы</h2>
+          <p class="section-subtitle">
+            Базовая таблица по ключевым SEO-параметрам каждой страницы сайта.
+          </p>
+        </div>
         <button type="button" class="collapse-btn" @click="toggleBlock('pages')">
           {{ collapsed.pages ? "Развернуть" : "Свернуть" }}
         </button>
       </div>
-      <p class="muted block-hint">Базовая таблица по ключевым SEO-параметрам каждой страницы.</p>
-      <p class="muted tech-summary">Всего страниц в отчёте: {{ pages.length }}</p>
+
+      <div class="inline-summary-chips">
+        <span class="summary-chip">Всего страниц в отчёте: {{ pages.length }}</span>
+      </div>
 
       <template v-if="!collapsed.pages">
-        <div class="table-wrap">
-          <table class="table">
+        <div class="table-wrap responsive-table-wrap">
+          <table class="table mobile-stack-table">
             <thead>
               <tr>
                 <th>URL</th>
@@ -571,14 +669,14 @@
             </thead>
             <tbody>
               <tr v-for="page in pages" :key="page.id">
-                <td class="url-cell">{{ page.url }}</td>
-                <td>{{ page.status_code }}</td>
-                <td>{{ page.title || "—" }}</td>
-                <td>{{ page.title_length }}</td>
-                <td>{{ page.description_length }}</td>
-                <td>{{ page.h1 || "—" }}</td>
-                <td>{{ page.h1_count }}</td>
-                <td>{{ page.word_count }}</td>
+                <td data-label="URL" class="url-cell">{{ page.url }}</td>
+                <td data-label="Код ответа">{{ page.status_code }}</td>
+                <td data-label="Title">{{ page.title || "—" }}</td>
+                <td data-label="Длина Title">{{ page.title_length }}</td>
+                <td data-label="Длина Description">{{ page.description_length }}</td>
+                <td data-label="H1">{{ page.h1 || "—" }}</td>
+                <td data-label="Количество H1">{{ page.h1_count }}</td>
+                <td data-label="Слов">{{ page.word_count }}</td>
               </tr>
               <tr v-if="!pages.length">
                 <td colspan="8">Пока нет данных по страницам.</td>
@@ -591,17 +689,23 @@
 
     <div id="seo-errors" v-if="auditId" class="chart-card seo-section-card">
       <div class="card-head card-head-wrap">
-        <h2>Ошибки</h2>
+        <div class="section-headline">
+          <h2>Ошибки</h2>
+          <p class="section-subtitle">
+            Подробный список ошибок по страницам с фильтрами для быстрого поиска проблемных зон.
+          </p>
+        </div>
         <button type="button" class="collapse-btn" @click="toggleBlock('errors')">
           {{ collapsed.errors ? "Развернуть" : "Свернуть" }}
         </button>
       </div>
-      <p class="muted block-hint">
-        Подробный список ошибок по страницам. Используйте фильтр, чтобы быстро найти проблемные зоны.
-      </p>
-      <p class="muted tech-summary">
-        Всего ошибок: {{ errorsCount }} · Критичных: {{ breakdown.high_issues }} · Средних: {{ breakdown.medium_issues }} · Низких: {{ breakdown.low_issues }}
-      </p>
+
+      <div class="inline-summary-chips">
+        <span class="summary-chip">Всего ошибок: {{ errorsCount }}</span>
+        <span class="summary-chip">Критичных: {{ breakdown.high_issues }}</span>
+        <span class="summary-chip">Средних: {{ breakdown.medium_issues }}</span>
+        <span class="summary-chip">Низких: {{ breakdown.low_issues }}</span>
+      </div>
 
       <template v-if="!collapsed.errors">
         <div class="issue-filters">
@@ -616,8 +720,9 @@
             {{ item.label }}
           </button>
         </div>
-        <div class="table-wrap">
-          <table class="table">
+
+        <div class="table-wrap responsive-table-wrap">
+          <table class="table mobile-stack-table">
             <thead>
               <tr>
                 <th>Страница</th>
@@ -628,14 +733,14 @@
             </thead>
             <tbody>
               <tr v-for="issue in filteredIssues" :key="issue.id">
-                <td class="url-cell">{{ issue.page_url }}</td>
-                <td>{{ issueLabel(issue) }}</td>
-                <td>
+                <td data-label="Страница" class="url-cell">{{ issue.page_url }}</td>
+                <td data-label="Тип">{{ issueLabel(issue) }}</td>
+                <td data-label="Уровень">
                   <span class="severity-pill" :class="`severity-${issue.severity}`">
                     {{ severityLabel(issue.severity) }}
                   </span>
                 </td>
-                <td>{{ issue.recommendation }}</td>
+                <td data-label="Рекомендация">{{ issue.recommendation }}</td>
               </tr>
               <tr v-if="!filteredIssues.length">
                 <td colspan="4">Ошибок по выбранному фильтру не найдено.</td>
@@ -698,8 +803,6 @@ const issueFilters = [
 
 const seoSectionNavItems = [
   { id: "seo-overview", label: "SEO-аудит сайта" },
-  { id: "seo-plan", label: "План исправлений" },
-  { id: "seo-groups", label: "Группировка проблем" },
   { id: "seo-compare", label: "Сравнение аудитов" },
   { id: "seo-performance", label: "Скорость и производительность" },
   { id: "seo-indexing", label: "Индексация" },
@@ -723,6 +826,8 @@ const selectedCompareAuditId = ref("");
 const comparison = ref(null);
 const comparisonLoading = ref(false);
 const activeSeoSection = ref("seo-overview");
+const seoAiStarted = ref(false);
+
 const {
   recommendations: seoAiRecommendations,
   loading: seoAiLoading,
@@ -736,13 +841,11 @@ const {
 });
 
 const collapsed = ref({
-  issueGroups: false,
   speed: true,
   indexing: true,
   pages: true,
   errors: true,
 });
-const expandedIssueGroups = ref({});
 
 let pollTimer = null;
 let sectionScrollRaf = null;
@@ -799,22 +902,6 @@ const breakdown = computed(() => {
     low_issues: groupedErrors.value.low.length,
   };
 });
-const breakdownAffectedPages = computed(() => {
-  const uniqueCount = (rows) =>
-    new Set(
-      (Array.isArray(rows) ? rows : [])
-        .map((item) => String(item?.page_url || "").trim())
-        .filter((value) => Boolean(value)),
-    ).size;
-  return {
-    high: uniqueCount(groupedErrors.value.high),
-    medium: uniqueCount(groupedErrors.value.medium),
-    low: uniqueCount(groupedErrors.value.low),
-  };
-});
-
-const fixPlan = computed(() => (Array.isArray(audit.value?.fix_plan) ? audit.value.fix_plan : []));
-const issueGroups = computed(() => (Array.isArray(audit.value?.issue_groups) ? audit.value.issue_groups : []));
 
 const comparisonPayload = computed(() => {
   if (comparison.value && typeof comparison.value === "object") return comparison.value;
@@ -825,24 +912,63 @@ const comparisonPayload = computed(() => {
 });
 
 const scoreValue = computed(() => Number(audit.value?.score ?? audit.value?.seo_score ?? 0) || 0);
-const errorsCount = computed(() => breakdown.value.high_issues + breakdown.value.medium_issues + breakdown.value.low_issues);
+const errorsCount = computed(
+  () => breakdown.value.high_issues + breakdown.value.medium_issues + breakdown.value.low_issues,
+);
 const rawStatus = computed(() => String(audit.value?.status || "idle").trim().toLowerCase());
 const isInProgress = computed(() => rawStatus.value === "pending" || rawStatus.value === "running");
 
 const canStartAudit = computed(
-  () => Boolean(domain.value) && !starting.value && !stopping.value && !loading.value && !bootstrapping.value && !isInProgress.value,
+  () =>
+    Boolean(domain.value) &&
+    !starting.value &&
+    !stopping.value &&
+    !loading.value &&
+    !bootstrapping.value &&
+    !isInProgress.value,
 );
-const canStopAudit = computed(() => Boolean(auditId.value) && !starting.value && !stopping.value && !bootstrapping.value && isInProgress.value);
+const canStopAudit = computed(
+  () =>
+    Boolean(auditId.value) &&
+    !starting.value &&
+    !stopping.value &&
+    !bootstrapping.value &&
+    isInProgress.value,
+);
 const canExport = computed(() => Boolean(auditId.value) && !isInProgress.value && !exporting.value);
-const canCompare = computed(() => Boolean(auditId.value) && rawStatus.value === "done" && historyRows.value.length > 0);
+const canCompare = computed(
+  () => Boolean(auditId.value) && rawStatus.value === "done" && historyRows.value.length > 0,
+);
+const canRunSeoAiAnalysis = computed(
+  () => Boolean(auditId.value) && rawStatus.value === "done" && !seoAiLoading.value,
+);
 
-const runningHint = computed(() => (rawStatus.value === "pending" ? "Аудит в очереди..." : "Аудит выполняется..."));
+const seoAiHasResult = computed(
+  () =>
+    Boolean(seoAiRecommendations.value?.success) &&
+    String(seoAiRecommendations.value?.source || "").trim().toLowerCase() === "ai",
+);
+
+const seoAiFailureMessage = computed(() => {
+  const fromRequest = String(seoAiError.value || "").trim();
+  if (fromRequest) return fromRequest;
+  const fromPayload = String(seoAiRecommendations.value?.summary || "").trim();
+  if (fromPayload && !seoAiHasResult.value) return fromPayload;
+  return "Не удалось получить AI-рекомендации. Попробуйте запустить анализ ещё раз.";
+});
+
+const runningHint = computed(() =>
+  rawStatus.value === "pending" ? "Аудит в очереди..." : "Аудит выполняется...",
+);
 const avgTtfbMs = computed(() => Number(audit.value?.avg_ttfb_ms ?? 0) || 0);
 const avgPerformanceScore = computed(() => Number(audit.value?.avg_performance_score ?? 0) || 0);
 const pagesWithSpeedIssues = computed(() => Number(audit.value?.pages_with_speed_issues ?? 0) || 0);
-const pagesWithIndexingIssues = computed(() => Number(audit.value?.pages_with_indexing_issues ?? 0) || 0);
+const pagesWithIndexingIssues = computed(
+  () => Number(audit.value?.pages_with_indexing_issues ?? 0) || 0,
+);
 const hasRobotsTxt = computed(() => Boolean(audit.value?.has_robots_txt));
 const hasSitemapXml = computed(() => Boolean(audit.value?.has_sitemap_xml));
+
 const seoAiOverviewChips = computed(() => {
   const overview = seoAiRecommendations.value?.overview;
   if (!overview || typeof overview !== "object") return [];
@@ -861,7 +987,9 @@ const seoAiOverviewChips = computed(() => {
     })
     .filter((item) => Boolean(item));
 });
+
 const seoAiHighlights = computed(() => normalizeTextList(seoAiRecommendations.value?.highlights, 5));
+
 const seoAiMetricsReview = computed(() => {
   if (!Array.isArray(seoAiRecommendations.value?.metrics_review)) return [];
   return seoAiRecommendations.value.metrics_review
@@ -874,6 +1002,7 @@ const seoAiMetricsReview = computed(() => {
     .filter((item) => item.label && item.value)
     .slice(0, 8);
 });
+
 const seoAiProblems = computed(() => {
   if (!Array.isArray(seoAiRecommendations.value?.problems)) return [];
   return seoAiRecommendations.value.problems
@@ -885,6 +1014,7 @@ const seoAiProblems = computed(() => {
     .filter((item) => item.title)
     .slice(0, 8);
 });
+
 const seoAiFixPlan = computed(() => {
   if (!Array.isArray(seoAiRecommendations.value?.fix_plan)) return [];
   return seoAiRecommendations.value.fix_plan
@@ -900,6 +1030,7 @@ const seoAiFixPlan = computed(() => {
     .sort((a, b) => a.step - b.step)
     .slice(0, 7);
 });
+
 const seoAiActionItems = computed(() => {
   const structured = normalizeTextList(seoAiRecommendations.value?.recommendations, 7);
   if (structured.length) return structured;
@@ -918,6 +1049,7 @@ const statusLabel = computed(() => {
   };
   return labels[rawStatus.value] || rawStatus.value;
 });
+
 const statusClass = computed(() => {
   if (rawStatus.value === "done") return "status-done";
   if (rawStatus.value === "error") return "status-error";
@@ -929,6 +1061,7 @@ const statusClass = computed(() => {
 function canUseStorage() {
   return typeof window !== "undefined" && typeof window.localStorage !== "undefined";
 }
+
 function persistState() {
   if (!canUseStorage()) return;
   try {
@@ -939,6 +1072,7 @@ function persistState() {
     // ignore
   }
 }
+
 function clearPersistedAuditId() {
   if (!canUseStorage()) return;
   try {
@@ -947,6 +1081,7 @@ function clearPersistedAuditId() {
     // ignore
   }
 }
+
 function restoreState() {
   if (!canUseStorage()) return;
   try {
@@ -958,6 +1093,7 @@ function restoreState() {
     // ignore
   }
 }
+
 function normalizeTextList(rows, maxItems = 7) {
   if (!Array.isArray(rows)) return [];
   return rows
@@ -965,11 +1101,13 @@ function normalizeTextList(rows, maxItems = 7) {
     .filter((item) => Boolean(item))
     .slice(0, maxItems);
 }
+
 function normalizeSeoMetricStatus(value) {
   const key = String(value || "").toLowerCase();
   if (key === "good" || key === "warning" || key === "bad" || key === "info") return key;
   return "info";
 }
+
 function normalizeSeverity(value) {
   const key = String(value || "").toLowerCase();
   if (key === "high" || key === "medium" || key === "low") return key;
@@ -983,14 +1121,17 @@ function severityLabel(value) {
   if (key === "low") return "Низкий";
   return "—";
 }
+
 function issueLabel(issue) {
   return String(issue?.issue_title || "").trim() || "SEO-ошибка";
 }
+
 function formatMs(value) {
   const num = Number(value || 0);
   if (num <= 0) return "—";
   return `${Math.round(num)} мс`;
 }
+
 function formatBytes(value) {
   const num = Number(value || 0);
   if (num <= 0) return "—";
@@ -998,6 +1139,7 @@ function formatBytes(value) {
   if (num >= 1024) return `${(num / 1024).toFixed(1)} КБ`;
   return `${num} Б`;
 }
+
 function formatDate(value) {
   const raw = String(value || "").trim();
   if (!raw) return "—";
@@ -1011,17 +1153,14 @@ function formatDate(value) {
     minute: "2-digit",
   }).format(date);
 }
-function compareTransition(metric) {
-  const before = Number(metric?.before ?? 0) || 0;
-  const after = Number(metric?.after ?? 0) || 0;
-  return `${before} → ${after}`;
-}
+
 function compareDelta(metric) {
   const delta = Number(metric?.delta ?? 0) || 0;
   if (delta > 0) return `+${delta}`;
   if (delta < 0) return `${delta}`;
-  return "Без изменений";
+  return "0";
 }
+
 function comparisonTrendLabel(payload) {
   const key = String(payload?.trend || "").toLowerCase();
   if (key === "better") return "Стало лучше";
@@ -1030,15 +1169,18 @@ function comparisonTrendLabel(payload) {
   if (explicitLabel) return explicitLabel;
   return "Без заметных изменений";
 }
+
 function yesNo(value) {
   return value ? "Да" : "Нет";
 }
+
 function scoreClassByValue(value) {
   const score = Number(value || 0);
   if (score <= 40) return "seo-score-bad";
   if (score <= 70) return "seo-score-warn";
   return "seo-score-good";
 }
+
 function speedStatusLabel(value) {
   const key = String(value || "").toLowerCase();
   if (key === "good") return "Хорошо";
@@ -1046,6 +1188,7 @@ function speedStatusLabel(value) {
   if (key === "critical") return "Критично";
   return "Неизвестно";
 }
+
 function speedStatusClass(value) {
   const key = String(value || "").toLowerCase();
   if (key === "good") return "severity-low";
@@ -1053,6 +1196,7 @@ function speedStatusClass(value) {
   if (key === "critical") return "severity-high";
   return "";
 }
+
 function indexabilityStatusLabel(value) {
   const key = String(value || "").toLowerCase();
   if (key === "indexable") return "Индексируется";
@@ -1061,6 +1205,7 @@ function indexabilityStatusLabel(value) {
   if (key === "conflict") return "Конфликт";
   return "Неизвестно";
 }
+
 function indexabilityStatusClass(value) {
   const key = String(value || "").toLowerCase();
   if (key === "indexable") return "severity-low";
@@ -1068,32 +1213,31 @@ function indexabilityStatusClass(value) {
   if (key === "blocked" || key === "conflict") return "severity-high";
   return "";
 }
+
 function pageSpeedIssues(page) {
   const url = String(page?.url || "");
   return speedIssues.value.filter((item) => String(item?.page_url || "") === url);
 }
+
 function pageIndexingIssues(page) {
   const url = String(page?.url || "");
   return indexingIssues.value.filter((item) => String(item?.page_url || "") === url);
 }
-function priorityClass(value) {
-  const key = String(value || "").toLowerCase();
-  if (key === "urgent") return "priority-urgent";
-  if (key === "important") return "priority-important";
-  return "priority-later";
-}
+
 function seoAiPriorityLabel(value) {
   const key = String(value || "").toLowerCase();
   if (key === "high") return "Высокий";
   if (key === "low") return "Низкий";
   return "Средний";
 }
+
 function seoAiPriorityClass(value) {
   const key = String(value || "").toLowerCase();
   if (key === "high") return "priority-urgent";
   if (key === "low") return "priority-later";
   return "priority-important";
 }
+
 function seoMetricStatusLabel(value) {
   const key = String(value || "").toLowerCase();
   if (key === "good") return "Хорошо";
@@ -1101,6 +1245,7 @@ function seoMetricStatusLabel(value) {
   if (key === "bad") return "Проблема";
   return "Инфо";
 }
+
 function seoMetricStatusClass(value) {
   const key = String(value || "").toLowerCase();
   if (key === "good") return "severity-low";
@@ -1108,18 +1253,33 @@ function seoMetricStatusClass(value) {
   if (key === "bad") return "severity-high";
   return "seo-metric-status-info";
 }
+
 function comparisonTrendClass(value) {
   const key = String(value || "").toLowerCase();
   if (key === "better") return "trend-better";
   if (key === "worse") return "trend-worse";
   return "trend-stable";
 }
+
 function boolTransitionLabel(value) {
   const key = String(value || "").toLowerCase();
   if (key === "appeared") return "Появился";
   if (key === "missing_now") return "Пропал";
   return "Без изменений";
 }
+
+function reverseDelta(value) {
+  const num = Number(value || 0) || 0;
+  return num === 0 ? 0 : num * -1;
+}
+
+function deltaClass(value) {
+  const num = Number(value || 0) || 0;
+  if (num > 0) return "delta-positive";
+  if (num < 0) return "delta-negative";
+  return "delta-neutral";
+}
+
 function syncActiveSeoSection() {
   if (typeof document === "undefined") return;
   if (!auditId.value) {
@@ -1138,6 +1298,7 @@ function syncActiveSeoSection() {
   }
   activeSeoSection.value = currentId;
 }
+
 function handleSeoScroll() {
   if (typeof window === "undefined") return;
   if (sectionScrollRaf) return;
@@ -1146,6 +1307,7 @@ function handleSeoScroll() {
     syncActiveSeoSection();
   });
 }
+
 function scrollToSeoSection(sectionId) {
   const targetId = String(sectionId || "").trim();
   if (!targetId || typeof document === "undefined") return;
@@ -1154,6 +1316,7 @@ function scrollToSeoSection(sectionId) {
   activeSeoSection.value = targetId;
   node.scrollIntoView({ behavior: "smooth", block: "start" });
 }
+
 function toggleBlock(key) {
   collapsed.value = { ...collapsed.value, [key]: !collapsed.value[key] };
   if (typeof window !== "undefined") {
@@ -1162,23 +1325,20 @@ function toggleBlock(key) {
     }, 0);
   }
 }
-function toggleIssueGroupPages(issueType) {
-  const key = String(issueType || "");
-  if (!key) return;
-  expandedIssueGroups.value = { ...expandedIssueGroups.value, [key]: !expandedIssueGroups.value[key] };
-}
-function isIssueGroupExpanded(issueType) {
-  return Boolean(expandedIssueGroups.value[String(issueType || "")]);
-}
-async function refreshSeoAiRecommendations() {
+
+async function runSeoAiAnalysis() {
+  if (!canRunSeoAiAnalysis.value) return;
+  seoAiStarted.value = true;
   await loadSeoAiRecommendations({ force: true });
 }
+
 function stopPolling() {
   if (pollTimer) {
     clearTimeout(pollTimer);
     pollTimer = null;
   }
 }
+
 function schedulePollingIfNeeded() {
   stopPolling();
   if (!auditId.value || !isInProgress.value) return;
@@ -1216,8 +1376,8 @@ async function loadAudit({ silent = false, allowLatestFallback = true } = {}) {
     persistState();
     if (rawStatus.value === "done") {
       await loadHistory();
-      void loadSeoAiRecommendations();
     } else {
+      seoAiStarted.value = false;
       resetSeoAiRecommendations();
     }
     await nextTick();
@@ -1230,9 +1390,14 @@ async function loadAudit({ silent = false, allowLatestFallback = true } = {}) {
       historyRows.value = [];
       selectedCompareAuditId.value = "";
       comparison.value = null;
+      seoAiStarted.value = false;
       clearPersistedAuditId();
       resetSeoAiRecommendations();
-      const loadedLatest = await loadLatestAudit({ silent: true, preferCurrentDomain: true, suppressError: true });
+      const loadedLatest = await loadLatestAudit({
+        silent: true,
+        preferCurrentDomain: true,
+        suppressError: true,
+      });
       if (loadedLatest) return;
     }
     error.value = e?.response?.data?.detail || "Не удалось загрузить результат аудита.";
@@ -1245,7 +1410,10 @@ async function loadAudit({ silent = false, allowLatestFallback = true } = {}) {
 async function loadLatestAudit({ silent = false, preferCurrentDomain = false, suppressError = false } = {}) {
   if (!silent) loading.value = true;
   try {
-    const params = preferCurrentDomain && String(domain.value || "").trim() ? { domain: String(domain.value).trim() } : undefined;
+    const params =
+      preferCurrentDomain && String(domain.value || "").trim()
+        ? { domain: String(domain.value).trim() }
+        : undefined;
     const { data } = await api.get("/api/seo/latest/", { params });
     const latestAuditId = Number(data?.audit_id || 0) || null;
     if (!latestAuditId) {
@@ -1254,6 +1422,7 @@ async function loadLatestAudit({ silent = false, preferCurrentDomain = false, su
       historyRows.value = [];
       selectedCompareAuditId.value = "";
       comparison.value = null;
+      seoAiStarted.value = false;
       resetSeoAiRecommendations();
       persistState();
       return false;
@@ -1285,6 +1454,7 @@ async function startAudit() {
     historyRows.value = [];
     selectedCompareAuditId.value = "";
     comparison.value = null;
+    seoAiStarted.value = false;
     resetSeoAiRecommendations();
     persistState();
     await loadAudit();
@@ -1335,7 +1505,10 @@ async function exportReport() {
     const params = {};
     const selected = String(selectedCompareAuditId.value || "").trim();
     if (selected) params.with_audit_id = selected;
-    const response = await api.get(`/api/seo/${auditId.value}/export/`, { params, headers: { Accept: "text/csv" } });
+    const response = await api.get(`/api/seo/${auditId.value}/export/`, {
+      params,
+      headers: { Accept: "text/csv" },
+    });
     const contentDisposition = response?.headers?.get?.("content-disposition") || "";
     const match = /filename=\"?([^\";]+)\"?/i.exec(contentDisposition);
     const filename = match?.[1] || `seo-audit-${auditId.value}.csv`;
@@ -1365,9 +1538,14 @@ async function manualRefresh() {
 
 watch(
   auditId,
-  async (value) => {
+  async (value, prevValue) => {
+    if (value !== prevValue) {
+      seoAiStarted.value = false;
+      resetSeoAiRecommendations();
+    }
     if (!value) {
       activeSeoSection.value = "seo-overview";
+      seoAiStarted.value = false;
       resetSeoAiRecommendations();
       return;
     }
@@ -1405,13 +1583,46 @@ onBeforeUnmount(() => {
   }
 });
 </script>
+
 <style scoped>
 .card-head-wrap {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  gap: 0.75rem;
+  gap: 1rem;
   flex-wrap: wrap;
+}
+
+.section-headline {
+  display: grid;
+  gap: 0.22rem;
+}
+
+.section-headline h2 {
+  margin: 0;
+}
+
+.section-subtitle {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--color-muted);
+  line-height: 1.45;
+  max-width: 58rem;
+}
+
+.seo-overview-card {
+  position: relative;
+  overflow: hidden;
+}
+
+.seo-overview-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at top left, rgba(59, 130, 246, 0.05), transparent 28%),
+    radial-gradient(circle at right bottom, rgba(37, 99, 235, 0.04), transparent 24%);
+  pointer-events: none;
 }
 
 .seo-start-row {
@@ -1419,27 +1630,38 @@ onBeforeUnmount(() => {
   grid-template-columns: minmax(16rem, 30rem) auto auto;
   gap: 0.75rem;
   align-items: end;
+  position: relative;
+  z-index: 1;
 }
 
 .seo-field {
   display: grid;
-  gap: 0.35rem;
+  gap: 0.4rem;
 }
 
 .seo-field-label {
   font-size: 0.82rem;
-  font-weight: 600;
+  font-weight: 700;
   color: var(--color-muted);
 }
 
 .seo-input,
 .seo-select {
-  min-height: 2.6rem;
-  border-radius: 0.65rem;
+  min-height: 2.8rem;
+  border-radius: 0.75rem;
   border: 1px solid var(--color-border);
-  padding: 0.5rem 0.75rem;
+  padding: 0.6rem 0.85rem;
   font: inherit;
   width: 100%;
+  background: #fff;
+  color: #111827;
+}
+
+.seo-input:focus,
+.seo-select:focus {
+  outline: none;
+  border-color: #93c5fd;
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.08);
 }
 
 .seo-start-btn,
@@ -1449,29 +1671,43 @@ onBeforeUnmount(() => {
 .seo-ai-refresh-btn,
 .collapse-btn,
 .issue-pages-toggle {
-  min-height: 2.6rem;
-  border-radius: 0.65rem;
+  min-height: 2.75rem;
+  border-radius: 0.75rem;
   border: 1px solid var(--color-border);
-  padding: 0 0.9rem;
-  font-weight: 600;
+  padding: 0 1rem;
+  font-weight: 700;
   cursor: pointer;
   background: #fff;
   color: #050505;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+}
+
+.seo-start-btn:hover,
+.seo-stop-btn:hover,
+.seo-export-btn:hover,
+.seo-compare-btn:hover,
+.seo-ai-refresh-btn:hover,
+.collapse-btn:hover,
+.issue-filter-btn:hover,
+.seo-anchor-nav-btn:hover {
+  transform: translateY(-1px);
 }
 
 .seo-start-btn {
   border-color: transparent;
   color: #fff;
   background: linear-gradient(135deg, #0284c7, #2563eb);
+  box-shadow: 0 10px 24px rgba(37, 99, 235, 0.18);
 }
 
 .seo-start-btn.is-busy {
   background: linear-gradient(135deg, #64748b, #334155);
+  box-shadow: none;
 }
 
 .seo-stop-btn {
   border-color: #fecaca;
-  background: #fef2f2;
+  background: #fff5f5;
   color: #b91c1c;
 }
 
@@ -1483,10 +1719,10 @@ onBeforeUnmount(() => {
   color: #1e40af;
 }
 
-.collapse-btn,
-.issue-pages-toggle {
-  min-height: 2rem;
+.collapse-btn {
+  min-height: 2.2rem;
   border-radius: 999px;
+  padding: 0 0.95rem;
 }
 
 .seo-start-btn:disabled,
@@ -1494,19 +1730,20 @@ onBeforeUnmount(() => {
 .seo-export-btn:disabled,
 .seo-compare-btn:disabled,
 .seo-ai-refresh-btn:disabled,
-.collapse-btn:disabled,
-.issue-pages-toggle:disabled {
+.collapse-btn:disabled {
   opacity: 0.65;
   cursor: default;
+  transform: none;
+  box-shadow: none;
 }
 
 .seo-running-indicator {
-  margin: 0.7rem 0 0;
+  margin: 0.8rem 0 0;
   display: inline-flex;
   align-items: center;
-  gap: 0.45rem;
+  gap: 0.5rem;
   color: #1d4ed8;
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .seo-spinner {
@@ -1519,146 +1756,333 @@ onBeforeUnmount(() => {
 }
 
 .seo-hint {
-  margin: 0.7rem 0 0;
+  margin: 0.8rem 0 0;
+  position: relative;
+  z-index: 1;
 }
 
 .seo-section-card {
-  scroll-margin-top: 6.5rem;
+  scroll-margin-top: 6.7rem;
 }
 
 .seo-anchor-nav-wrap {
   position: sticky;
-  top: 0.55rem;
+  top: 0.6rem;
   z-index: 16;
-  margin: 0.8rem 0 1rem;
+  margin: 0.95rem 0 1rem;
 }
 
 .seo-anchor-nav {
   display: flex;
-  gap: 0.45rem;
+  gap: 0.5rem;
   overflow-x: auto;
-  padding: 0.48rem;
+  padding: 0.52rem;
   border: 1px solid #dbe5f1;
-  border-radius: 0.85rem;
-  background: rgba(255, 255, 255, 0.95);
-  backdrop-filter: blur(6px);
+  border-radius: 0.95rem;
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.05);
 }
 
 .seo-anchor-nav-btn {
   flex: 0 0 auto;
-  min-height: 2rem;
+  min-height: 2.15rem;
   border: 1px solid #d1d9e6;
   border-radius: 999px;
-  padding: 0 0.72rem;
-  font-size: 0.78rem;
+  padding: 0 0.8rem;
+  font-size: 0.79rem;
   font-weight: 700;
   color: #334155;
   background: #fff;
   cursor: pointer;
   transition: all 0.18s ease;
-}
-
-.seo-anchor-nav-btn:hover {
-  border-color: #93c5fd;
-  background: #eff6ff;
-  color: #1d4ed8;
+  white-space: nowrap;
 }
 
 .seo-anchor-nav-btn.active {
   border-color: #2563eb;
   background: #dbeafe;
   color: #1d4ed8;
+  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.06);
 }
 
 .seo-stats {
-  margin-top: 0.8rem;
-  margin-bottom: 0.9rem;
+  margin-top: 0.85rem;
+  margin-bottom: 1rem;
 }
 
-.seo-breakdown-grid,
+.seo-stats .stat-card {
+  border-radius: 1rem;
+}
+
+.inline-summary-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  margin-bottom: 0.8rem;
+}
+
+.summary-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2rem;
+  padding: 0.25rem 0.7rem;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #1f2937;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+}
+
+.comparison-wrap {
+  display: grid;
+  gap: 1rem;
+}
+
+.comparison-topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  flex-wrap: wrap;
+}
+
 .comparison-grid {
   display: grid;
-  gap: 0.75rem;
+  gap: 0.8rem;
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-.seo-breakdown-card,
-.comparison-card,
-.fix-plan-item {
+.comparison-card {
   border: 1px solid var(--color-border);
+  border-radius: 1rem;
+  padding: 0.9rem;
+  background: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.03);
+}
+
+.comparison-card-featured {
+  border-color: #bfdbfe;
+  background: linear-gradient(180deg, #eff6ff 0%, #ffffff 100%);
+}
+
+.comparison-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.9rem;
+}
+
+.comparison-card-head span {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #334155;
+}
+
+.comparison-card-head strong {
+  font-size: 1.55rem;
+  line-height: 1;
+}
+
+.comparison-values {
+  display: grid;
+  gap: 0.55rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.comparison-values div {
   border-radius: 0.8rem;
-  padding: 0.68rem 0.72rem;
+  padding: 0.65rem 0.7rem;
+  background: #f8fafc;
+  border: 1px solid #e5edf7;
 }
 
-.seo-breakdown-card span,
-.comparison-card span {
-  font-size: 0.82rem;
+.comparison-values small {
+  display: block;
   color: var(--color-muted);
+  margin-bottom: 0.18rem;
+  font-size: 0.75rem;
 }
 
-.seo-breakdown-high {
-  background: linear-gradient(180deg, #fff7f7 0%, #ffffff 100%);
-  border-color: #fecaca;
+.comparison-values b {
+  font-size: 0.96rem;
+  color: #0f172a;
 }
 
-.seo-breakdown-medium {
-  background: linear-gradient(180deg, #fffaf0 0%, #ffffff 100%);
-  border-color: #fde68a;
+.compare-controls {
+  margin-bottom: 0.9rem;
+  max-width: 32rem;
 }
 
-.seo-breakdown-low {
-  background: linear-gradient(180deg, #f5fbf6 0%, #ffffff 100%);
-  border-color: #bbf7d0;
+.comparison-index-files,
+.indexing-summary,
+.issue-filters {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
 }
 
-.seo-breakdown-card-wrap .seo-breakdown-card strong {
-  font-size: 1.28rem;
-  line-height: 1.12;
+.comparison-file-card,
+.summary-box {
+  display: grid;
+  gap: 0.22rem;
+  min-width: 12rem;
+  padding: 0.8rem 0.9rem;
+  border-radius: 0.9rem;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
 }
 
-.seo-breakdown-card small,
-.comparison-card small {
-  display: inline-block;
-  margin-top: 0.25rem;
+.comparison-lists {
+  display: grid;
+  gap: 0.8rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.comparison-list-card {
+  border: 1px solid var(--color-border);
+  border-radius: 1rem;
+  padding: 0.95rem;
+  background: #fff;
+}
+
+.comparison-list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.8rem;
+}
+
+.comparison-list-head h3 {
+  margin: 0;
+}
+
+.comparison-counter {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 1.9rem;
+  padding: 0 0.65rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.comparison-counter-warn {
+  color: #92400e;
+  background: #fef3c7;
+}
+
+.comparison-counter-good {
+  color: #166534;
+  background: #dcfce7;
+}
+
+.comparison-issue-list {
+  margin: 0;
+  padding-left: 1rem;
+  display: grid;
+  gap: 0.55rem;
+}
+
+.comparison-issue-list li {
+  display: grid;
+  gap: 0.18rem;
+}
+
+.comparison-issue-list li strong {
+  color: #0f172a;
+}
+
+.comparison-issue-list li span {
   color: var(--color-muted);
+  word-break: break-word;
+  font-size: 0.86rem;
 }
 
-.block-hint {
+.block-hint,
+.tech-summary {
   margin: 0 0 0.7rem;
 }
 
-.tech-summary {
-  margin: 0 0 0.62rem;
-  font-size: 0.82rem;
-}
-
-.fix-plan-list,
-.issue-pages-list,
-.comparison-wrap {
-  display: grid;
-  gap: 0.5rem;
-}
-
 .seo-ai-card {
-  margin-top: 0.8rem;
+  margin-top: 0.85rem;
+  background: linear-gradient(180deg, #f7fbff 0%, #fdfefe 100%);
+  border: 1px solid #dbeafe;
+  box-shadow: 0 12px 30px rgba(59, 130, 246, 0.05);
+  position: relative;
+  overflow: hidden;
+}
+
+.seo-ai-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at top right, rgba(59, 130, 246, 0.08), transparent 24%),
+    radial-gradient(circle at left bottom, rgba(147, 197, 253, 0.12), transparent 26%);
+  pointer-events: none;
+}
+
+.seo-ai-card > * {
+  position: relative;
+  z-index: 1;
+}
+
+.seo-empty-panel {
+  padding: 1rem;
+  border-radius: 0.95rem;
+  background: rgba(255, 255, 255, 0.75);
+  border: 1px dashed #bfdbfe;
+}
+
+.seo-ai-summary-box {
+  padding: 0.95rem 1rem;
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid #dbeafe;
 }
 
 .seo-ai-summary {
   margin: 0 0 0.55rem;
+  line-height: 1.6;
 }
 
 .seo-ai-meta {
   display: flex;
   gap: 0.65rem;
   flex-wrap: wrap;
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.2rem;
+}
+
+.seo-meta-chip,
+.priority-pill,
+.severity-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 0.18rem 0.6rem;
+}
+
+.seo-meta-chip {
+  color: #1e3a8a;
+  background: #eaf3ff;
+  border: 1px solid #dbeafe;
 }
 
 .seo-ai-overview {
   display: flex;
   flex-wrap: wrap;
   gap: 0.45rem;
-  margin-bottom: 0.55rem;
+  margin-top: 0.8rem;
+  margin-bottom: 0.65rem;
 }
 
 .seo-ai-overview-chip {
@@ -1666,7 +2090,7 @@ onBeforeUnmount(() => {
   align-items: center;
   border: 1px solid #dbe5f1;
   border-radius: 999px;
-  padding: 0.22rem 0.56rem;
+  padding: 0.24rem 0.58rem;
   font-size: 0.76rem;
   color: #1e3a8a;
   background: #eff6ff;
@@ -1674,43 +2098,43 @@ onBeforeUnmount(() => {
 
 .seo-ai-section {
   display: grid;
-  gap: 0.45rem;
-  margin-top: 0.62rem;
+  gap: 0.48rem;
+  margin-top: 0.7rem;
 }
 
 .seo-ai-section h3 {
   margin: 0;
-  font-size: 0.95rem;
+  font-size: 0.98rem;
   line-height: 1.3;
 }
 
 .seo-ai-metrics-grid {
   display: grid;
-  gap: 0.55rem;
+  gap: 0.6rem;
   grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
 }
 
 .seo-ai-metric-card,
 .seo-ai-problem-item,
 .seo-ai-fix-plan li {
-  border: 1px solid var(--color-border);
-  border-radius: 0.7rem;
-  padding: 0.58rem 0.62rem;
-  background: #fff;
+  border: 1px solid #dbeafe;
+  border-radius: 0.85rem;
+  padding: 0.72rem 0.75rem;
+  background: rgba(255, 255, 255, 0.82);
 }
 
 .seo-ai-metric-head,
 .seo-ai-problem-head,
 .seo-ai-fix-head {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  gap: 0.5rem;
+  gap: 0.55rem;
   flex-wrap: wrap;
 }
 
 .seo-ai-metric-card strong {
-  margin-top: 0.3rem;
+  margin-top: 0.35rem;
   display: inline-block;
   font-size: 1.05rem;
 }
@@ -1718,19 +2142,19 @@ onBeforeUnmount(() => {
 .seo-ai-metric-card p,
 .seo-ai-problem-item p,
 .seo-ai-fix-plan p {
-  margin: 0.3rem 0 0;
+  margin: 0.35rem 0 0;
 }
 
 .seo-ai-problems {
   display: grid;
-  gap: 0.5rem;
+  gap: 0.55rem;
 }
 
 .seo-ai-fix-plan {
   margin: 0;
   padding-left: 1rem;
   display: grid;
-  gap: 0.5rem;
+  gap: 0.55rem;
 }
 
 .seo-ai-step {
@@ -1738,7 +2162,7 @@ onBeforeUnmount(() => {
   align-items: center;
   border: 1px solid #dbe5f1;
   border-radius: 999px;
-  padding: 0.12rem 0.48rem;
+  padding: 0.14rem 0.5rem;
   font-size: 0.74rem;
   font-weight: 700;
   color: #1d4ed8;
@@ -1749,7 +2173,7 @@ onBeforeUnmount(() => {
   margin: 0;
   padding-left: 1rem;
   display: grid;
-  gap: 0.35rem;
+  gap: 0.4rem;
 }
 
 .seo-ai-error {
@@ -1759,27 +2183,6 @@ onBeforeUnmount(() => {
 .seo-metric-status-info {
   color: #1e3a8a;
   background: #e0e7ff;
-}
-
-.fix-plan-head,
-.fix-plan-meta,
-.indexing-summary,
-.comparison-index-files,
-.issue-filters {
-  display: flex;
-  gap: 0.75rem;
-  flex-wrap: wrap;
-}
-
-.priority-pill,
-.severity-pill {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 999px;
-  font-size: 0.78rem;
-  font-weight: 700;
-  padding: 0.15rem 0.55rem;
 }
 
 .priority-urgent,
@@ -1804,36 +2207,6 @@ onBeforeUnmount(() => {
   background: #dcfce7;
 }
 
-.issue-pages-list span {
-  border: 1px solid var(--color-border);
-  border-radius: 0.55rem;
-  padding: 0.35rem 0.45rem;
-  font-size: 0.82rem;
-  word-break: break-word;
-}
-
-.compare-controls {
-  margin-bottom: 0.75rem;
-  max-width: 30rem;
-}
-
-.comparison-lists {
-  display: grid;
-  gap: 0.75rem;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.comparison-card strong {
-  line-height: 1.25;
-}
-
-.comparison-issue-list {
-  margin: 0;
-  padding-left: 1rem;
-  display: grid;
-  gap: 0.35rem;
-}
-
 .url-cell {
   max-width: 20rem;
   word-break: break-word;
@@ -1842,17 +2215,20 @@ onBeforeUnmount(() => {
 .issue-inline-list {
   font-size: 0.82rem;
   color: var(--color-muted);
+  word-break: break-word;
+  line-height: 1.45;
 }
 
 .issue-filter-btn {
-  min-height: 2rem;
+  min-height: 2.1rem;
   border: 1px solid var(--color-border);
   border-radius: 999px;
-  padding: 0 0.7rem;
+  padding: 0 0.75rem;
   background: #fff;
-  font-weight: 600;
+  font-weight: 700;
   cursor: pointer;
   color: #050505;
+  transition: all 0.18s ease;
 }
 
 .issue-filter-btn.active {
@@ -1874,7 +2250,8 @@ onBeforeUnmount(() => {
 }
 
 .status-stopped,
-.seo-score-warn {
+.seo-score-warn,
+.delta-neutral {
   color: #b45309;
 }
 
@@ -1882,28 +2259,49 @@ onBeforeUnmount(() => {
   color: #6b7280;
 }
 
-.seo-score-bad {
-  color: #b91c1c;
-}
-
-.seo-score-good {
-  color: #15803d;
-}
-
-.trend-better {
-  color: #15803d;
-}
-
+.seo-score-bad,
+.delta-negative,
 .trend-worse {
   color: #b91c1c;
+}
+
+.seo-score-good,
+.delta-positive,
+.trend-better {
+  color: #15803d;
 }
 
 .trend-stable {
   color: #1e40af;
 }
 
+.comparison-trend {
+  margin: 0;
+  font-weight: 800;
+  font-size: 1rem;
+}
+
+.comparison-note {
+  font-size: 0.84rem;
+}
+
 .empty-state {
   margin: 0;
+}
+
+.responsive-table-wrap {
+  overflow-x: auto;
+}
+
+.mobile-stack-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.mobile-stack-table th,
+.mobile-stack-table td {
+  vertical-align: top;
 }
 
 @keyframes seo-spin {
@@ -1915,7 +2313,7 @@ onBeforeUnmount(() => {
   }
 }
 
-@media (max-width: 1100px) {
+@media (max-width: 1200px) {
   .comparison-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -1927,15 +2325,119 @@ onBeforeUnmount(() => {
   }
 
   .seo-start-row,
-  .seo-breakdown-grid,
   .comparison-grid,
   .comparison-lists {
     grid-template-columns: 1fr;
   }
 
+  .comparison-values {
+    grid-template-columns: 1fr 1fr 1fr;
+  }
+
   .indexing-summary {
     flex-direction: column;
-    gap: 0.35rem;
+    gap: 0.45rem;
+  }
+}
+
+@media (max-width: 768px) {
+  .card-head-wrap {
+    align-items: stretch;
+  }
+
+  .seo-export-btn,
+  .seo-compare-btn,
+  .seo-ai-refresh-btn,
+  .seo-start-btn,
+  .seo-stop-btn {
+    width: 100%;
+  }
+
+  .seo-start-row {
+    grid-template-columns: 1fr;
+  }
+
+  .seo-anchor-nav {
+    padding: 0.45rem;
+    border-radius: 0.85rem;
+  }
+
+  .seo-anchor-nav-btn {
+    min-height: 2rem;
+    font-size: 0.76rem;
+  }
+
+  .comparison-values {
+    grid-template-columns: 1fr;
+  }
+
+  .comparison-file-card,
+  .summary-box {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .mobile-stack-table thead {
+    display: none;
+  }
+
+  .mobile-stack-table,
+  .mobile-stack-table tbody,
+  .mobile-stack-table tr,
+  .mobile-stack-table td {
+    display: block;
+    width: 100%;
+  }
+
+  .mobile-stack-table tbody {
+    display: grid;
+    gap: 0.8rem;
+  }
+
+  .mobile-stack-table tr {
+    border: 1px solid #e5edf7;
+    border-radius: 0.95rem;
+    background: #fff;
+    padding: 0.6rem 0.7rem;
+    box-shadow: 0 8px 18px rgba(15, 23, 42, 0.03);
+  }
+
+  .mobile-stack-table td {
+    border: none;
+    padding: 0.46rem 0;
+    text-align: left;
+  }
+
+  .mobile-stack-table td::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 0.18rem;
+    font-size: 0.74rem;
+    font-weight: 700;
+    color: #64748b;
+  }
+
+  .mobile-stack-table td[colspan] {
+    text-align: left;
+  }
+
+  .mobile-stack-table td[colspan]::before {
+    display: none;
+  }
+
+  .url-cell {
+    max-width: 100%;
+  }
+
+  .seo-ai-metrics-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .seo-ai-problem-head,
+  .seo-ai-fix-head,
+  .seo-ai-metric-head,
+  .comparison-list-head {
+    align-items: flex-start;
   }
 }
 </style>
