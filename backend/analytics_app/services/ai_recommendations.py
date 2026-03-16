@@ -60,6 +60,19 @@ MICRO_CONVERSION_EVENT_TYPES = (
     "contact_copy",
 )
 
+MICRO_CONVERSION_LABELS = {
+    "phone_click": "Клик по телефону",
+    "email_click": "Клик по email",
+    "telegram_click": "Переход в Telegram",
+    "whatsapp_click": "Переход в WhatsApp",
+    "map_open": "Открыли карту",
+    "faq_expand": "Открыли ответ в FAQ",
+    "gallery_open": "Открыли галерею",
+    "video_play": "Запустили видео",
+    "tariff_expand": "Открыли тариф",
+    "contact_copy": "Скопировали контакт",
+}
+
 AI_EVENT_TYPES: tuple[str, ...] = tuple(
     sorted(
         set(
@@ -289,8 +302,24 @@ def _resolve_section_id(payload: dict[str, Any]) -> str:
 
 def _resolve_field_parts(payload: dict[str, Any]) -> tuple[str, str, str, str]:
     payload = payload or {}
-    form_id = str(payload.get("form_id") or payload.get("form_key") or payload.get("id") or "").strip()[:120]
-    field_name = str(payload.get("field_name") or "").strip()[:64]
+    form_id = (
+        str(payload.get("form_id") or payload.get("form_key") or payload.get("form_name") or payload.get("id") or "")
+        .strip()[:120]
+        or "form"
+    )
+    field_name = (
+        str(
+            payload.get("field_name")
+            or payload.get("field_label")
+            or payload.get("name")
+            or payload.get("field_id")
+            or payload.get("field_key")
+            or payload.get("entity_id")
+            or "field"
+        )
+        .strip()[:64]
+        or "field"
+    )
     field_type = str(payload.get("field_type") or "").strip()[:32] or "unknown"
     key = f"{form_id}|{field_name}|{field_type}".strip("|")
     return key, form_id, field_name, field_type
@@ -379,30 +408,48 @@ def _build_anomalies_payload(client, from_dt, to_dt) -> dict[str, Any]:
     previous_key_sections = sum(previous_metrics["section_views"].get(key, 0) for key in key_sections)
 
     specs = [
-        ("cta_clicks", "CTA clicks", "down", float(current_metrics["cta_clicks"]), float(previous_metrics["cta_clicks"])),
-        ("form_started", "Form started", "down", float(current_metrics["form_started"]), float(previous_metrics["form_started"])),
+        (
+            "cta_clicks",
+            "Клики по важным кнопкам",
+            "down",
+            float(current_metrics["cta_clicks"]),
+            float(previous_metrics["cta_clicks"]),
+        ),
+        (
+            "form_started",
+            "Начали заполнять форму",
+            "down",
+            float(current_metrics["form_started"]),
+            float(previous_metrics["form_started"]),
+        ),
         (
             "form_submit_success",
-            "Form submit success",
+            "Успешные отправки формы",
             "down",
             float(current_metrics["form_submit_success"]),
             float(previous_metrics["form_submit_success"]),
         ),
         (
             "form_submit_error",
-            "Form submit error",
+            "Ошибки отправки формы",
             "up",
             float(current_metrics["form_submit_error"]),
             float(previous_metrics["form_submit_error"]),
         ),
         (
             "avg_scroll_depth",
-            "Average scroll depth",
+            "Средняя глубина просмотра",
             "down",
             float(current_metrics["avg_scroll_depth"]),
             float(previous_metrics["avg_scroll_depth"]),
         ),
-        ("key_section_views", "Key section views", "down", float(current_key_sections), float(previous_key_sections)),
+        (
+            "key_section_views",
+            "Просмотры ключевых блоков",
+            "down",
+            float(current_key_sections),
+            float(previous_key_sections),
+        ),
     ]
 
     rows = []
@@ -442,8 +489,16 @@ def _build_anomalies_payload(client, from_dt, to_dt) -> dict[str, Any]:
         )
 
     has_data = any(not row["insufficient_data"] for row in rows)
+    insufficient_reason = None
+    if not has_data:
+        insufficient_reason = "Недостаточно данных для сравнения с предыдущим периодом."
+
     return {
         "has_data": has_data,
+        "has_comparable_data": has_data,
+        "insufficient_data": not has_data,
+        "insufficient_data_reason": insufficient_reason,
+        "display_mode": "full" if has_data else "compact",
         "rows": rows,
         "key_sections": key_sections,
         "period": {
@@ -479,8 +534,10 @@ def build_ai_event_signals_payload(client, from_dt, to_dt) -> dict[str, Any]:
     )
 
     canonical_counts: Counter[str] = Counter()
-    scroll_threshold_counts = {str(item): 0 for item in SCROLL_DEPTH_THRESHOLDS}
+    scroll_event_threshold_counts = {str(item): 0 for item in SCROLL_DEPTH_THRESHOLDS}
+    scroll_max_by_user: dict[str, int] = {}
     form_funnel_users = {key: set() for key in FORM_STAGE_ALIASES.keys()}
+    ai_users_in_analysis: set[str] = set()
 
     field_stats: dict[str, dict[str, Any]] = {}
     first_field_by_session: dict[str, tuple[Any, str]] = {}
@@ -492,6 +549,8 @@ def build_ai_event_signals_payload(client, from_dt, to_dt) -> dict[str, Any]:
     section_stats: dict[str, dict[str, Any]] = {}
 
     micro_stats: dict[str, dict[str, Any]] = {}
+    micro_conversion_users: set[str] = set()
+    cta_click_users: set[str] = set()
 
     device_stats: dict[str, dict[str, Any]] = {key: _empty_segment_stats() for key in DEVICE_CATEGORIES}
     source_stats: dict[str, dict[str, Any]] = {key: _empty_segment_stats() for key in SOURCE_CATEGORIES}
@@ -518,6 +577,8 @@ def build_ai_event_signals_payload(client, from_dt, to_dt) -> dict[str, Any]:
         source_bucket = source_stats.setdefault(source_category, _empty_segment_stats())
 
         canonical_counts[canonical_type] += 1
+        if user_key:
+            ai_users_in_analysis.add(user_key)
 
         if canonical_type in form_funnel_users and user_key:
             form_funnel_users[canonical_type].add(user_key)
@@ -542,7 +603,11 @@ def build_ai_event_signals_payload(client, from_dt, to_dt) -> dict[str, Any]:
             )
             threshold = _normalize_scroll_threshold(depth)
             if threshold:
-                scroll_threshold_counts[str(threshold)] += 1
+                scroll_event_threshold_counts[str(threshold)] += 1
+            if user_key:
+                prev_user_depth = _safe_int(scroll_max_by_user.get(user_key), default=0)
+                if depth > prev_user_depth:
+                    scroll_max_by_user[user_key] = depth
 
             device_bucket["scroll_events"] += 1
             source_bucket["scroll_events"] += 1
@@ -558,10 +623,12 @@ def build_ai_event_signals_payload(client, from_dt, to_dt) -> dict[str, Any]:
         elif canonical_type == "cta_click":
             device_bucket["cta_clicks"] += 1
             source_bucket["cta_clicks"] += 1
+            if user_key:
+                cta_click_users.add(user_key)
 
         if raw_type in FIELD_EVENT_TYPES:
             field_key, form_id, field_name, field_type = _resolve_field_parts(payload)
-            if field_key and field_name:
+            if field_key:
                 if field_key not in field_stats:
                     field_stats[field_key] = {
                         "field_key": field_key,
@@ -681,6 +748,7 @@ def build_ai_event_signals_payload(client, from_dt, to_dt) -> dict[str, Any]:
             micro_row["count"] += 1
             if user_key:
                 micro_row["users"].add(user_key)
+                micro_conversion_users.add(user_key)
             page_path = _path_from_page_url(payload.get("page_url"), payload.get("path"))
             micro_row["pages"][page_path] += 1
             section_key = _resolve_section_id(payload) if payload.get("section_id") or payload.get("section_key") else ""
@@ -750,12 +818,15 @@ def build_ai_event_signals_payload(client, from_dt, to_dt) -> dict[str, Any]:
                 "from_first_step_pct": _pct(users_count, first_stage_users),
             }
         )
-    form_funnel_has_data = first_stage_users >= 3
+    form_funnel_min_users = 3
+    form_funnel_has_data = first_stage_users >= form_funnel_min_users
 
     field_rows = []
+    field_error_users: set[str] = set()
     for row in field_stats.values():
         started = len(row["input_started_users"])
         completed = len(row["completed_users"])
+        field_error_users.update(row["error_users"])
         field_rows.append(
             {
                 "field_key": row["field_key"],
@@ -771,6 +842,12 @@ def build_ai_event_signals_payload(client, from_dt, to_dt) -> dict[str, Any]:
             }
         )
     field_rows.sort(key=lambda item: (item["started"], item["errors"], item["revisits"]), reverse=True)
+
+    field_summary = {
+        "form_started_users": len(form_funnel_users["form_started"]),
+        "first_field_completed_users": len(form_funnel_users["form_first_field_completed"]),
+        "field_error_users": len(field_error_users),
+    }
 
     top_drop_off = None
     if field_rows:
@@ -905,6 +982,28 @@ def build_ai_event_signals_payload(client, from_dt, to_dt) -> dict[str, Any]:
             }
         )
 
+    total_device_users = sum(row["users"] for row in device_rows)
+    total_device_sessions = sum(row["sessions"] for row in device_rows)
+    for row in device_rows:
+        row["users_share_pct"] = _pct(row["users"], total_device_users)
+        row["sessions_share_pct"] = _pct(row["sessions"], total_device_sessions)
+
+    total_source_users = sum(row["users"] for row in source_rows)
+    total_source_sessions = sum(row["sessions"] for row in source_rows)
+    for row in source_rows:
+        row["users_share_pct"] = _pct(row["users"], total_source_users)
+        row["sessions_share_pct"] = _pct(row["sessions"], total_source_sessions)
+
+    scroll_threshold_users = {str(item): 0 for item in SCROLL_DEPTH_THRESHOLDS}
+    for depth in scroll_max_by_user.values():
+        for threshold in SCROLL_DEPTH_THRESHOLDS:
+            if depth >= threshold:
+                scroll_threshold_users[str(threshold)] += 1
+    scroll_unique_users_total = len(scroll_max_by_user)
+    scroll_threshold_rates_pct = {
+        key: _pct(value, scroll_unique_users_total) for key, value in scroll_threshold_users.items()
+    }
+
     micro_rows = []
     for event_name in MICRO_CONVERSION_EVENT_TYPES:
         item = micro_stats.get(event_name)
@@ -915,6 +1014,7 @@ def build_ai_event_signals_payload(client, from_dt, to_dt) -> dict[str, Any]:
         micro_rows.append(
             {
                 "event": event_name,
+                "label": MICRO_CONVERSION_LABELS.get(event_name, event_name),
                 "count": int(item["count"]),
                 "unique_users": len(item["users"]),
                 "page": top_page,
@@ -933,11 +1033,25 @@ def build_ai_event_signals_payload(client, from_dt, to_dt) -> dict[str, Any]:
     form_submit_error_count = canonical_counts["form_submit_error"]
     section_visible_count = canonical_counts["section_visible"]
     cta_click_count = canonical_counts["cta_click"]
+    ai_unique_users_total = len(ai_users_in_analysis)
 
     return {
+        "overview": {
+            "unique_users_total": ai_unique_users_total,
+            "avg_scroll_depth": _mean(list(scroll_max_by_user.values())),
+            "form_started_users": len(form_funnel_users["form_started"]),
+            "form_submit_success_users": len(form_funnel_users["form_submit_success"]),
+            "cta_click_users": len(cta_click_users),
+            "micro_conversion_users": len(micro_conversion_users),
+        },
         "scroll_depth": {
             "events_total": int(canonical_counts["scroll_depth"]),
-            "thresholds": scroll_threshold_counts,
+            "thresholds": scroll_threshold_users,
+            "threshold_event_counts": scroll_event_threshold_counts,
+            "unique_users_total": scroll_unique_users_total,
+            "avg_scroll_depth": _mean(list(scroll_max_by_user.values())),
+            "threshold_users": scroll_threshold_users,
+            "threshold_rates_pct": scroll_threshold_rates_pct,
         },
         "forms": {
             "form_view": int(form_visible_count),
@@ -959,12 +1073,25 @@ def build_ai_event_signals_payload(client, from_dt, to_dt) -> dict[str, Any]:
         "form_funnel": {
             "has_data": form_funnel_has_data,
             "insufficient_data": not form_funnel_has_data,
+            "min_users_required": form_funnel_min_users,
+            "insufficient_data_reason": (
+                f"Пока недостаточно данных: нужно минимум {form_funnel_min_users} уникальных пользователя, "
+                "которые увидели форму."
+            )
+            if not form_funnel_has_data
+            else "",
             "rows": form_funnel_rows,
         },
         "field_analytics": {
             "has_data": bool(field_rows),
             "insufficient_data": len(field_rows) == 0,
+            "insufficient_data_reason": (
+                "Пока нет событий по полям формы (начало ввода, завершение, ошибки, возвраты)."
+                if len(field_rows) == 0
+                else ""
+            ),
             "rows": field_rows,
+            "summary": field_summary,
             "first_field_starts": first_field_rows,
             "top_drop_off_field": top_drop_off,
             "top_error_field": top_error,
@@ -973,26 +1100,51 @@ def build_ai_event_signals_payload(client, from_dt, to_dt) -> dict[str, Any]:
         "cta_funnel": {
             "has_data": bool(cta_rows),
             "insufficient_data": len(cta_rows) == 0,
+            "insufficient_data_reason": (
+                "Пока нет достаточного числа событий показа и кликов по кнопкам."
+                if len(cta_rows) == 0
+                else ""
+            ),
             "rows": cta_rows,
         },
         "section_analytics": {
             "has_data": bool(section_rows),
             "insufficient_data": len(section_rows) == 0,
+            "insufficient_data_reason": (
+                "Пока нет событий просмотра секций и взаимодействий после просмотра."
+                if len(section_rows) == 0
+                else ""
+            ),
             "rows": section_rows,
         },
         "device_segmentation": {
             "has_data": any(row["sessions"] > 0 for row in device_rows),
             "insufficient_data": not any(row["sessions"] > 0 for row in device_rows),
+            "insufficient_data_reason": (
+                "Пока нет визитов для сегментации по устройствам."
+                if not any(row["sessions"] > 0 for row in device_rows)
+                else ""
+            ),
             "rows": device_rows,
         },
         "source_segmentation": {
             "has_data": any(row["sessions"] > 0 for row in source_rows),
             "insufficient_data": not any(row["sessions"] > 0 for row in source_rows),
+            "insufficient_data_reason": (
+                "Пока нет визитов с определяемым источником трафика."
+                if not any(row["sessions"] > 0 for row in source_rows)
+                else ""
+            ),
             "rows": source_rows,
         },
         "micro_conversions": {
             "has_data": bool(micro_rows),
             "insufficient_data": len(micro_rows) == 0,
+            "insufficient_data_reason": (
+                "Пока нет полезных действий: кликов по контактам, карте, FAQ или медиа."
+                if len(micro_rows) == 0
+                else ""
+            ),
             "rows": micro_rows,
         },
         "anomalies": anomalies,

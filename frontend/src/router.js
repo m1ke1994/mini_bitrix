@@ -239,8 +239,8 @@ const routes = [
             component: DashboardAiRecommendations,
             meta: {
               noindex: true,
-              title: "AI рекомендации",
-              description: "Раздел подготовки AI-рекомендаций на базе поведенческой аналитики.",
+              title: "Поведение пользователя на сайте",
+              description: "Поведенческая аналитика для бизнеса: глубина просмотра, формы, кнопки и ключевые действия пользователей.",
             },
           },
           {
@@ -346,4 +346,3 @@ router.afterEach((to) => {
 });
 
 export default router;
-

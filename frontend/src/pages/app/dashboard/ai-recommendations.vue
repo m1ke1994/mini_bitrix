@@ -8,8 +8,8 @@ import DashboardAiRecommendations from "~/views/DashboardAiRecommendations.vue";
 definePageMeta({
   noindex: true,
   seo: {
-    title: "AI рекомендации",
-    description: "Раздел заготовки для будущих AI-рекомендаций на базе поведенческой аналитики.",
+    title: "Поведение пользователя на сайте",
+    description: "Поведенческая аналитика: как посетители взаимодействуют с сайтом, формами и кнопками.",
   },
 });
 </script>

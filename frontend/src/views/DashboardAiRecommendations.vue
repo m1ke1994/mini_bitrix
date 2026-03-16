@@ -1,78 +1,69 @@
-﻿<template>
-  <section class="dashboard-section">
+<template>
+  <section class="dashboard-section behavior-page">
     <div class="chart-card">
-      <div class="card-head ai-head">
-        <h2>AI рекомендации</h2>
-        <span class="badge">Этап 1+</span>
+      <div class="card-head">
+        <h2>Поведение пользователя на сайте</h2>
       </div>
       <p class="muted">
-        Раздел подготовлен под будущий модуль рекомендаций. Сейчас собираются события, которые станут входными данными
-        для AI-аналитики.
+        Раздел показывает, как посетители ведут себя на сайте: докуда доходят, где взаимодействуют с формами и кнопками,
+        какие блоки просматривают и на каком этапе теряется интерес.
       </p>
     </div>
 
     <p v-if="error" class="error">{{ error }}</p>
     <p v-if="loading" class="muted loading-note">Обновление данных...</p>
 
-    <div class="stats">
+    <div class="stats behavior-stats">
       <article class="stat-card">
-        <h3>Скролл-события</h3>
-        <p class="muted metric-help">
-          Скролл-события — сколько раз пользователи достигали порогов прокрутки страницы.
-        </p>
-        <strong>{{ scrollEventsTotal }}</strong>
+        <h3>Уникальные пользователи в анализе</h3>
+        <strong>{{ uniqueUsersInAnalysis }}</strong>
       </article>
       <article class="stat-card">
-        <h3>Шаги формы</h3>
-        <p class="muted metric-help">
-          Шаги формы — этапы взаимодействия с формой: от просмотра до отправки.
-        </p>
-        <strong>{{ formStepsTotal }}</strong>
+        <h3>Средняя глубина просмотра</h3>
+        <strong>{{ formatPercent(avgScrollDepthValue) }}</strong>
       </article>
       <article class="stat-card">
-        <h3>Просмотры секций</h3>
-        <p class="muted metric-help">
-          Просмотры секций — сколько раз ключевые блоки страницы попадали в видимую область.
-        </p>
-        <strong>{{ sectionViewsTotal }}</strong>
+        <h3>Начали заполнять форму</h3>
+        <strong>{{ formStartedUsersValue }}</strong>
       </article>
       <article class="stat-card">
-        <h3>CTA-клики</h3>
-        <p class="muted metric-help">
-          CTA-клики — клики по целевым кнопкам и важным действиям на странице.
-        </p>
-        <strong>{{ ctaClicksTotal }}</strong>
+        <h3>Успешно отправили форму</h3>
+        <strong>{{ formSubmitSuccessUsersValue }}</strong>
+      </article>
+      <article class="stat-card">
+        <h3>Нажали на важные кнопки</h3>
+        <strong>{{ ctaClickUsersValue }}</strong>
+      </article>
+      <article class="stat-card">
+        <h3>Совершили полезные действия</h3>
+        <strong>{{ microConversionUsersValue }}</strong>
       </article>
     </div>
 
     <div class="chart-card">
       <div class="card-head">
-        <h2>Скролл-глубина по порогам</h2>
+        <h2>Глубина просмотра страницы</h2>
       </div>
       <p class="muted block-help">
-        Скролл-глубина показывает, до какого процента страницы обычно доходят пользователи.
+        Метрика считается по уникальным пользователям. Каждый пользователь учитывается только один раз по максимальной
+        достигнутой глубине просмотра.
       </p>
+      <div class="scroll-overview">
+        <article class="scroll-metric">
+          <span class="muted">Средняя глубина просмотра</span>
+          <strong>{{ formatPercent(scrollAvgDepth) }}</strong>
+        </article>
+        <article class="scroll-metric">
+          <span class="muted">Уникальных пользователей в анализе</span>
+          <strong>{{ scrollUniqueUsersTotal }}</strong>
+        </article>
+      </div>
       <div class="thresholds-grid">
-        <div class="threshold-item">
-          <span class="threshold-title">25%</span>
-          <span class="muted threshold-help">Дошли до четверти страницы</span>
-          <strong>{{ scrollThreshold(25) }}</strong>
-        </div>
-        <div class="threshold-item">
-          <span class="threshold-title">50%</span>
-          <span class="muted threshold-help">Дошли до середины страницы</span>
-          <strong>{{ scrollThreshold(50) }}</strong>
-        </div>
-        <div class="threshold-item">
-          <span class="threshold-title">75%</span>
-          <span class="muted threshold-help">Дошли до трёх четвертей страницы</span>
-          <strong>{{ scrollThreshold(75) }}</strong>
-        </div>
-        <div class="threshold-item">
-          <span class="threshold-title">100%</span>
-          <span class="muted threshold-help">Дошли до конца страницы</span>
-          <strong>{{ scrollThreshold(100) }}</strong>
-        </div>
+        <article v-for="level in scrollLevels" :key="level" class="threshold-item">
+          <span class="threshold-title">До {{ level }}% страницы дошли</span>
+          <strong>{{ scrollThresholdUsers(level) }} из {{ scrollUniqueUsersTotal }}</strong>
+          <span class="muted threshold-help">({{ formatPercent(scrollThresholdRate(level)) }})</span>
+        </article>
       </div>
     </div>
 
@@ -80,6 +71,7 @@
       <div class="card-head">
         <h2>События форм</h2>
       </div>
+      <p class="muted block-help">Показывает количество событий на каждом шаге взаимодействия с формой за выбранный период.</p>
       <div class="table-wrap">
         <table class="table">
           <thead>
@@ -92,32 +84,32 @@
           <tbody>
             <tr>
               <td>Форма в зоне видимости</td>
-              <td class="muted">Форма была показана пользователю на экране.</td>
+              <td class="muted">Пользователь увидел блок формы на экране.</td>
               <td>{{ formVisibleCount }}</td>
             </tr>
             <tr>
-              <td>Старт взаимодействия</td>
-              <td class="muted">Пользователь начал работать с формой.</td>
+              <td>Начали заполнение</td>
+              <td class="muted">Пользователь начал ввод данных в форму.</td>
               <td>{{ formStartedCount }}</td>
             </tr>
             <tr>
-              <td>Первое заполненное поле</td>
-              <td class="muted">Пользователь впервые ввёл данные в поле формы.</td>
+              <td>Заполнили первое поле</td>
+              <td class="muted">Сделан первый реальный шаг заполнения формы.</td>
               <td>{{ formFirstFieldCompletedCount }}</td>
             </tr>
             <tr>
               <td>Попытка отправки</td>
-              <td class="muted">Пользователь попытался отправить форму.</td>
+              <td class="muted">Пользователь нажал отправку формы.</td>
               <td>{{ formSubmitAttemptCount }}</td>
             </tr>
             <tr>
               <td>Успешная отправка</td>
-              <td class="muted">Форма была отправлена без ошибки.</td>
+              <td class="muted">Форма отправлена без ошибки.</td>
               <td>{{ formSubmitSuccessCount }}</td>
             </tr>
             <tr>
               <td>Ошибка отправки</td>
-              <td class="muted">При отправке формы возникла ошибка.</td>
+              <td class="muted">При отправке формы произошла ошибка.</td>
               <td>{{ formSubmitErrorCount }}</td>
             </tr>
           </tbody>
@@ -129,15 +121,16 @@
       <div class="card-head">
         <h2>Воронка формы</h2>
       </div>
-      <p v-if="showFormFunnelEmpty" class="muted">Недостаточно данных</p>
+      <p class="muted block-help">Показывает, сколько уникальных пользователей доходит до каждого шага формы.</p>
+      <p v-if="showFormFunnelEmpty" class="muted">{{ blockEmptyReason(formFunnel, "Пока недостаточно данных для воронки формы.") }}</p>
       <div v-else class="table-wrap">
         <table class="table">
           <thead>
             <tr>
               <th>Этап</th>
-              <th>Пользователи</th>
+              <th>Уникальные пользователи</th>
               <th>Переход к следующему шагу</th>
-              <th>От первого шага</th>
+              <th>Доля от первого шага</th>
             </tr>
           </thead>
           <tbody>
@@ -156,11 +149,19 @@
       <div class="card-head">
         <h2>Аналитика полей формы</h2>
       </div>
-      <p v-if="showFieldAnalyticsEmpty" class="muted">Недостаточно данных</p>
+      <p class="muted block-help">
+        Помогает увидеть проблемные поля: где пользователи чаще останавливаются, ошибаются или возвращаются к вводу.
+      </p>
+      <p v-if="showFieldAnalyticsEmpty" class="muted">
+        {{ blockEmptyReason(fieldAnalytics, "Пока недостаточно данных по событиям полей формы.") }}
+      </p>
       <template v-else>
         <div class="field-highlights">
+          <span class="muted">Начали форму: <strong>{{ fieldSummary.form_started_users }}</strong></span>
+          <span class="muted">Дошли до первого поля: <strong>{{ fieldSummary.first_field_completed_users }}</strong></span>
+          <span class="muted">Столкнулись с ошибками: <strong>{{ fieldSummary.field_error_users }}</strong></span>
           <span class="muted">Первое поле старта: <strong>{{ firstFieldStartedLabel }}</strong></span>
-          <span class="muted">Чаще отваливаются на: <strong>{{ topDropOffLabel }}</strong></span>
+          <span class="muted">Чаще останавливаются на: <strong>{{ topDropOffLabel }}</strong></span>
           <span class="muted">Больше ошибок на: <strong>{{ topErrorLabel }}</strong></span>
           <span class="muted">Чаще возвращаются к: <strong>{{ topRevisitLabel }}</strong></span>
         </div>
@@ -170,11 +171,11 @@
               <tr>
                 <th>Поле</th>
                 <th>Начали ввод</th>
-                <th>Завершили</th>
+                <th>Заполнили</th>
                 <th>Ошибки</th>
                 <th>Повторные возвраты</th>
-                <th>Completion rate</th>
-                <th>Drop-off (упрощ.)</th>
+                <th>Процент заполнения</th>
+                <th>Остановились на этом поле</th>
               </tr>
             </thead>
             <tbody>
@@ -195,20 +196,21 @@
 
     <div class="chart-card">
       <div class="card-head">
-        <h2>CTA-воронка</h2>
+        <h2>Эффективность кнопок</h2>
       </div>
-      <p v-if="showCtaFunnelEmpty" class="muted">Недостаточно данных</p>
+      <p class="muted block-help">Показывает, какие кнопки реально приводят пользователей к целевому действию и заявке.</p>
+      <p v-if="showCtaFunnelEmpty" class="muted">{{ blockEmptyReason(ctaFunnel, "Пока недостаточно данных по кнопкам.") }}</p>
       <div v-else class="table-wrap">
         <table class="table">
           <thead>
             <tr>
-              <th>CTA</th>
+              <th>Кнопка</th>
               <th>Показы</th>
               <th>Клики</th>
-              <th>Reach target</th>
+              <th>Дошли до целевого действия</th>
               <th>Конверсии</th>
-              <th>CTR</th>
-              <th>Click-to-conversion</th>
+              <th>CTR кнопок</th>
+              <th>Переход в заявку после клика</th>
             </tr>
           </thead>
           <tbody>
@@ -230,7 +232,12 @@
       <div class="card-head">
         <h2>Аналитика секций</h2>
       </div>
-      <p v-if="showSectionAnalyticsEmpty" class="muted">Недостаточно данных</p>
+      <p class="muted block-help">
+        Показывает, как отдельные блоки сайта влияют на поведение: удержание внимания, переход к кнопкам и заявкам.
+      </p>
+      <p v-if="showSectionAnalyticsEmpty" class="muted">
+        {{ blockEmptyReason(sectionAnalytics, "Пока недостаточно данных по просмотру секций.") }}
+      </p>
       <div v-else class="table-wrap">
         <table class="table">
           <thead>
@@ -238,10 +245,10 @@
               <th>Секция</th>
               <th>Просмотры</th>
               <th>Среднее время</th>
-              <th>CTA после секции</th>
-              <th>Старт формы после секции</th>
+              <th>Клик по кнопкам после секции</th>
+              <th>Начали форму после секции</th>
               <th>Конверсии после секции</th>
-              <th>Exit after section</th>
+              <th>Остановились после секции</th>
             </tr>
           </thead>
           <tbody>
@@ -261,60 +268,32 @@
 
     <div class="chart-card">
       <div class="card-head">
-        <h2>Сегментация по устройствам</h2>
-      </div>
-      <p v-if="showDeviceSegmentationEmpty" class="muted">Недостаточно данных</p>
-      <div v-else class="table-wrap">
-        <table class="table">
-          <thead>
-            <tr>
-              <th>Устройство</th>
-              <th>Сессии</th>
-              <th>Скролл-события</th>
-              <th>CTA-клики</th>
-              <th>Старт формы</th>
-              <th>Успешные отправки</th>
-              <th>Конверсия формы</th>
-              <th>Средняя глубина скролла</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="row in deviceRows" :key="row.device">
-              <td>{{ row.device }}</td>
-              <td>{{ row.sessions || 0 }}</td>
-              <td>{{ row.scroll_events || 0 }}</td>
-              <td>{{ row.cta_clicks || 0 }}</td>
-              <td>{{ row.form_starts || 0 }}</td>
-              <td>{{ row.form_submit_success || 0 }}</td>
-              <td>{{ formatPercent(row.form_conversion_rate_pct) }}</td>
-              <td>{{ formatPercent(row.avg_scroll_depth) }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-    <div class="chart-card">
-      <div class="card-head">
         <h2>Сегментация по источникам</h2>
       </div>
-      <p v-if="showSourceSegmentationEmpty" class="muted">Недостаточно данных</p>
+      <p class="muted block-help">Показывает, какие источники дают более качественную аудиторию по пользователям и конверсии.</p>
+      <p v-if="showSourceSegmentationEmpty" class="muted">
+        {{ blockEmptyReason(sourceSegmentation, "Пока недостаточно данных для сегментации по источникам.") }}
+      </p>
       <div v-else class="table-wrap">
         <table class="table">
           <thead>
             <tr>
               <th>Источник</th>
+              <th>Пользователи</th>
+              <th>Доля пользователей</th>
               <th>Сессии</th>
-              <th>Средняя глубина скролла</th>
-              <th>CTA CTR</th>
-              <th>Начало формы</th>
+              <th>Средняя глубина просмотра</th>
+              <th>CTR кнопок</th>
+              <th>Начали форму</th>
               <th>Успешные отправки</th>
-              <th>Conversion rate</th>
+              <th>Конверсия</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="row in sourceRows" :key="row.source">
-              <td>{{ row.source }}</td>
+              <td>{{ sourceLabel(row.source) }}</td>
+              <td>{{ row.users || 0 }}</td>
+              <td>{{ formatPercent(row.users_share_pct) }}</td>
               <td>{{ row.sessions || 0 }}</td>
               <td>{{ formatPercent(row.avg_scroll_depth) }}</td>
               <td>{{ formatPercent(row.cta_ctr_pct) }}</td>
@@ -329,27 +308,38 @@
 
     <div class="chart-card">
       <div class="card-head">
-        <h2>Микроконверсии</h2>
+        <h2>Сегментация по устройствам</h2>
       </div>
-      <p v-if="showMicroConversionsEmpty" class="muted">Недостаточно данных</p>
+      <p class="muted block-help">Показывает различия поведения пользователей на десктопе, мобильных и планшетах.</p>
+      <p v-if="showDeviceSegmentationEmpty" class="muted">
+        {{ blockEmptyReason(deviceSegmentation, "Пока недостаточно данных для сегментации по устройствам.") }}
+      </p>
       <div v-else class="table-wrap">
         <table class="table">
           <thead>
             <tr>
-              <th>Событие</th>
-              <th>Количество</th>
-              <th>Уникальные пользователи</th>
-              <th>Связанная страница</th>
-              <th>Связанная секция</th>
+              <th>Устройство</th>
+              <th>Пользователи</th>
+              <th>Доля пользователей</th>
+              <th>Сессии</th>
+              <th>Клики по кнопкам</th>
+              <th>Начали форму</th>
+              <th>Успешные отправки</th>
+              <th>Конверсия формы</th>
+              <th>Средняя глубина просмотра</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="row in microRows" :key="row.event">
-              <td>{{ row.event }}</td>
-              <td>{{ row.count || 0 }}</td>
-              <td>{{ row.unique_users || 0 }}</td>
-              <td>{{ row.page || '—' }}</td>
-              <td>{{ row.section || '—' }}</td>
+            <tr v-for="row in deviceRows" :key="row.device">
+              <td>{{ deviceLabel(row.device) }}</td>
+              <td>{{ row.users || 0 }}</td>
+              <td>{{ formatPercent(row.users_share_pct) }}</td>
+              <td>{{ row.sessions || 0 }}</td>
+              <td>{{ row.cta_clicks || 0 }}</td>
+              <td>{{ row.form_starts || 0 }}</td>
+              <td>{{ row.form_submit_success || 0 }}</td>
+              <td>{{ formatPercent(row.form_conversion_rate_pct) }}</td>
+              <td>{{ formatPercent(row.avg_scroll_depth) }}</td>
             </tr>
           </tbody>
         </table>
@@ -358,22 +348,57 @@
 
     <div class="chart-card">
       <div class="card-head">
-        <h2>Аномалии</h2>
+        <h2>Полезные действия на сайте</h2>
       </div>
-      <p v-if="showAnomaliesEmpty" class="muted">Недостаточно данных</p>
+      <p class="muted block-help">
+        Отражает действия, которые показывают вовлечённость: клики по контактам, карте, FAQ, видео и другим важным
+        элементам.
+      </p>
+      <p v-if="showMicroConversionsEmpty" class="muted">
+        {{ blockEmptyReason(microConversions, "Пока нет полезных действий от посетителей.") }}
+      </p>
       <div v-else class="table-wrap">
         <table class="table">
           <thead>
             <tr>
+              <th>Действие</th>
+              <th>Количество</th>
+              <th>Уникальные пользователи</th>
+              <th>Чаще всего на странице</th>
+              <th>Связанная секция</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="row in microRows" :key="row.event">
+              <td>{{ microLabel(row) }}</td>
+              <td>{{ row.count || 0 }}</td>
+              <td>{{ row.unique_users || 0 }}</td>
+              <td>{{ row.page || "—" }}</td>
+              <td>{{ row.section || "—" }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div v-if="showAnomaliesTable" class="chart-card">
+      <div class="card-head">
+        <h2>Изменения за период</h2>
+      </div>
+      <p class="muted block-help">Сравнение текущего периода с предыдущим. Помогает увидеть резкие изменения в поведении.</p>
+      <div class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr>
               <th>Метрика</th>
-              <th>Текущее</th>
-              <th>Предыдущее</th>
+              <th>Текущее значение</th>
+              <th>Предыдущее значение</th>
               <th>Изменение</th>
               <th>Статус</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="row in anomalyRows" :key="row.metric">
+            <tr v-for="row in anomalyRowsComparable" :key="row.metric">
               <td>{{ row.label || row.metric }}</td>
               <td>{{ row.current_value ?? 0 }}</td>
               <td>{{ row.previous_value ?? 0 }}</td>
@@ -388,6 +413,13 @@
         </table>
       </div>
     </div>
+
+    <div v-else-if="showAnomaliesCompact" class="chart-card compact-note">
+      <div class="card-head">
+        <h2>Изменения за период</h2>
+      </div>
+      <p class="muted">{{ anomaliesReason }}</p>
+    </div>
   </section>
 </template>
 
@@ -399,6 +431,7 @@ import { useAnalyticsSummary } from "../composables/useAnalyticsSummary";
 const { summary, error, loading, loadSummary } = useAnalyticsSummary();
 
 const aiSignals = computed(() => summary.value.ai_event_signals || {});
+const overview = computed(() => aiSignals.value.overview || {});
 const scrollSignals = computed(() => aiSignals.value.scroll_depth || {});
 const formSignals = computed(() => aiSignals.value.forms || {});
 
@@ -428,6 +461,10 @@ const deviceRows = computed(() => deviceSegmentation.value.rows || []);
 const sourceRows = computed(() => sourceSegmentation.value.rows || []);
 const microRows = computed(() => microConversions.value.rows || []);
 const anomalyRows = computed(() => anomalies.value.rows || []);
+const anomalyRowsComparable = computed(() => anomalyRows.value.filter((row) => !row.insufficient_data));
+
+const fieldSummary = computed(() => fieldAnalytics.value.summary || {});
+const anomaliesReason = computed(() => anomalies.value.insufficient_data_reason || "Недостаточно данных для сравнения.");
 
 const showFormFunnelEmpty = computed(() => !loading.value && (!formFunnel.value.has_data || !formFunnelRows.value.length));
 const showFieldAnalyticsEmpty = computed(() => !loading.value && (!fieldAnalytics.value.has_data || !fieldRows.value.length));
@@ -444,19 +481,34 @@ const showSourceSegmentationEmpty = computed(() =>
 const showMicroConversionsEmpty = computed(() =>
   !loading.value && (!microConversions.value.has_data || !microRows.value.length)
 );
-const showAnomaliesEmpty = computed(() => !loading.value && (!anomalies.value.has_data || !anomalyRows.value.length));
 
-const scrollEventsTotal = computed(() => Number(scrollSignals.value.events_total || 0));
-const formStepsTotal = computed(() =>
-  formVisibleCount.value +
-  formStartedCount.value +
-  formFirstFieldCompletedCount.value +
-  formSubmitAttemptCount.value +
-  formSubmitSuccessCount.value +
-  formSubmitErrorCount.value
+const showAnomaliesTable = computed(() => !loading.value && anomalyRowsComparable.value.length > 0);
+const showAnomaliesCompact = computed(
+  () => !loading.value && !showAnomaliesTable.value && Boolean(anomaliesReason.value)
 );
-const sectionViewsTotal = computed(() => Number(aiSignals.value.section_views?.events_total || 0));
-const ctaClicksTotal = computed(() => Number(aiSignals.value.cta_clicks?.events_total || 0));
+
+const scrollLevels = [25, 50, 75, 100];
+
+const scrollUniqueUsersTotal = computed(() => Number(scrollSignals.value.unique_users_total || 0));
+const scrollAvgDepth = computed(() => Number(scrollSignals.value.avg_scroll_depth || 0));
+
+const uniqueUsersInAnalysis = computed(() =>
+  Number(overview.value.unique_users_total || scrollSignals.value.unique_users_total || 0)
+);
+const avgScrollDepthValue = computed(() => Number(overview.value.avg_scroll_depth || scrollSignals.value.avg_scroll_depth || 0));
+
+const formStartedUsersValue = computed(() =>
+  Number(overview.value.form_started_users || formStageUsers("form_started"))
+);
+const formSubmitSuccessUsersValue = computed(() =>
+  Number(overview.value.form_submit_success_users || formStageUsers("form_submit_success"))
+);
+const ctaClickUsersValue = computed(() => Number(overview.value.cta_click_users || 0));
+const microConversionUsersValue = computed(() => {
+  const explicitValue = Number(overview.value.micro_conversion_users || 0);
+  if (explicitValue > 0) return explicitValue;
+  return microRows.value.reduce((sum, row) => sum + Number(row.unique_users || 0), 0);
+});
 
 const firstFieldStartedLabel = computed(() => {
   const item = fieldAnalytics.value.first_field_starts?.[0];
@@ -482,8 +534,36 @@ const topRevisitLabel = computed(() => {
   return `${item.field_name || "поле"} (${item.count || 0})`;
 });
 
-function scrollThreshold(level) {
-  return Number(scrollSignals.value.thresholds?.[String(level)] || scrollSignals.value.thresholds?.[level] || 0);
+function formStageUsers(stage) {
+  const row = formFunnelRows.value.find((item) => item.stage === stage);
+  return Number(row?.users || 0);
+}
+
+function scrollThresholdUsers(level) {
+  return Number(
+    scrollSignals.value.threshold_users?.[String(level)] ??
+      scrollSignals.value.threshold_users?.[level] ??
+      scrollSignals.value.thresholds?.[String(level)] ??
+      scrollSignals.value.thresholds?.[level] ??
+      0
+  );
+}
+
+function scrollThresholdRate(level) {
+  const explicitRate =
+    scrollSignals.value.threshold_rates_pct?.[String(level)] ?? scrollSignals.value.threshold_rates_pct?.[level];
+  if (explicitRate !== undefined && explicitRate !== null) {
+    return Number(explicitRate || 0);
+  }
+  const total = scrollUniqueUsersTotal.value;
+  if (!total) return 0;
+  return (scrollThresholdUsers(level) / total) * 100;
+}
+
+function blockEmptyReason(block, fallbackText) {
+  const reason = block?.insufficient_data_reason;
+  if (reason) return reason;
+  return fallbackText;
 }
 
 function formStageLabel(stage) {
@@ -491,8 +571,8 @@ function formStageLabel(stage) {
     form_visible: "Увидели форму",
     form_started: "Начали заполнение",
     form_first_field_completed: "Заполнили первое поле",
-    form_submit_attempt: "Попытались отправить",
-    form_submit_success: "Успешно отправили",
+    form_submit_attempt: "Попытались отправить форму",
+    form_submit_success: "Успешно отправили форму",
     form_submit_error: "Ошибка отправки",
   };
   return labels[stage] || stage;
@@ -514,6 +594,34 @@ function ctaLabel(row) {
   return `${row.cta_id || "cta"}${row.cta_type ? ` (${row.cta_type})` : ""}`;
 }
 
+function microLabel(row) {
+  if (!row) return "—";
+  return row.label || row.event || "действие";
+}
+
+function sourceLabel(source) {
+  const labels = {
+    organic: "Органический трафик",
+    paid: "Платный трафик",
+    social: "Соцсети",
+    direct: "Прямые заходы",
+    referral: "Переходы с других сайтов",
+    email: "Email",
+    unknown: "Не определён",
+  };
+  return labels[source] || source || "—";
+}
+
+function deviceLabel(device) {
+  const labels = {
+    desktop: "Десктоп",
+    mobile: "Мобильный",
+    tablet: "Планшет",
+    unknown: "Не определено",
+  };
+  return labels[device] || device || "—";
+}
+
 function formatPercent(value) {
   const normalized = Number(value || 0);
   return `${normalized.toFixed(2)}%`;
@@ -532,9 +640,9 @@ function formatSeconds(value) {
 
 function anomalyStatusLabel(status) {
   const map = {
-    anomaly: "аномалия",
+    anomaly: "резкое изменение",
     growth: "рост",
-    decline: "падение",
+    decline: "снижение",
     stable: "стабильно",
     insufficient: "недостаточно данных",
   };
@@ -555,58 +663,51 @@ onMounted(manualRefresh);
 </script>
 
 <style scoped>
-.ai-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-}
-
-.badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 1.8rem;
-  padding: 0 0.7rem;
-  border-radius: 999px;
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: #075985;
-  background: #e0f2fe;
-  border: 1px solid #bae6fd;
+.behavior-stats {
+  grid-template-columns: repeat(auto-fit, minmax(12.5rem, 1fr));
 }
 
 .loading-note {
   margin-top: 0.75rem;
 }
 
-.thresholds-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
-  gap: 0.6rem;
+.block-help {
+  margin: 0 0 0.7rem;
 }
 
-.threshold-item {
+.scroll-overview {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.scroll-metric {
+  border: 1px solid #d9e2ec;
+  border-radius: 0.75rem;
+  padding: 0.75rem;
   display: grid;
   gap: 0.25rem;
-  border: 1px solid #d9e2ec;
-  border-radius: 0.65rem;
-  padding: 0.65rem 0.75rem;
   background: #f8fafc;
 }
 
-.metric-help {
-  font-size: 0.75rem;
-  line-height: 1.35;
-  margin: 0 0 0.2rem;
+.thresholds-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 0.7rem;
 }
 
-.block-help {
-  margin: 0 0 0.65rem;
+.threshold-item {
+  border: 1px solid #d9e2ec;
+  border-radius: 0.75rem;
+  padding: 0.75rem;
+  background: #f8fafc;
+  display: grid;
+  gap: 0.25rem;
 }
 
 .threshold-title {
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .threshold-help {
@@ -616,7 +717,7 @@ onMounted(manualRefresh);
 .field-highlights {
   display: grid;
   gap: 0.35rem;
-  margin-bottom: 0.7rem;
+  margin-bottom: 0.75rem;
 }
 
 .status-badge {
@@ -660,5 +761,9 @@ onMounted(manualRefresh);
   color: #374151;
   background: #f3f4f6;
   border-color: #d1d5db;
+}
+
+.compact-note {
+  margin-bottom: 1rem;
 }
 </style>

@@ -26,9 +26,22 @@ const summary = ref({
   avg_visit_duration_seconds: 0,
   engagement_pages: [],
   ai_event_signals: {
+    overview: {
+      unique_users_total: 0,
+      avg_scroll_depth: 0,
+      form_started_users: 0,
+      form_submit_success_users: 0,
+      cta_click_users: 0,
+      micro_conversion_users: 0,
+    },
     scroll_depth: {
       events_total: 0,
+      unique_users_total: 0,
+      avg_scroll_depth: 0,
+      threshold_users: { 25: 0, 50: 0, 75: 0, 100: 0 },
+      threshold_rates_pct: { 25: 0, 50: 0, 75: 0, 100: 0 },
       thresholds: { 25: 0, 50: 0, 75: 0, 100: 0 },
+      threshold_event_counts: { 25: 0, 50: 0, 75: 0, 100: 0 },
     },
     forms: {
       form_view: 0,
@@ -46,12 +59,20 @@ const summary = ref({
     form_funnel: {
       has_data: false,
       insufficient_data: true,
+      min_users_required: 3,
+      insufficient_data_reason: "",
       rows: [],
     },
     field_analytics: {
       has_data: false,
       insufficient_data: true,
+      insufficient_data_reason: "",
       rows: [],
+      summary: {
+        form_started_users: 0,
+        first_field_completed_users: 0,
+        field_error_users: 0,
+      },
       first_field_starts: [],
       top_drop_off_field: null,
       top_error_field: null,
@@ -60,30 +81,39 @@ const summary = ref({
     cta_funnel: {
       has_data: false,
       insufficient_data: true,
+      insufficient_data_reason: "",
       rows: [],
     },
     section_analytics: {
       has_data: false,
       insufficient_data: true,
+      insufficient_data_reason: "",
       rows: [],
     },
     device_segmentation: {
       has_data: false,
       insufficient_data: true,
+      insufficient_data_reason: "",
       rows: [],
     },
     source_segmentation: {
       has_data: false,
       insufficient_data: true,
+      insufficient_data_reason: "",
       rows: [],
     },
     micro_conversions: {
       has_data: false,
       insufficient_data: true,
+      insufficient_data_reason: "",
       rows: [],
     },
     anomalies: {
       has_data: false,
+      has_comparable_data: false,
+      insufficient_data: true,
+      insufficient_data_reason: "",
+      display_mode: "compact",
       rows: [],
       key_sections: [],
       period: null,

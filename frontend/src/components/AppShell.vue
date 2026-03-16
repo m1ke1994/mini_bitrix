@@ -105,7 +105,7 @@ const isDashboardRoute = computed(() => {
 const mainNavItems = [
   { to: "/app/dashboard", label: "Обзор" },
   { to: "/app/dashboard/seo", label: "SEO-аудит" },
-  { to: "/app/dashboard/ai-recommendations", label: "AI рекомендации" },
+  { to: "/app/dashboard/ai-recommendations", label: "Поведение пользователя на сайте" },
   { to: "/app/reports", label: "Отчёт PDF" },
   { to: "/app/integration", label: "Интеграции" },
   { to: "/app/settings", label: "Настройки" },
