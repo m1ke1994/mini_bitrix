@@ -17,6 +17,7 @@ from analytics_app.services.device_stats import get_device_distribution
 from analytics_app.services.metrics import default_period_days, get_metrics, period_bounds
 from analytics_app.services.report_builder import build_full_report
 from clients.permissions import HasValidApiKey
+from core.services.ai_recommendations import get_conversion_ai_recommendations
 from tracker.models import Visit
 from subscriptions.permissions import HasActiveSubscription
 
@@ -204,6 +205,26 @@ class AnalyticsSummaryView(APIView):
             payload["visitors_unique"],
             payload["leads_count"],
         )
+        return Response(payload)
+
+
+class AnalyticsAiRecommendationsView(APIView):
+    permission_classes = [permissions.IsAuthenticated, IsClientUser, HasActiveSubscription]
+
+    def get(self, request):
+        client = request.client
+        date_from, date_to, from_dt, to_dt = _period_range(request, days=14)
+        summary_payload = _build_summary_payload(client=client, from_dt=from_dt, to_dt=to_dt)
+        force_refresh = str(request.query_params.get("refresh") or "").strip().lower() in {"1", "true", "yes"}
+
+        payload = get_conversion_ai_recommendations(
+            client_id=client.id,
+            period_from=date_from,
+            period_to=date_to,
+            summary_payload=summary_payload,
+            force_refresh=force_refresh,
+        )
+        payload["period"] = {"date_from": date_from, "date_to": date_to}
         return Response(payload)
 
 

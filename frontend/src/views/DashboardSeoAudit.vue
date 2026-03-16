@@ -45,6 +45,42 @@
       </p>
     </div>
 
+    <div v-if="auditId" class="chart-card seo-section-card seo-ai-card">
+      <div class="card-head card-head-wrap">
+        <h2>AI-рекомендации по SEO</h2>
+        <button
+          type="button"
+          class="seo-ai-refresh-btn"
+          :disabled="seoAiLoading || isInProgress"
+          @click="refreshSeoAiRecommendations"
+        >
+          {{ seoAiLoading ? "Обновление..." : "Обновить рекомендации" }}
+        </button>
+      </div>
+      <p class="muted block-hint">
+        Короткие приоритеты по текущему аудиту: что исправить в первую очередь, чтобы быстрее поднять SEO-результат.
+      </p>
+      <p v-if="seoAiLoading" class="muted">Готовим рекомендации...</p>
+      <p v-else-if="isInProgress" class="muted">AI-рекомендации появятся после завершения текущего аудита.</p>
+      <template v-else>
+        <p class="seo-ai-summary">{{ seoAiRecommendations.summary }}</p>
+        <div class="seo-ai-meta">
+          <span class="priority-pill" :class="seoAiPriorityClass(seoAiRecommendations.priority)">
+            Приоритет: {{ seoAiPriorityLabel(seoAiRecommendations.priority) }}
+          </span>
+          <span class="muted">
+            {{ seoAiRecommendations.source === "ai" ? "Источник: AI" : "Источник: fallback" }}
+          </span>
+          <span v-if="seoAiRecommendations.cached" class="muted">Кэшированный ответ</span>
+        </div>
+        <ul v-if="seoAiRecommendations.items?.length" class="seo-ai-list">
+          <li v-for="(item, idx) in seoAiRecommendations.items" :key="`seo-ai-item-${idx}`">{{ item }}</li>
+        </ul>
+        <p v-else class="muted empty-state">Пока нет готовых рекомендаций. Попробуйте обновить позже.</p>
+        <p v-if="seoAiError" class="muted seo-ai-error">{{ seoAiError }}</p>
+      </template>
+    </div>
+
     <div v-if="auditId" class="seo-anchor-nav-wrap">
       <nav class="seo-anchor-nav" aria-label="Разделы SEO-аудита">
         <button
@@ -545,6 +581,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
+import { useAiRecommendations } from "../composables/useAiRecommendations";
 import api from "../services/api";
 
 const STORAGE_AUDIT_ID_KEY = "tracknode:seo:lastAuditId";
@@ -616,6 +653,17 @@ const selectedCompareAuditId = ref("");
 const comparison = ref(null);
 const comparisonLoading = ref(false);
 const activeSeoSection = ref("seo-overview");
+const {
+  recommendations: seoAiRecommendations,
+  loading: seoAiLoading,
+  error: seoAiError,
+  loadAiRecommendations: loadSeoAiRecommendations,
+  resetAiRecommendations: resetSeoAiRecommendations,
+} = useAiRecommendations({
+  endpoint: () => (auditId.value ? `/api/seo/${auditId.value}/ai-recommendations/` : ""),
+  fallbackTitle: "Рекомендации временно недоступны",
+  fallbackSummary: "Не удалось получить AI-анализ по SEO-аудиту. Попробуйте обновить позже.",
+});
 
 const collapsed = ref({
   issueGroups: false,
@@ -885,6 +933,18 @@ function priorityClass(value) {
   if (key === "important") return "priority-important";
   return "priority-later";
 }
+function seoAiPriorityLabel(value) {
+  const key = String(value || "").toLowerCase();
+  if (key === "high") return "Высокий";
+  if (key === "low") return "Низкий";
+  return "Средний";
+}
+function seoAiPriorityClass(value) {
+  const key = String(value || "").toLowerCase();
+  if (key === "high") return "priority-urgent";
+  if (key === "low") return "priority-later";
+  return "priority-important";
+}
 function comparisonTrendClass(value) {
   const key = String(value || "").toLowerCase();
   if (key === "better") return "trend-better";
@@ -947,6 +1007,9 @@ function toggleIssueGroupPages(issueType) {
 function isIssueGroupExpanded(issueType) {
   return Boolean(expandedIssueGroups.value[String(issueType || "")]);
 }
+async function refreshSeoAiRecommendations() {
+  await loadSeoAiRecommendations({ force: true });
+}
 function stopPolling() {
   if (pollTimer) {
     clearTimeout(pollTimer);
@@ -990,6 +1053,9 @@ async function loadAudit({ silent = false, allowLatestFallback = true } = {}) {
     persistState();
     if (rawStatus.value === "done") {
       await loadHistory();
+      void loadSeoAiRecommendations();
+    } else {
+      resetSeoAiRecommendations();
     }
     await nextTick();
     syncActiveSeoSection();
@@ -1002,6 +1068,7 @@ async function loadAudit({ silent = false, allowLatestFallback = true } = {}) {
       selectedCompareAuditId.value = "";
       comparison.value = null;
       clearPersistedAuditId();
+      resetSeoAiRecommendations();
       const loadedLatest = await loadLatestAudit({ silent: true, preferCurrentDomain: true, suppressError: true });
       if (loadedLatest) return;
     }
@@ -1024,6 +1091,7 @@ async function loadLatestAudit({ silent = false, preferCurrentDomain = false, su
       historyRows.value = [];
       selectedCompareAuditId.value = "";
       comparison.value = null;
+      resetSeoAiRecommendations();
       persistState();
       return false;
     }
@@ -1054,6 +1122,7 @@ async function startAudit() {
     historyRows.value = [];
     selectedCompareAuditId.value = "";
     comparison.value = null;
+    resetSeoAiRecommendations();
     persistState();
     await loadAudit();
   } catch (e) {
@@ -1136,6 +1205,7 @@ watch(
   async (value) => {
     if (!value) {
       activeSeoSection.value = "seo-overview";
+      resetSeoAiRecommendations();
       return;
     }
     await nextTick();
@@ -1213,6 +1283,7 @@ onBeforeUnmount(() => {
 .seo-stop-btn,
 .seo-export-btn,
 .seo-compare-btn,
+.seo-ai-refresh-btn,
 .collapse-btn,
 .issue-pages-toggle {
   min-height: 2.6rem;
@@ -1242,7 +1313,8 @@ onBeforeUnmount(() => {
 }
 
 .seo-export-btn,
-.seo-compare-btn {
+.seo-compare-btn,
+.seo-ai-refresh-btn {
   border-color: #bfdbfe;
   background: #eff6ff;
   color: #1e40af;
@@ -1258,6 +1330,7 @@ onBeforeUnmount(() => {
 .seo-stop-btn:disabled,
 .seo-export-btn:disabled,
 .seo-compare-btn:disabled,
+.seo-ai-refresh-btn:disabled,
 .collapse-btn:disabled,
 .issue-pages-toggle:disabled {
   opacity: 0.65;
@@ -1401,6 +1474,32 @@ onBeforeUnmount(() => {
 .comparison-wrap {
   display: grid;
   gap: 0.5rem;
+}
+
+.seo-ai-card {
+  margin-top: 0.8rem;
+}
+
+.seo-ai-summary {
+  margin: 0 0 0.55rem;
+}
+
+.seo-ai-meta {
+  display: flex;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+
+.seo-ai-list {
+  margin: 0;
+  padding-left: 1rem;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.seo-ai-error {
+  margin-top: 0.5rem;
 }
 
 .fix-plan-head,

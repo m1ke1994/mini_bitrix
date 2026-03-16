@@ -4,6 +4,7 @@ from rest_framework_simplejwt.views import TokenRefreshView
 
 from accounts.views import ChangePasswordView, LoginView, LogoutView, RegisterView
 from analytics_app.views import (
+    AnalyticsAiRecommendationsView,
     AnalyticsDevicesView,
     AnalyticsEngagementView,
     AnalyticsOverviewView,
@@ -45,6 +46,7 @@ urlpatterns = [
     path("api/analytics/devices/", AnalyticsDevicesView.as_view(), name="analytics_devices"),
     path("api/analytics/unique-daily/", AnalyticsUniqueDailyView.as_view(), name="analytics_unique_daily"),
     path("api/analytics/summary/", AnalyticsSummaryView.as_view(), name="analytics_summary"),
+    path("api/analytics/ai-recommendations/", AnalyticsAiRecommendationsView.as_view(), name="analytics_ai_recommendations"),
     path("api/seo/", include("seo_audit.urls")),
     path("api/reports/", include("reports.urls")),
     path("api/subscription/", include("subscriptions.urls")),

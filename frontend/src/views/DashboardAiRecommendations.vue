@@ -10,6 +10,39 @@
       </p>
     </div>
 
+    <div class="chart-card behavior-ai-card">
+      <div class="card-head card-head-wrap">
+        <h2>AI-рекомендации по повышению конверсии</h2>
+        <button
+          type="button"
+          class="ai-refresh-btn"
+          :disabled="aiRecommendationsLoading"
+          @click="refreshAiRecommendations"
+        >
+          {{ aiRecommendationsLoading ? "Обновление..." : "Обновить рекомендации" }}
+        </button>
+      </div>
+      <p class="muted block-help">
+        Короткая сводка по точкам роста: как упростить путь пользователя и повысить число заявок.
+      </p>
+      <p v-if="aiRecommendationsLoading" class="muted">Готовим рекомендации...</p>
+      <template v-else>
+        <p class="ai-summary">{{ aiRecommendations.summary }}</p>
+        <div class="ai-meta">
+          <span class="status-badge" :class="`status-priority-${aiRecommendations.priority || 'medium'}`">
+            Приоритет: {{ aiPriorityLabel(aiRecommendations.priority) }}
+          </span>
+          <span class="muted">{{ aiRecommendations.source === "ai" ? "Источник: AI" : "Источник: fallback" }}</span>
+          <span v-if="aiRecommendations.cached" class="muted">Кэшированный ответ</span>
+        </div>
+        <ul v-if="aiRecommendations.items?.length" class="ai-items">
+          <li v-for="(item, idx) in aiRecommendations.items" :key="`behavior-ai-item-${idx}`">{{ item }}</li>
+        </ul>
+        <p v-else class="muted">Пока нет готовых рекомендаций. Попробуйте обновить позже.</p>
+        <p v-if="aiRecommendationsError" class="muted">{{ aiRecommendationsError }}</p>
+      </template>
+    </div>
+
     <p v-if="error" class="error">{{ error }}</p>
     <p v-if="loading" class="muted loading-note">Обновление данных...</p>
 
@@ -426,9 +459,20 @@
 <script setup>
 import { computed, onMounted } from "vue";
 
+import { useAiRecommendations } from "../composables/useAiRecommendations";
 import { useAnalyticsSummary } from "../composables/useAnalyticsSummary";
 
 const { summary, error, loading, loadSummary } = useAnalyticsSummary();
+const {
+  recommendations: aiRecommendations,
+  loading: aiRecommendationsLoading,
+  error: aiRecommendationsError,
+  loadAiRecommendations,
+} = useAiRecommendations({
+  endpoint: "/api/analytics/ai-recommendations/",
+  fallbackTitle: "Рекомендации временно недоступны",
+  fallbackSummary: "Не удалось получить AI-анализ по поведенческим данным. Попробуйте позже.",
+});
 
 const aiSignals = computed(() => summary.value.ai_event_signals || {});
 const overview = computed(() => aiSignals.value.overview || {});
@@ -653,8 +697,19 @@ function anomalyStatusClass(status) {
   return `status-${status || "unknown"}`;
 }
 
+function aiPriorityLabel(priority) {
+  const normalized = String(priority || "").trim().toLowerCase();
+  if (normalized === "high") return "Высокий";
+  if (normalized === "low") return "Низкий";
+  return "Средний";
+}
+
+async function refreshAiRecommendations() {
+  await loadAiRecommendations({ force: true });
+}
+
 async function manualRefresh() {
-  await loadSummary();
+  await Promise.all([loadSummary(), loadAiRecommendations()]);
 }
 
 defineExpose({ manualRefresh });
@@ -669,6 +724,56 @@ onMounted(manualRefresh);
 
 .loading-note {
   margin-top: 0.75rem;
+}
+
+.card-head-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.behavior-ai-card {
+  margin-top: 0.75rem;
+}
+
+.ai-refresh-btn {
+  min-height: 2.25rem;
+  border-radius: 0.65rem;
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+  color: #1e40af;
+  padding: 0 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ai-refresh-btn:disabled {
+  opacity: 0.65;
+  cursor: default;
+}
+
+.ai-summary {
+  margin: 0 0 0.55rem;
+}
+
+.ai-meta {
+  display: flex;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.55rem;
+}
+
+.ai-meta .status-badge {
+  text-transform: none;
+}
+
+.ai-items {
+  margin: 0;
+  padding-left: 1rem;
+  display: grid;
+  gap: 0.35rem;
 }
 
 .block-help {
@@ -761,6 +866,24 @@ onMounted(manualRefresh);
   color: #374151;
   background: #f3f4f6;
   border-color: #d1d5db;
+}
+
+.status-priority-high {
+  color: #991b1b;
+  background: #fee2e2;
+  border-color: #fecaca;
+}
+
+.status-priority-medium {
+  color: #92400e;
+  background: #fef3c7;
+  border-color: #fde68a;
+}
+
+.status-priority-low {
+  color: #166534;
+  background: #dcfce7;
+  border-color: #bbf7d0;
 }
 
 .compact-note {

@@ -255,6 +255,15 @@ DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "TrackNode <noreply@trackno
 
 REPORTS_STORAGE_DIR = BASE_DIR / "reports_storage"
 
+# ================= AI =================
+
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
+OPENAI_MODEL_SEO = os.getenv("OPENAI_MODEL_SEO", "gpt-5-mini").strip() or "gpt-5-mini"
+OPENAI_MODEL_CONVERSION = os.getenv("OPENAI_MODEL_CONVERSION", "gpt-5-mini").strip() or "gpt-5-mini"
+AI_RECOMMENDATIONS_ENABLED = os.getenv("AI_RECOMMENDATIONS_ENABLED", "false").lower() == "true"
+AI_RECOMMENDATIONS_TIMEOUT_SECONDS = float(os.getenv("AI_RECOMMENDATIONS_TIMEOUT_SECONDS", "20"))
+AI_RECOMMENDATIONS_TTL_SECONDS = int(os.getenv("AI_RECOMMENDATIONS_TTL_SECONDS", "10800"))
+
 # ================= LOGGING =================
 
 LOGGING = {
