@@ -4,6 +4,7 @@ import hashlib
 import json
 import logging
 import re
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
@@ -16,6 +17,19 @@ logger = logging.getLogger(__name__)
 
 OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
 MAX_ITEMS = 7
+MODEL_WITHOUT_TEMPERATURE_PREFIXES = ("gpt-5",)
+
+
+@dataclass
+class OpenAIRequestError(Exception):
+    message: str
+    status_code: int | None = None
+    error_type: str | None = None
+    error_param: str | None = None
+    error_code: str | None = None
+
+    def __str__(self) -> str:
+        return self.message
 
 
 def _seo_fallback(title: str, summary: str) -> dict[str, Any]:
@@ -26,6 +40,7 @@ def _seo_fallback(title: str, summary: str) -> dict[str, Any]:
         "summary": summary,
         "items": [],
         "priority": "medium",
+        "debug": None,
         "generated_at": timezone.now().isoformat(),
         "cached": False,
     }
@@ -39,6 +54,7 @@ def _conversion_fallback(title: str, summary: str) -> dict[str, Any]:
         "summary": summary,
         "items": [],
         "priority": "medium",
+        "debug": None,
         "generated_at": timezone.now().isoformat(),
         "cached": False,
     }
@@ -98,9 +114,23 @@ def _extract_json_candidate(text: str) -> str:
 
 
 def _extract_output_text(response_data: dict[str, Any]) -> str:
+    def _as_text(value: Any) -> str:
+        if isinstance(value, str):
+            return value.strip()
+        if isinstance(value, dict):
+            if isinstance(value.get("value"), str):
+                return str(value.get("value") or "").strip()
+            if isinstance(value.get("text"), str):
+                return str(value.get("text") or "").strip()
+        if isinstance(value, list):
+            chunks = [_as_text(item) for item in value]
+            return "\n".join([chunk for chunk in chunks if chunk]).strip()
+        return ""
+
     output_text = response_data.get("output_text")
-    if isinstance(output_text, str) and output_text.strip():
-        return output_text.strip()
+    normalized_top_level_text = _as_text(output_text)
+    if normalized_top_level_text:
+        return normalized_top_level_text
 
     chunks: list[str] = []
     for item in response_data.get("output") or []:
@@ -110,15 +140,21 @@ def _extract_output_text(response_data: dict[str, Any]) -> str:
         for part in content:
             if not isinstance(part, dict):
                 continue
-            text = part.get("text")
-            if isinstance(text, str) and text.strip():
-                chunks.append(text.strip())
+            part_text = _as_text(part.get("text"))
+            if part_text:
+                chunks.append(part_text)
     return "\n".join(chunks).strip()
 
 
 def _build_result_from_text(*, module: str, text: str) -> dict[str, Any]:
     raw = str(text or "").strip()
-    lines = [line.strip(" -*•\t") for line in raw.splitlines() if line.strip()]
+    lines: list[str] = []
+    for line in raw.splitlines():
+        normalized_line = str(line or "").strip()
+        if not normalized_line:
+            continue
+        normalized_line = re.sub(r"^[\s\-\*\u2022]+", "", normalized_line)
+        lines.append(normalized_line)
     if not lines and raw:
         lines = [part.strip() for part in raw.split(".") if part.strip()]
 
@@ -130,13 +166,13 @@ def _build_result_from_text(*, module: str, text: str) -> dict[str, Any]:
         if len(items) >= MAX_ITEMS:
             break
 
-    title = "Рекомендации по улучшению"
+    title = "\u0420\u0435\u043a\u043e\u043c\u0435\u043d\u0434\u0430\u0446\u0438\u0438 \u043f\u043e \u0443\u043b\u0443\u0447\u0448\u0435\u043d\u0438\u044e"
     if module == "seo":
-        title = "AI-рекомендации по SEO"
+        title = "AI-\u0440\u0435\u043a\u043e\u043c\u0435\u043d\u0434\u0430\u0446\u0438\u0438 \u043f\u043e SEO"
     elif module == "conversion":
-        title = "AI-рекомендации по повышению конверсии"
+        title = "AI-\u0440\u0435\u043a\u043e\u043c\u0435\u043d\u0434\u0430\u0446\u0438\u0438 \u043f\u043e \u043f\u043e\u0432\u044b\u0448\u0435\u043d\u0438\u044e \u043a\u043e\u043d\u0432\u0435\u0440\u0441\u0438\u0438"
 
-    summary = lines[0][:340] if lines else "Найдены точки роста, которые стоит проверить в первую очередь."
+    summary = lines[0][:340] if lines else "\u041d\u0430\u0439\u0434\u0435\u043d\u044b \u0442\u043e\u0447\u043a\u0438 \u0440\u043e\u0441\u0442\u0430, \u043a\u043e\u0442\u043e\u0440\u044b\u0435 \u0441\u0442\u043e\u0438\u0442 \u043f\u0440\u043e\u0432\u0435\u0440\u0438\u0442\u044c \u0432 \u043f\u0435\u0440\u0432\u0443\u044e \u043e\u0447\u0435\u0440\u0435\u0434\u044c."
     return {
         "success": True,
         "source": "ai",
@@ -144,6 +180,7 @@ def _build_result_from_text(*, module: str, text: str) -> dict[str, Any]:
         "summary": summary,
         "items": items[:MAX_ITEMS],
         "priority": "medium",
+        "debug": None,
         "generated_at": timezone.now().isoformat(),
         "cached": False,
     }
@@ -168,9 +205,9 @@ def _normalize_ai_payload(*, module: str, raw_text: str) -> dict[str, Any]:
     priority = _normalize_priority(parsed.get("priority"))
 
     if not title:
-        title = "AI-рекомендации"
+        title = "AI-\u0440\u0435\u043a\u043e\u043c\u0435\u043d\u0434\u0430\u0446\u0438\u0438"
     if not summary:
-        summary = "Найдены зоны роста, которые можно улучшить в первую очередь."
+        summary = "\u041d\u0430\u0439\u0434\u0435\u043d\u044b \u0437\u043e\u043d\u044b \u0440\u043e\u0441\u0442\u0430, \u043a\u043e\u0442\u043e\u0440\u044b\u0435 \u043c\u043e\u0436\u043d\u043e \u0443\u043b\u0443\u0447\u0448\u0438\u0442\u044c \u0432 \u043f\u0435\u0440\u0432\u0443\u044e \u043e\u0447\u0435\u0440\u0435\u0434\u044c."
     if not items:
         fallback = _build_result_from_text(module=module, text=summary)
         items = fallback.get("items") or []
@@ -182,21 +219,33 @@ def _normalize_ai_payload(*, module: str, raw_text: str) -> dict[str, Any]:
         "summary": summary[:520],
         "items": items[:MAX_ITEMS],
         "priority": priority,
+        "debug": None,
         "generated_at": timezone.now().isoformat(),
         "cached": False,
     }
 
 
 def _request_openai(*, model: str, system_prompt: str, user_prompt: str) -> dict[str, Any]:
-    body = {
-        "model": model,
-        "temperature": 0.2,
-        "max_output_tokens": 500,
+    safe_model = str(model or "").strip()
+    if not safe_model:
+        raise OpenAIRequestError("Model name is empty.", error_type="configuration_error")
+
+    max_output_tokens = int(getattr(settings, "AI_RECOMMENDATIONS_MAX_OUTPUT_TOKENS", 900) or 900)
+    body: dict[str, Any] = {
+        "model": safe_model,
+        "max_output_tokens": max_output_tokens,
         "input": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
     }
+
+    # GPT-5 models reject temperature and are more stable with low reasoning effort for concise JSON output.
+    if safe_model.startswith(MODEL_WITHOUT_TEMPERATURE_PREFIXES):
+        body["reasoning"] = {"effort": "minimal"}
+        body["text"] = {"verbosity": "low"}
+    else:
+        body["temperature"] = 0.2
 
     timeout_seconds = float(getattr(settings, "AI_RECOMMENDATIONS_TIMEOUT_SECONDS", 20) or 20)
     response = requests.post(
@@ -208,10 +257,33 @@ def _request_openai(*, model: str, system_prompt: str, user_prompt: str) -> dict
         json=body,
         timeout=timeout_seconds,
     )
-    response.raise_for_status()
-    payload = response.json()
+
+    if response.status_code >= 400:
+        payload: dict[str, Any] = {}
+        try:
+            payload = response.json() or {}
+        except Exception:
+            payload = {}
+        error_payload = payload.get("error") if isinstance(payload, dict) else {}
+        if not isinstance(error_payload, dict):
+            error_payload = {}
+
+        message = str(error_payload.get("message") or f"OpenAI request failed with status {response.status_code}.")
+        raise OpenAIRequestError(
+            message=message,
+            status_code=response.status_code,
+            error_type=str(error_payload.get("type") or ""),
+            error_param=str(error_payload.get("param") or ""),
+            error_code=str(error_payload.get("code") or ""),
+        )
+
+    try:
+        payload = response.json()
+    except Exception as exc:
+        raise OpenAIRequestError(f"Failed to parse OpenAI JSON: {exc}", status_code=response.status_code) from exc
+
     if not isinstance(payload, dict):
-        raise ValueError("OpenAI response is not a JSON object")
+        raise OpenAIRequestError("OpenAI response is not a JSON object", status_code=response.status_code)
     return payload
 
 
@@ -436,44 +508,117 @@ def _generate_recommendations(
     fallback_builder,
     force_refresh: bool,
 ) -> dict[str, Any]:
+    enabled = bool(getattr(settings, "AI_RECOMMENDATIONS_ENABLED", False))
+    has_key = bool(getattr(settings, "OPENAI_API_KEY", ""))
+    timeout_seconds = float(getattr(settings, "AI_RECOMMENDATIONS_TIMEOUT_SECONDS", 20) or 20)
+
     if not _is_ai_enabled():
+        logger.warning(
+            "ai_recommendations disabled: module=%s enabled=%s has_key=%s",
+            module,
+            enabled,
+            has_key,
+        )
         return fallback_builder(
-            "Рекомендации временно недоступны",
-            "AI-анализ отключён в настройках окружения или не задан API-ключ.",
+            "\u0420\u0435\u043a\u043e\u043c\u0435\u043d\u0434\u0430\u0446\u0438\u0438 \u0432\u0440\u0435\u043c\u0435\u043d\u043d\u043e \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u043d\u044b",
+            "AI-\u0430\u043d\u0430\u043b\u0438\u0437 \u043e\u0442\u043a\u043b\u044e\u0447\u0451\u043d \u0432 \u043d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0430\u0445 \u043e\u043a\u0440\u0443\u0436\u0435\u043d\u0438\u044f \u0438\u043b\u0438 \u043d\u0435 \u0437\u0430\u0434\u0430\u043d API-\u043a\u043b\u044e\u0447.",
         )
 
     cache_key = _cache_key(module=module, model=model, scope=cache_scope, payload=payload_for_model)
     if not force_refresh:
         cached_payload = _cache_get_safe(cache_key)
         if cached_payload:
-            cached_payload = dict(cached_payload)
-            cached_payload["cached"] = True
-            return cached_payload
+            cached_success = bool(cached_payload.get("success"))
+            cached_source = str(cached_payload.get("source") or "").strip().lower()
+            if cached_success and cached_source == "ai":
+                cached_payload = dict(cached_payload)
+                cached_payload["cached"] = True
+                return cached_payload
+            logger.info(
+                "ai_recommendations skip stale cache: module=%s model=%s cached_success=%s cached_source=%s",
+                module,
+                model,
+                cached_success,
+                cached_source or "unknown",
+            )
+
+    payload_size = len(json.dumps(payload_for_model, ensure_ascii=False))
+    logger.info(
+        "ai_recommendations request start: module=%s model=%s timeout=%s payload_size=%s force_refresh=%s",
+        module,
+        model,
+        timeout_seconds,
+        payload_size,
+        force_refresh,
+    )
 
     user_prompt = (
-        "Проанализируй данные ниже и верни только JSON без markdown.\n"
-        'Формат: {"title":"...","summary":"...","items":["..."],"priority":"high|medium|low"}\n'
-        "Требования: 3-7 конкретных действий, деловой стиль, только на основе переданных данных.\n"
-        f"Данные:\n{json.dumps(payload_for_model, ensure_ascii=False)}"
+        "Analyze the data below and return JSON only without markdown.\\n"
+        'Format: {"title":"...","summary":"...","items":["..."],"priority":"high|medium|low"}\\n'
+        "Requirements: 3-7 concrete actions, practical style, based only on provided data.\\n"
+        "Important: response language must be Russian.\\n"
+        f"Data:\\n{json.dumps(payload_for_model, ensure_ascii=False)}"
     )
 
     try:
         raw_response = _request_openai(model=model, system_prompt=system_prompt, user_prompt=user_prompt)
         output_text = _extract_output_text(raw_response)
         if not output_text:
-            raise ValueError("OpenAI output is empty")
+            response_status = str(raw_response.get("status") or "").strip()
+            incomplete_reason = ""
+            incomplete_details = raw_response.get("incomplete_details")
+            if isinstance(incomplete_details, dict):
+                incomplete_reason = str(incomplete_details.get("reason") or "").strip()
+            details = []
+            if response_status:
+                details.append(f"status={response_status}")
+            if incomplete_reason:
+                details.append(f"reason={incomplete_reason}")
+            suffix = f" ({', '.join(details)})" if details else ""
+            raise OpenAIRequestError(
+                f"OpenAI output is empty{suffix}",
+                error_type="empty_output",
+                error_code=incomplete_reason or None,
+            )
+
         result = _normalize_ai_payload(module=module, raw_text=output_text)
         _cache_set_safe(
             cache_key,
             result,
             ttl_seconds=int(getattr(settings, "AI_RECOMMENDATIONS_TTL_SECONDS", 10800) or 10800),
         )
+        logger.info(
+            "ai_recommendations request success: module=%s model=%s items=%s",
+            module,
+            model,
+            len(result.get("items") or []),
+        )
         return result
-    except Exception:
-        logger.exception("ai_recommendations request failed: module=%s model=%s", module, model)
+    except OpenAIRequestError as exc:
+        logger.error(
+            "ai_recommendations openai error: module=%s model=%s status=%s type=%s param=%s code=%s message=%s",
+            module,
+            model,
+            exc.status_code,
+            exc.error_type,
+            exc.error_param,
+            exc.error_code,
+            exc.message,
+        )
         return fallback_builder(
-            "Рекомендации временно недоступны",
-            "Не удалось получить AI-анализ. Попробуйте обновить рекомендации позже.",
+            "\u0420\u0435\u043a\u043e\u043c\u0435\u043d\u0434\u0430\u0446\u0438\u0438 \u0432\u0440\u0435\u043c\u0435\u043d\u043d\u043e \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u043d\u044b",
+            "\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u043f\u043e\u043b\u0443\u0447\u0438\u0442\u044c AI-\u0430\u043d\u0430\u043b\u0438\u0437. \u041f\u043e\u043f\u0440\u043e\u0431\u0443\u0439\u0442\u0435 \u043e\u0431\u043d\u043e\u0432\u0438\u0442\u044c \u0440\u0435\u043a\u043e\u043c\u0435\u043d\u0434\u0430\u0446\u0438\u0438 \u043f\u043e\u0437\u0436\u0435.",
+        )
+    except Exception as exc:
+        logger.exception(
+            "ai_recommendations unexpected error: module=%s model=%s error=%s",
+            module,
+            model,
+            exc,
+        )
+        return fallback_builder(
+            "\u0420\u0435\u043a\u043e\u043c\u0435\u043d\u0434\u0430\u0446\u0438\u0438 \u0432\u0440\u0435\u043c\u0435\u043d\u043d\u043e \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u043d\u044b",
+            "\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u043f\u043e\u043b\u0443\u0447\u0438\u0442\u044c AI-\u0430\u043d\u0430\u043b\u0438\u0437. \u041f\u043e\u043f\u0440\u043e\u0431\u0443\u0439\u0442\u0435 \u043e\u0431\u043d\u043e\u0432\u0438\u0442\u044c \u0440\u0435\u043a\u043e\u043c\u0435\u043d\u0434\u0430\u0446\u0438\u0438 \u043f\u043e\u0437\u0436\u0435.",
         )
 
 
@@ -488,10 +633,10 @@ def get_seo_ai_recommendations(
     cache_scope = f"client:{client_id}:audit:{audit_id}"
     model = str(getattr(settings, "OPENAI_MODEL_SEO", "gpt-5-mini") or "gpt-5-mini")
     system_prompt = (
-        "Ты SEO-аналитик. Анализируй только переданные данные SEO-аудита. "
-        "Не придумывай факты и не давай общую теорию. "
-        "Сначала перечисли критичные проблемы, потом быстрые улучшения. "
-        "Рекомендации должны быть короткими, прикладными, на русском языке и полезными владельцу бизнеса."
+        "You are a senior SEO analyst. Analyze only provided SEO audit data. "
+        "Do not invent facts and avoid generic theory. "
+        "List the most critical issues first, then quick wins. "
+        "Keep recommendations concise, practical, and in Russian."
     )
     return _generate_recommendations(
         module="seo",
@@ -518,10 +663,9 @@ def get_conversion_ai_recommendations(
     cache_scope = f"client:{client_id}:from:{from_label}:to:{to_label}"
     model = str(getattr(settings, "OPENAI_MODEL_CONVERSION", "gpt-5-mini") or "gpt-5-mini")
     system_prompt = (
-        "Ты эксперт по CRO и лидогенерации. Анализируй только поведенческие данные пользователей на сайте. "
-        "Определи, где теряется конверсия и какие действия повысят количество заявок. "
-        "Не давай SEO-рекомендации. "
-        "Отвечай на русском языке коротко и прикладно."
+        "You are a CRO and lead-generation expert. Analyze only user behavior analytics data. "
+        "Find where users drop off and what actions can increase leads. "
+        "Do not give SEO advice. Keep recommendations concise, practical, and in Russian."
     )
     return _generate_recommendations(
         module="conversion",
