@@ -60,8 +60,10 @@ const trialDaysLeft = computed(() => {
   const ms = new Date(paidUntil.value).getTime() - Date.now();
   return Math.max(0, Math.ceil(ms / (1000 * 60 * 60 * 24)));
 });
-const isSeoAuditRoute = computed(() => /(^|\/)dashboard\/seo\/?$/.test(String(route.path || "").toLowerCase()));
-const showAnalyticsSubnav = computed(() => !isSeoAuditRoute.value);
+const normalizedDashboardPath = computed(() => String(route.path || "").toLowerCase());
+const isSeoAuditRoute = computed(() => /(^|\/)dashboard\/seo\/?$/.test(normalizedDashboardPath.value));
+const isBehaviorAnalyticsRoute = computed(() => /(^|\/)dashboard\/ai-recommendations\/?$/.test(normalizedDashboardPath.value));
+const showAnalyticsSubnav = computed(() => !isSeoAuditRoute.value && !isBehaviorAnalyticsRoute.value);
 
 async function goToPaymentCheckout() {
   if (payRedirectLoading.value) return;
