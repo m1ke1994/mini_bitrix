@@ -21,7 +21,7 @@
           </button>
         </div>
       </div>
-      <nav class="dashboard-subnav">
+      <nav v-if="showAnalyticsSubnav" class="dashboard-subnav">
         <router-link to="/app/dashboard" exact-active-class="active">Обзор</router-link>
         <router-link to="/app/dashboard/dynamics" class="sub-item">Динамика по дням</router-link>
         <router-link to="/app/dashboard/unique" class="sub-item">Уникальные пользователи</router-link>
@@ -43,11 +43,13 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { useRoute } from "vue-router";
 import { useSubscriptionStatus } from "../composables/useSubscriptionStatus";
 import { redirectToYooKassaCheckout } from "../services/subscription";
 
 const payRedirectLoading = ref(false);
 const activeDashboardView = ref(null);
+const route = useRoute();
 const { status, isTrial, paidUntil, isLoading, hasLoadedOnce, refreshSubscriptionStatus } = useSubscriptionStatus();
 
 const isExpired = computed(() => hasLoadedOnce.value && status.value !== "active");
@@ -58,6 +60,8 @@ const trialDaysLeft = computed(() => {
   const ms = new Date(paidUntil.value).getTime() - Date.now();
   return Math.max(0, Math.ceil(ms / (1000 * 60 * 60 * 24)));
 });
+const isSeoAuditRoute = computed(() => /(^|\/)dashboard\/seo\/?$/.test(String(route.path || "").toLowerCase()));
+const showAnalyticsSubnav = computed(() => !isSeoAuditRoute.value);
 
 async function goToPaymentCheckout() {
   if (payRedirectLoading.value) return;

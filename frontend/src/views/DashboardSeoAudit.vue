@@ -2,7 +2,7 @@
   <section class="dashboard-section seo-audit-page">
     <p v-if="error" class="error">{{ error }}</p>
 
-    <div class="chart-card">
+    <div id="seo-overview" class="chart-card seo-section-card">
       <div class="card-head card-head-wrap">
         <h2>SEO-аудит сайта</h2>
         <button type="button" class="seo-export-btn" :disabled="!canExport" @click="exportReport">
@@ -43,6 +43,21 @@
       <p class="muted seo-hint">
         Введите домен сайта. Аудит показывает технические проблемы и готовность страниц к заявкам.
       </p>
+    </div>
+
+    <div v-if="auditId" class="seo-anchor-nav-wrap">
+      <nav class="seo-anchor-nav" aria-label="Разделы SEO-аудита">
+        <button
+          v-for="item in seoSectionNavItems"
+          :key="item.id"
+          type="button"
+          class="seo-anchor-nav-btn"
+          :class="{ active: activeSeoSection === item.id }"
+          @click="scrollToSeoSection(item.id)"
+        >
+          {{ item.label }}
+        </button>
+      </nav>
     </div>
 
     <div class="stats seo-stats">
@@ -92,27 +107,31 @@
       </article>
     </div>
 
-    <div v-if="auditId" class="chart-card">
+    <div v-if="auditId" class="chart-card seo-section-card seo-breakdown-card-wrap">
       <div class="card-head">
         <h2>Разбивка ошибок</h2>
       </div>
+      <p class="muted block-hint">Краткая сводка по приоритетам, чтобы быстрее понять масштаб работ.</p>
       <div class="seo-breakdown-grid">
         <article class="seo-breakdown-card seo-breakdown-high">
           <span>Критичные</span>
           <strong>{{ breakdown.high_issues }}</strong>
+          <small class="muted">Страниц: {{ breakdownAffectedPages.high }}</small>
         </article>
         <article class="seo-breakdown-card seo-breakdown-medium">
           <span>Средние</span>
           <strong>{{ breakdown.medium_issues }}</strong>
+          <small class="muted">Страниц: {{ breakdownAffectedPages.medium }}</small>
         </article>
         <article class="seo-breakdown-card seo-breakdown-low">
           <span>Низкие</span>
           <strong>{{ breakdown.low_issues }}</strong>
+          <small class="muted">Страниц: {{ breakdownAffectedPages.low }}</small>
         </article>
       </div>
     </div>
 
-    <div v-if="auditId" class="chart-card">
+    <div id="seo-plan" v-if="auditId" class="chart-card seo-section-card">
       <div class="card-head">
         <h2>План исправлений: что чинить первым</h2>
       </div>
@@ -135,7 +154,7 @@
       <p v-else class="muted empty-state">Пока нет заметных проблем. Запустите аудит после обновлений на сайте.</p>
     </div>
 
-    <div v-if="auditId" class="chart-card">
+    <div id="seo-groups" v-if="auditId" class="chart-card seo-section-card">
       <div class="card-head card-head-wrap">
         <h2>Группировка проблем по типам</h2>
         <button type="button" class="collapse-btn" @click="toggleBlock('issueGroups')">
@@ -196,7 +215,7 @@
       </template>
     </div>
 
-    <div v-if="auditId" class="chart-card">
+    <div id="seo-compare" v-if="auditId" class="chart-card seo-section-card">
       <div class="card-head card-head-wrap">
         <h2>Сравнение аудитов во времени</h2>
         <button type="button" class="seo-compare-btn" :disabled="!canCompare || comparisonLoading" @click="compareAudits">
@@ -225,33 +244,33 @@
         <div class="comparison-grid">
           <article class="comparison-card">
             <span>SEO-оценка</span>
-            <strong>{{ comparisonPayload.score.before }} → {{ comparisonPayload.score.after }}</strong>
-            <small>{{ signedDelta(comparisonPayload.score.delta) }}</small>
+            <strong>{{ compareTransition(comparisonPayload.score) }}</strong>
+            <small>{{ compareDelta(comparisonPayload.score) }}</small>
           </article>
           <article class="comparison-card">
             <span>Критичные ошибки</span>
-            <strong>{{ comparisonPayload.issues.high.before }} → {{ comparisonPayload.issues.high.after }}</strong>
-            <small>{{ signedDelta(comparisonPayload.issues.high.delta) }}</small>
+            <strong>{{ compareTransition(comparisonPayload.issues?.high) }}</strong>
+            <small>{{ compareDelta(comparisonPayload.issues?.high) }}</small>
           </article>
           <article class="comparison-card">
             <span>Средние ошибки</span>
-            <strong>{{ comparisonPayload.issues.medium.before }} → {{ comparisonPayload.issues.medium.after }}</strong>
-            <small>{{ signedDelta(comparisonPayload.issues.medium.delta) }}</small>
+            <strong>{{ compareTransition(comparisonPayload.issues?.medium) }}</strong>
+            <small>{{ compareDelta(comparisonPayload.issues?.medium) }}</small>
           </article>
           <article class="comparison-card">
             <span>Низкие ошибки</span>
-            <strong>{{ comparisonPayload.issues.low.before }} → {{ comparisonPayload.issues.low.after }}</strong>
-            <small>{{ signedDelta(comparisonPayload.issues.low.delta) }}</small>
+            <strong>{{ compareTransition(comparisonPayload.issues?.low) }}</strong>
+            <small>{{ compareDelta(comparisonPayload.issues?.low) }}</small>
           </article>
           <article class="comparison-card">
             <span>Проблемы скорости</span>
-            <strong>{{ comparisonPayload.speed_pages.before }} → {{ comparisonPayload.speed_pages.after }}</strong>
-            <small>{{ signedDelta(comparisonPayload.speed_pages.delta) }}</small>
+            <strong>{{ compareTransition(comparisonPayload.speed_pages) }}</strong>
+            <small>{{ compareDelta(comparisonPayload.speed_pages) }}</small>
           </article>
           <article class="comparison-card">
             <span>Проблемы индексации</span>
-            <strong>{{ comparisonPayload.indexing_pages.before }} → {{ comparisonPayload.indexing_pages.after }}</strong>
-            <small>{{ signedDelta(comparisonPayload.indexing_pages.delta) }}</small>
+            <strong>{{ compareTransition(comparisonPayload.indexing_pages) }}</strong>
+            <small>{{ compareDelta(comparisonPayload.indexing_pages) }}</small>
           </article>
         </div>
 
@@ -292,7 +311,7 @@
       <p v-else class="muted empty-state">{{ comparisonPayload?.reason || "Для сравнения нужен завершённый аудит." }}</p>
     </div>
 
-    <div v-if="auditId" class="chart-card">
+    <div id="seo-commercial" v-if="auditId" class="chart-card seo-section-card">
       <div class="card-head card-head-wrap">
         <h2>Коммерческий SEO-аудит страницы</h2>
         <button type="button" class="collapse-btn" @click="toggleBlock('commercial')">
@@ -395,7 +414,7 @@
       </template>
     </div>
 
-    <div v-if="auditId" class="chart-card">
+    <div id="seo-performance" v-if="auditId" class="chart-card seo-section-card">
       <div class="card-head card-head-wrap">
         <h2>Скорость и производительность</h2>
         <button type="button" class="collapse-btn" @click="toggleBlock('speed')">
@@ -403,6 +422,7 @@
         </button>
       </div>
       <p class="muted block-hint">Оценка построена по времени ответа, размеру страницы и объёму ресурсов.</p>
+      <p class="muted tech-summary">Проверено страниц: {{ pages.length }} · Со скоростными проблемами: {{ pagesWithSpeedIssues }}</p>
 
       <template v-if="!collapsed.speed">
         <div class="table-wrap">
@@ -452,7 +472,7 @@
       </template>
     </div>
 
-    <div v-if="auditId" class="chart-card">
+    <div id="seo-indexing" v-if="auditId" class="chart-card seo-section-card">
       <div class="card-head card-head-wrap">
         <h2>Индексация</h2>
         <button type="button" class="collapse-btn" @click="toggleBlock('indexing')">
@@ -521,7 +541,7 @@
       </template>
     </div>
 
-    <div v-if="auditId" class="chart-card">
+    <div id="seo-pages" v-if="auditId" class="chart-card seo-section-card">
       <div class="card-head card-head-wrap">
         <h2>Страницы</h2>
         <button type="button" class="collapse-btn" @click="toggleBlock('pages')">
@@ -529,6 +549,7 @@
         </button>
       </div>
       <p class="muted block-hint">Базовая таблица по ключевым SEO-параметрам каждой страницы.</p>
+      <p class="muted tech-summary">Всего страниц в отчёте: {{ pages.length }}</p>
 
       <template v-if="!collapsed.pages">
         <div class="table-wrap">
@@ -565,7 +586,7 @@
       </template>
     </div>
 
-    <div v-if="auditId" class="chart-card">
+    <div id="seo-errors" v-if="auditId" class="chart-card seo-section-card">
       <div class="card-head card-head-wrap">
         <h2>Ошибки</h2>
         <button type="button" class="collapse-btn" @click="toggleBlock('errors')">
@@ -574,6 +595,9 @@
       </div>
       <p class="muted block-hint">
         Подробный список ошибок по страницам. Используйте фильтр, чтобы быстро найти проблемные зоны.
+      </p>
+      <p class="muted tech-summary">
+        Всего ошибок: {{ errorsCount }} · Критичных: {{ breakdown.high_issues }} · Средних: {{ breakdown.medium_issues }} · Низких: {{ breakdown.low_issues }}
       </p>
 
       <template v-if="!collapsed.errors">
@@ -622,7 +646,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
 import api from "../services/api";
 
@@ -668,6 +692,18 @@ const issueFilters = [
   { value: "other", label: "Прочее" },
 ];
 
+const seoSectionNavItems = [
+  { id: "seo-overview", label: "SEO-аудит сайта" },
+  { id: "seo-plan", label: "План исправлений" },
+  { id: "seo-groups", label: "Группировка проблем" },
+  { id: "seo-compare", label: "Сравнение аудитов" },
+  { id: "seo-commercial", label: "Коммерческий SEO-аудит" },
+  { id: "seo-performance", label: "Скорость и производительность" },
+  { id: "seo-indexing", label: "Индексация" },
+  { id: "seo-pages", label: "Страницы" },
+  { id: "seo-errors", label: "Ошибки" },
+];
+
 const auditId = ref(null);
 const audit = ref(null);
 const domain = ref("");
@@ -683,6 +719,7 @@ const historyRows = ref([]);
 const selectedCompareAuditId = ref("");
 const comparison = ref(null);
 const comparisonLoading = ref(false);
+const activeSeoSection = ref("seo-overview");
 
 const collapsed = ref({
   issueGroups: false,
@@ -695,6 +732,7 @@ const collapsed = ref({
 const expandedIssueGroups = ref({});
 
 let pollTimer = null;
+let sectionScrollRaf = null;
 
 const pages = computed(() => (Array.isArray(audit.value?.pages) ? audit.value.pages : []));
 const groupedErrors = computed(() => {
@@ -746,6 +784,19 @@ const breakdown = computed(() => {
     high_issues: groupedErrors.value.high.length,
     medium_issues: groupedErrors.value.medium.length,
     low_issues: groupedErrors.value.low.length,
+  };
+});
+const breakdownAffectedPages = computed(() => {
+  const uniqueCount = (rows) =>
+    new Set(
+      (Array.isArray(rows) ? rows : [])
+        .map((item) => String(item?.page_url || "").trim())
+        .filter((value) => Boolean(value)),
+    ).size;
+  return {
+    high: uniqueCount(groupedErrors.value.high),
+    medium: uniqueCount(groupedErrors.value.medium),
+    low: uniqueCount(groupedErrors.value.low),
   };
 });
 
@@ -888,11 +939,16 @@ function formatDate(value) {
     minute: "2-digit",
   }).format(date);
 }
-function signedDelta(value) {
-  const num = Number(value || 0);
-  if (num > 0) return `+${num}`;
-  if (num < 0) return `${num}`;
-  return "0";
+function compareTransition(metric) {
+  const before = Number(metric?.before ?? 0) || 0;
+  const after = Number(metric?.after ?? 0) || 0;
+  return `${before} → ${after}`;
+}
+function compareDelta(metric) {
+  const delta = Number(metric?.delta ?? 0) || 0;
+  if (delta > 0) return `+${delta}`;
+  if (delta < 0) return `${delta}`;
+  return "Без изменений";
 }
 function yesNo(value) {
   return value ? "Да" : "Нет";
@@ -1003,8 +1059,47 @@ function boolTransitionLabel(value) {
   if (key === "missing_now") return "Пропал";
   return "Без изменений";
 }
+function syncActiveSeoSection() {
+  if (typeof document === "undefined") return;
+  if (!auditId.value) {
+    activeSeoSection.value = "seo-overview";
+    return;
+  }
+
+  const offset = 150;
+  let currentId = seoSectionNavItems[0].id;
+  for (const item of seoSectionNavItems) {
+    const node = document.getElementById(item.id);
+    if (!node) continue;
+    const top = node.getBoundingClientRect().top;
+    if (top <= offset) currentId = item.id;
+    else break;
+  }
+  activeSeoSection.value = currentId;
+}
+function handleSeoScroll() {
+  if (typeof window === "undefined") return;
+  if (sectionScrollRaf) return;
+  sectionScrollRaf = window.requestAnimationFrame(() => {
+    sectionScrollRaf = null;
+    syncActiveSeoSection();
+  });
+}
+function scrollToSeoSection(sectionId) {
+  const targetId = String(sectionId || "").trim();
+  if (!targetId || typeof document === "undefined") return;
+  const node = document.getElementById(targetId);
+  if (!node) return;
+  activeSeoSection.value = targetId;
+  node.scrollIntoView({ behavior: "smooth", block: "start" });
+}
 function toggleBlock(key) {
   collapsed.value = { ...collapsed.value, [key]: !collapsed.value[key] };
+  if (typeof window !== "undefined") {
+    window.setTimeout(() => {
+      syncActiveSeoSection();
+    }, 0);
+  }
 }
 function toggleIssueGroupPages(issueType) {
   const key = String(issueType || "");
@@ -1058,6 +1153,8 @@ async function loadAudit({ silent = false, allowLatestFallback = true } = {}) {
     if (rawStatus.value === "done") {
       await loadHistory();
     }
+    await nextTick();
+    syncActiveSeoSection();
   } catch (e) {
     const responseStatus = Number(e?.response?.status || 0);
     if (responseStatus === 404 && allowLatestFallback) {
@@ -1096,6 +1193,8 @@ async function loadLatestAudit({ silent = false, preferCurrentDomain = false, su
     if (data?.domain) domain.value = String(data.domain);
     persistState();
     await loadAudit({ silent: true, allowLatestFallback: false });
+    await nextTick();
+    syncActiveSeoSection();
     return true;
   } catch (e) {
     if (!suppressError) error.value = e?.response?.data?.detail || "Не удалось загрузить последний SEO-аудит.";
@@ -1194,9 +1293,25 @@ async function manualRefresh() {
   else await loadLatestAudit({ preferCurrentDomain: true });
 }
 
+watch(
+  auditId,
+  async (value) => {
+    if (!value) {
+      activeSeoSection.value = "seo-overview";
+      return;
+    }
+    await nextTick();
+    syncActiveSeoSection();
+  },
+  { immediate: false },
+);
+
 defineExpose({ manualRefresh });
 
 onMounted(() => {
+  if (typeof window !== "undefined") {
+    window.addEventListener("scroll", handleSeoScroll, { passive: true });
+  }
   restoreState();
   bootstrapping.value = true;
   const bootstrap = async () => {
@@ -1210,6 +1325,13 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   stopPolling();
+  if (typeof window !== "undefined") {
+    window.removeEventListener("scroll", handleSeoScroll);
+  }
+  if (sectionScrollRaf && typeof window !== "undefined") {
+    window.cancelAnimationFrame(sectionScrollRaf);
+    sectionScrollRaf = null;
+  }
 });
 </script>
 <style scoped>
@@ -1326,8 +1448,57 @@ onBeforeUnmount(() => {
   margin: 0.7rem 0 0;
 }
 
+.seo-section-card {
+  scroll-margin-top: 6.5rem;
+}
+
+.seo-anchor-nav-wrap {
+  position: sticky;
+  top: 0.55rem;
+  z-index: 16;
+  margin: 0.8rem 0 1rem;
+}
+
+.seo-anchor-nav {
+  display: flex;
+  gap: 0.45rem;
+  overflow-x: auto;
+  padding: 0.48rem;
+  border: 1px solid #dbe5f1;
+  border-radius: 0.85rem;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(6px);
+}
+
+.seo-anchor-nav-btn {
+  flex: 0 0 auto;
+  min-height: 2rem;
+  border: 1px solid #d1d9e6;
+  border-radius: 999px;
+  padding: 0 0.72rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #334155;
+  background: #fff;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.seo-anchor-nav-btn:hover {
+  border-color: #93c5fd;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.seo-anchor-nav-btn.active {
+  border-color: #2563eb;
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
 .seo-stats {
-  margin-top: 16px;
+  margin-top: 0.8rem;
+  margin-bottom: 0.9rem;
 }
 
 .seo-breakdown-grid,
@@ -1344,7 +1515,7 @@ onBeforeUnmount(() => {
 .fix-plan-item {
   border: 1px solid var(--color-border);
   border-radius: 0.8rem;
-  padding: 0.75rem;
+  padding: 0.68rem 0.72rem;
 }
 
 .seo-breakdown-card span,
@@ -1366,8 +1537,25 @@ onBeforeUnmount(() => {
   background: #f5fbf6;
 }
 
+.seo-breakdown-card-wrap .seo-breakdown-card strong {
+  font-size: 1.28rem;
+  line-height: 1.12;
+}
+
+.seo-breakdown-card small,
+.comparison-card small {
+  display: inline-block;
+  margin-top: 0.25rem;
+  color: var(--color-muted);
+}
+
 .block-hint {
   margin: 0 0 0.7rem;
+}
+
+.tech-summary {
+  margin: 0 0 0.62rem;
+  font-size: 0.82rem;
 }
 
 .fix-plan-list,
@@ -1451,6 +1639,10 @@ onBeforeUnmount(() => {
   display: grid;
   gap: 0.75rem;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.comparison-card strong {
+  line-height: 1.25;
 }
 
 .comparison-issue-list,
@@ -1559,6 +1751,10 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 960px) {
+  .seo-anchor-nav-wrap {
+    top: 0.35rem;
+  }
+
   .seo-start-row,
   .seo-breakdown-grid,
   .comparison-grid,
