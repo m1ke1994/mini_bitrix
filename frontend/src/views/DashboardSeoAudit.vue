@@ -41,7 +41,7 @@
       </p>
 
       <p class="muted seo-hint">
-        Введите домен сайта. Аудит показывает технические проблемы и готовность страниц к заявкам.
+        Введите домен сайта. Аудит покажет технические проблемы, приоритеты исправлений и динамику изменений.
       </p>
     </div>
 
@@ -239,7 +239,7 @@
 
       <div v-if="comparisonPayload?.has_data" class="comparison-wrap">
         <p class="comparison-trend" :class="comparisonTrendClass(comparisonPayload?.trend)">
-          {{ comparisonPayload?.trend_label }}
+          {{ comparisonTrendLabel(comparisonPayload) }}
         </p>
         <div class="comparison-grid">
           <article class="comparison-card">
@@ -311,109 +311,6 @@
       <p v-else class="muted empty-state">{{ comparisonPayload?.reason || "Для сравнения нужен завершённый аудит." }}</p>
     </div>
 
-    <div id="seo-commercial" v-if="auditId" class="chart-card seo-section-card">
-      <div class="card-head card-head-wrap">
-        <h2>Коммерческий SEO-аудит страницы</h2>
-        <button type="button" class="collapse-btn" @click="toggleBlock('commercial')">
-          {{ collapsed.commercial ? "Развернуть" : "Свернуть" }}
-        </button>
-      </div>
-      <p class="muted block-hint">
-        Проверка показывает не только классическую форму, но и современные каналы обращения: мессенджеры, контакты и виджеты.
-      </p>
-
-      <template v-if="!collapsed.commercial">
-        <div v-if="commercialSummary.has_data" class="commercial-summary-grid">
-          <article class="commercial-summary-card">
-            <span>Средняя готовность</span>
-            <strong :class="scoreClassByValue(commercialSummary.avg_score)">{{ commercialSummary.avg_score }}/100</strong>
-          </article>
-          <article class="commercial-summary-card">
-            <span>Готовы к заявкам</span>
-            <strong class="status-done">{{ commercialSummary.ready_pages ?? commercialSummary.good_pages ?? 0 }}</strong>
-          </article>
-          <article class="commercial-summary-card">
-            <span>Есть канал обращения</span>
-            <strong class="status-running">{{ commercialSummary.has_channel_pages ?? 0 }}</strong>
-          </article>
-          <article class="commercial-summary-card">
-            <span>Можно усилить</span>
-            <strong class="status-stopped">{{ commercialSummary.improvable_pages ?? commercialSummary.warning_pages ?? 0 }}</strong>
-          </article>
-          <article class="commercial-summary-card">
-            <span>Слабо подготовлены</span>
-            <strong class="status-error">{{ commercialSummary.weak_pages ?? commercialSummary.critical_pages ?? 0 }}</strong>
-          </article>
-          <article class="commercial-summary-card">
-            <span>Нет сценария обращения</span>
-            <strong class="status-error">{{ commercialSummary.no_conversion_path_pages ?? 0 }}</strong>
-          </article>
-        </div>
-
-        <div v-if="commercialSummary.top_recommendations?.length" class="recommendation-list">
-          <h3>Что улучшить в первую очередь</h3>
-          <ul>
-            <li v-for="item in commercialSummary.top_recommendations" :key="item.text">
-              {{ item.text }} <span class="muted">(затронуто: {{ item.pages_affected }})</span>
-            </li>
-          </ul>
-        </div>
-
-        <div class="table-wrap">
-          <table class="table">
-            <thead>
-              <tr>
-                <th>URL</th>
-                <th>Статус</th>
-                <th>Оценка</th>
-                <th>Сценарий обращения</th>
-                <th>Сигналы</th>
-                <th>Рекомендации</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="page in commercialPages" :key="`commercial-${page.id}`">
-                <td class="url-cell">{{ page.url }}</td>
-                <td>
-                  <span class="severity-pill" :class="commercialBusinessStatusClass(page.commercial_business_status || page.commercial_status)">
-                    {{ page.commercial_business_status_label || page.commercial_status_label || commercialStatusLabel(page) }}
-                  </span>
-                </td>
-                <td>{{ page.commercial_readiness_score ?? 0 }}/100</td>
-                <td>
-                  <div class="commercial-path-cell">
-                    <strong>{{ page.conversion_path_type_label || conversionPathTypeLabel(page.conversion_path_type) }}</strong>
-                    <span class="muted small">{{ page.commercial_explanation || "Сценарий обращения уточняется по данным страницы." }}</span>
-                  </div>
-                </td>
-                <td>
-                  <div class="signal-grid">
-                    <span :class="signalClass(conversionSignals(page).has_form, { soft: page.has_conversion_path })">Форма</span>
-                    <span :class="signalClass(conversionSignals(page).has_cta, { soft: page.has_conversion_path })">CTA</span>
-                    <span :class="signalClass(conversionSignals(page).has_direct_contact)">Прямой контакт</span>
-                    <span :class="signalClass(conversionSignals(page).has_messenger_contact)">Мессенджер</span>
-                    <span :class="signalClass(conversionSignals(page).has_widget)">Виджет</span>
-                    <span :class="signalClass(conversionSignals(page).has_offer_like_heading, { soft: true })">Оффер</span>
-                    <span :class="signalClass(conversionSignals(page).has_benefits_block, { soft: true })">Преимущества</span>
-                    <span :class="signalClass(conversionSignals(page).has_faq, { soft: true })">FAQ</span>
-                  </div>
-                </td>
-                <td>
-                  <ul v-if="page.commercial_recommendations?.length" class="recommendation-mini-list">
-                    <li v-for="item in page.commercial_recommendations" :key="`${page.id}-${item}`">{{ item }}</li>
-                  </ul>
-                  <span v-else>Без замечаний</span>
-                </td>
-              </tr>
-              <tr v-if="!commercialPages.length">
-                <td colspan="6">Пока недостаточно данных для коммерческого анализа страниц.</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </template>
-    </div>
-
     <div id="seo-performance" v-if="auditId" class="chart-card seo-section-card">
       <div class="card-head card-head-wrap">
         <h2>Скорость и производительность</h2>
@@ -430,11 +327,11 @@
             <thead>
               <tr>
                 <th>URL</th>
-                <th>TTFB</th>
-                <th>HTML</th>
-                <th>JS/CSS/IMG</th>
-                <th>Вес JS/CSS/IMG</th>
-                <th>Score</th>
+                <th>Ответ сервера (TTFB)</th>
+                <th>Размер HTML</th>
+                <th>Файлы JS/CSS/изображения</th>
+                <th>Вес JS/CSS/изображений</th>
+                <th>Оценка</th>
                 <th>Статус</th>
                 <th>Проблемы</th>
               </tr>
@@ -505,8 +402,8 @@
             <thead>
               <tr>
                 <th>URL</th>
-                <th>Meta robots</th>
-                <th>Canonical</th>
+                <th>Мета-тег robots</th>
+                <th>Canonical URL</th>
                 <th>Индексация</th>
                 <th>В sitemap</th>
                 <th>Блок robots</th>
@@ -697,7 +594,6 @@ const seoSectionNavItems = [
   { id: "seo-plan", label: "План исправлений" },
   { id: "seo-groups", label: "Группировка проблем" },
   { id: "seo-compare", label: "Сравнение аудитов" },
-  { id: "seo-commercial", label: "Коммерческий SEO-аудит" },
   { id: "seo-performance", label: "Скорость и производительность" },
   { id: "seo-indexing", label: "Индексация" },
   { id: "seo-pages", label: "Страницы" },
@@ -723,7 +619,6 @@ const activeSeoSection = ref("seo-overview");
 
 const collapsed = ref({
   issueGroups: false,
-  commercial: false,
   speed: true,
   indexing: true,
   pages: true,
@@ -802,26 +697,6 @@ const breakdownAffectedPages = computed(() => {
 
 const fixPlan = computed(() => (Array.isArray(audit.value?.fix_plan) ? audit.value.fix_plan : []));
 const issueGroups = computed(() => (Array.isArray(audit.value?.issue_groups) ? audit.value.issue_groups : []));
-const commercialSummary = computed(() => {
-  const payload = audit.value?.commercial_summary;
-  if (payload && typeof payload === "object") return payload;
-  return {
-    has_data: false,
-    pages_total: 0,
-    avg_score: 0,
-    good_pages: 0,
-    warning_pages: 0,
-    critical_pages: 0,
-    ready_pages: 0,
-    has_channel_pages: 0,
-    improvable_pages: 0,
-    weak_pages: 0,
-    no_conversion_path_pages: 0,
-    top_recommendations: [],
-    pages: [],
-  };
-});
-const commercialPages = computed(() => (Array.isArray(commercialSummary.value?.pages) ? commercialSummary.value.pages : []));
 
 const comparisonPayload = computed(() => {
   if (comparison.value && typeof comparison.value === "object") return comparison.value;
@@ -922,9 +797,9 @@ function formatMs(value) {
 function formatBytes(value) {
   const num = Number(value || 0);
   if (num <= 0) return "—";
-  if (num >= 1024 * 1024) return `${(num / (1024 * 1024)).toFixed(2)} MB`;
-  if (num >= 1024) return `${(num / 1024).toFixed(1)} KB`;
-  return `${num} B`;
+  if (num >= 1024 * 1024) return `${(num / (1024 * 1024)).toFixed(2)} МБ`;
+  if (num >= 1024) return `${(num / 1024).toFixed(1)} КБ`;
+  return `${num} Б`;
 }
 function formatDate(value) {
   const raw = String(value || "").trim();
@@ -949,6 +824,14 @@ function compareDelta(metric) {
   if (delta > 0) return `+${delta}`;
   if (delta < 0) return `${delta}`;
   return "Без изменений";
+}
+function comparisonTrendLabel(payload) {
+  const key = String(payload?.trend || "").toLowerCase();
+  if (key === "better") return "Стало лучше";
+  if (key === "worse") return "Появились ухудшения";
+  const explicitLabel = String(payload?.trend_label || "").trim();
+  if (explicitLabel) return explicitLabel;
+  return "Без заметных изменений";
 }
 function yesNo(value) {
   return value ? "Да" : "Нет";
@@ -976,8 +859,8 @@ function speedStatusClass(value) {
 function indexabilityStatusLabel(value) {
   const key = String(value || "").toLowerCase();
   if (key === "indexable") return "Индексируется";
-  if (key === "noindex") return "Noindex";
-  if (key === "blocked") return "Блок robots";
+  if (key === "noindex") return "Ограничена (noindex)";
+  if (key === "blocked") return "Заблокирована robots.txt";
   if (key === "conflict") return "Конфликт";
   return "Неизвестно";
 }
@@ -1001,51 +884,6 @@ function priorityClass(value) {
   if (key === "urgent") return "priority-urgent";
   if (key === "important") return "priority-important";
   return "priority-later";
-}
-function conversionSignals(page) {
-  const payload = page?.conversion_signals || page?.commercial_signals || {};
-  return {
-    has_form: Boolean(payload?.has_form),
-    has_cta: Boolean(payload?.has_cta),
-    has_direct_contact: Boolean(payload?.has_direct_contact ?? payload?.has_phone_or_contact),
-    has_messenger_contact: Boolean(payload?.has_messenger_contact ?? payload?.has_messenger),
-    has_widget: Boolean(payload?.has_widget),
-    has_offer_like_heading: Boolean(payload?.has_offer_like_heading),
-    has_benefits_block: Boolean(payload?.has_benefits_block),
-    has_faq: Boolean(payload?.has_faq),
-  };
-}
-function signalClass(value, options = {}) {
-  if (value) return "signal-ok";
-  if (options?.soft) return "signal-soft";
-  return "signal-missing";
-}
-function commercialBusinessStatusClass(value) {
-  const key = String(value || "").toLowerCase();
-  if (key === "ready" || key === "good") return "severity-low";
-  if (key === "has_channel") return "severity-low";
-  if (key === "improvable" || key === "warning") return "severity-medium";
-  if (key === "weak" || key === "critical") return "severity-high";
-  if (key === "none") return "severity-high";
-  return "";
-}
-function commercialStatusLabel(page) {
-  const key = String(page?.commercial_business_status || page?.commercial_status || "").toLowerCase();
-  if (key === "ready" || key === "good") return "Готова к заявкам";
-  if (key === "has_channel") return "Есть канал обращения";
-  if (key === "improvable" || key === "warning") return "Можно усилить конверсию";
-  if (key === "weak" || key === "critical") return "Слабо подготовлена";
-  if (key === "none") return "Нет сценария обращения";
-  return "Можно усилить конверсию";
-}
-function conversionPathTypeLabel(value) {
-  const key = String(value || "").toLowerCase();
-  if (key === "form") return "Классическая форма";
-  if (key === "contacts") return "Прямые контакты";
-  if (key === "messenger") return "Мессенджеры или соцсети";
-  if (key === "widget") return "Виджет или плавающая кнопка";
-  if (key === "mixed") return "Смешанный сценарий";
-  return "Не найден";
 }
 function comparisonTrendClass(value) {
   const key = String(value || "").toLowerCase();
@@ -1502,8 +1340,7 @@ onBeforeUnmount(() => {
 }
 
 .seo-breakdown-grid,
-.comparison-grid,
-.commercial-summary-grid {
+.comparison-grid {
   display: grid;
   gap: 0.75rem;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1511,7 +1348,6 @@ onBeforeUnmount(() => {
 
 .seo-breakdown-card,
 .comparison-card,
-.commercial-summary-card,
 .fix-plan-item {
   border: 1px solid var(--color-border);
   border-radius: 0.8rem;
@@ -1519,22 +1355,24 @@ onBeforeUnmount(() => {
 }
 
 .seo-breakdown-card span,
-.comparison-card span,
-.commercial-summary-card span {
+.comparison-card span {
   font-size: 0.82rem;
   color: var(--color-muted);
 }
 
 .seo-breakdown-high {
-  background: #fff7f7;
+  background: linear-gradient(180deg, #fff7f7 0%, #ffffff 100%);
+  border-color: #fecaca;
 }
 
 .seo-breakdown-medium {
-  background: #fffaf0;
+  background: linear-gradient(180deg, #fffaf0 0%, #ffffff 100%);
+  border-color: #fde68a;
 }
 
 .seo-breakdown-low {
-  background: #f5fbf6;
+  background: linear-gradient(180deg, #f5fbf6 0%, #ffffff 100%);
+  border-color: #bbf7d0;
 }
 
 .seo-breakdown-card-wrap .seo-breakdown-card strong {
@@ -1560,8 +1398,7 @@ onBeforeUnmount(() => {
 
 .fix-plan-list,
 .issue-pages-list,
-.comparison-wrap,
-.signal-grid {
+.comparison-wrap {
   display: grid;
   gap: 0.5rem;
 }
@@ -1577,8 +1414,7 @@ onBeforeUnmount(() => {
 }
 
 .priority-pill,
-.severity-pill,
-.signal-grid span {
+.severity-pill {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1589,8 +1425,7 @@ onBeforeUnmount(() => {
 }
 
 .priority-urgent,
-.severity-high,
-.signal-missing {
+.severity-high {
   color: #991b1b;
   background: #fee2e2;
 }
@@ -1606,20 +1441,9 @@ onBeforeUnmount(() => {
   background: #dbeafe;
 }
 
-.severity-low,
-.signal-ok {
+.severity-low {
   color: #166534;
   background: #dcfce7;
-}
-
-.signal-soft {
-  color: #1e40af;
-  background: #dbeafe;
-}
-
-.commercial-path-cell {
-  display: grid;
-  gap: 0.3rem;
 }
 
 .issue-pages-list span {
@@ -1645,21 +1469,11 @@ onBeforeUnmount(() => {
   line-height: 1.25;
 }
 
-.comparison-issue-list,
-.recommendation-mini-list,
-.recommendation-list ul {
+.comparison-issue-list {
   margin: 0;
   padding-left: 1rem;
   display: grid;
   gap: 0.35rem;
-}
-
-.recommendation-list {
-  margin-bottom: 0.75rem;
-}
-
-.signal-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .url-cell {
@@ -1744,8 +1558,7 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 1100px) {
-  .comparison-grid,
-  .commercial-summary-grid {
+  .comparison-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -1758,9 +1571,7 @@ onBeforeUnmount(() => {
   .seo-start-row,
   .seo-breakdown-grid,
   .comparison-grid,
-  .commercial-summary-grid,
-  .comparison-lists,
-  .signal-grid {
+  .comparison-lists {
     grid-template-columns: 1fr;
   }
 
