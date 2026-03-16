@@ -6,7 +6,10 @@ from django.test import TestCase
 
 from clients.models import Client
 from seo_audit.models import SEOIssue, SEOPage, SiteSEOAudit
-from seo_audit.services.crawler import crawl_site_audit
+from seo_audit.services.crawler import _collect_commercial_signals, _score_commercial_signals, crawl_site_audit
+from seo_audit.services.messages import get_commercial_recommendations
+
+from bs4 import BeautifulSoup
 
 
 class _FakeResponse:
@@ -150,3 +153,131 @@ class SEOCrawlerServiceTests(TestCase):
                 SEOPage.CommercialStatus.CRITICAL,
             },
         )
+        self.assertTrue(home_page.has_conversion_path)
+        self.assertIn(
+            home_page.conversion_path_type,
+            {
+                SEOPage.ConversionPathType.FORM,
+                SEOPage.ConversionPathType.MIXED,
+            },
+        )
+        self.assertIsInstance(home_page.commercial_signals_payload, dict)
+        self.assertIn("conversion_signals", home_page.commercial_signals_payload)
+
+    def test_commercial_signals_detect_messenger_conversion_without_form(self):
+        soup = BeautifulSoup(
+            """
+            <html>
+              <body>
+                <section class="contact-card">
+                  <h2>Выберите удобный канал связи</h2>
+                  <a href="https://t.me/mycompany">Telegram</a>
+                  <a href="https://vk.com/mycompany">VK</a>
+                </section>
+              </body>
+            </html>
+            """,
+            "html.parser",
+        )
+        signals = _collect_commercial_signals(soup)
+        score, status = _score_commercial_signals(signals)
+
+        self.assertTrue(signals["has_conversion_path"])
+        self.assertIn(
+            signals["conversion_path_type"],
+            {SEOPage.ConversionPathType.MESSENGER, SEOPage.ConversionPathType.MIXED},
+        )
+        self.assertTrue(signals["has_messenger_contact"])
+        self.assertGreaterEqual(score, 35)
+        self.assertIn(status, {SEOPage.CommercialStatus.WARNING, SEOPage.CommercialStatus.GOOD})
+
+        recommendations = get_commercial_recommendations(
+            signals,
+            has_conversion_path=signals["has_conversion_path"],
+            conversion_path_type=signals["conversion_path_type"],
+            score=score,
+        )
+        self.assertTrue(all("Добавьте контакты для быстрого обращения" not in item for item in recommendations))
+        self.assertTrue(all("Добавьте хотя бы один явный сценарий обращения" not in item for item in recommendations))
+
+    def test_commercial_signals_form_only_is_valid_conversion_path(self):
+        soup = BeautifulSoup(
+            """
+            <html>
+              <body>
+                <form action="/lead">
+                  <input type="text" name="name">
+                  <input type="tel" name="phone">
+                  <button type="submit">Отправить заявку</button>
+                </form>
+              </body>
+            </html>
+            """,
+            "html.parser",
+        )
+        signals = _collect_commercial_signals(soup)
+        score, status = _score_commercial_signals(signals)
+        self.assertTrue(signals["has_conversion_path"])
+        self.assertIn(signals["conversion_path_type"], {SEOPage.ConversionPathType.FORM, SEOPage.ConversionPathType.MIXED})
+        self.assertGreater(score, 0)
+        self.assertIn(status, {SEOPage.CommercialStatus.WARNING, SEOPage.CommercialStatus.GOOD})
+
+    def test_commercial_signals_contacts_only_is_valid_conversion_path(self):
+        soup = BeautifulSoup(
+            """
+            <html>
+              <body>
+                <section class="contacts">
+                  <h2>Свяжитесь с нами</h2>
+                  <a href="tel:+79990001122">+7 (999) 000-11-22</a>
+                  <a href="mailto:hello@example.com">hello@example.com</a>
+                </section>
+              </body>
+            </html>
+            """,
+            "html.parser",
+        )
+        signals = _collect_commercial_signals(soup)
+        score, _status = _score_commercial_signals(signals)
+        self.assertTrue(signals["has_conversion_path"])
+        self.assertIn(
+            signals["conversion_path_type"],
+            {SEOPage.ConversionPathType.CONTACTS, SEOPage.ConversionPathType.MIXED},
+        )
+        self.assertGreaterEqual(score, 30)
+
+    def test_commercial_signals_no_conversion_path_returns_none(self):
+        soup = BeautifulSoup(
+            """
+            <html>
+              <body>
+                <h1>О компании</h1>
+                <p>Информационная страница без кнопок и контактов.</p>
+              </body>
+            </html>
+            """,
+            "html.parser",
+        )
+        signals = _collect_commercial_signals(soup)
+        score, status = _score_commercial_signals(signals)
+        self.assertFalse(signals["has_conversion_path"])
+        self.assertEqual(signals["conversion_path_type"], SEOPage.ConversionPathType.NONE)
+        self.assertLessEqual(score, 40)
+        self.assertEqual(status, SEOPage.CommercialStatus.CRITICAL)
+
+    def test_commercial_signals_widget_counts_as_conversion_path(self):
+        soup = BeautifulSoup(
+            """
+            <html>
+              <body>
+                <div id="floating-chat-widget" class="chat-widget floating">
+                  <a href="https://t.me/helpdesk">Написать</a>
+                </div>
+              </body>
+            </html>
+            """,
+            "html.parser",
+        )
+        signals = _collect_commercial_signals(soup)
+        self.assertTrue(signals["has_widget"])
+        self.assertTrue(signals["has_conversion_path"])

@@ -98,6 +98,14 @@ class SEOAuditViewsExtendedTests(TestCase):
         self.assertIn("commercial_summary", payload)
         self.assertIn("audit_history", payload)
         self.assertIn("comparison_preview", payload)
+        pages = payload.get("commercial_summary", {}).get("pages") or []
+        self.assertTrue(len(pages) >= 1)
+        page = pages[0]
+        self.assertIn("has_conversion_path", page)
+        self.assertIn("conversion_path_type", page)
+        self.assertIn("conversion_signals", page)
+        self.assertIn("commercial_explanation", page)
+        self.assertIn("commercial_business_status", page)
 
     def test_history_endpoint_returns_done_rows_and_default_compare_id(self):
         domain = "history.example.com"

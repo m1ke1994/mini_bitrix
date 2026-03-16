@@ -5,7 +5,10 @@ from collections import defaultdict
 
 from seo_audit.models import SEOIssue, SEOPage, SiteSEOAudit
 from seo_audit.services.messages import (
+    get_commercial_business_status,
+    get_commercial_explanation,
     get_commercial_recommendations,
+    get_conversion_path_label,
     get_commercial_status_label,
     get_issue_group_meta,
     get_issue_title,
@@ -533,6 +536,11 @@ def build_issue_groups(issues_payload: list[dict]) -> list[dict]:
 def enrich_commercial_pages(pages_payload: list[dict]) -> list[dict]:
     enriched = []
     for row in pages_payload or []:
+        payload = row.get("commercial_signals_payload")
+        payload = payload if isinstance(payload, dict) else {}
+        payload_conversion_signals = payload.get("conversion_signals")
+        payload_conversion_signals = payload_conversion_signals if isinstance(payload_conversion_signals, dict) else {}
+
         signals = {
             "has_form": bool(row.get("has_form")),
             "has_cta": bool(row.get("has_cta")),
@@ -541,14 +549,97 @@ def enrich_commercial_pages(pages_payload: list[dict]) -> list[dict]:
             "has_offer_like_heading": bool(row.get("has_offer_like_heading")),
             "has_benefits_block": bool(row.get("has_benefits_block")),
             "has_faq": bool(row.get("has_faq")),
+            "has_direct_contact": bool(payload_conversion_signals.get("has_direct_contact")),
+            "has_contact_block": bool(payload_conversion_signals.get("has_contact_block")),
+            "has_messenger_contact": bool(payload_conversion_signals.get("has_messenger_contact", row.get("has_messenger"))),
+            "has_widget": bool(payload_conversion_signals.get("has_widget")),
+            "has_multi_channel_contact": bool(payload_conversion_signals.get("has_multi_channel_contact")),
         }
+        has_conversion_path = row.get("has_conversion_path")
+        if has_conversion_path is None:
+            has_conversion_path = payload.get("has_conversion_path")
+        conversion_path_type = str(
+            row.get("conversion_path_type") or payload.get("conversion_path_type") or SEOPage.ConversionPathType.NONE
+        )
+        resolved_has_conversion_path = (
+            bool(has_conversion_path)
+            if has_conversion_path is not None
+            else bool(
+                signals.get("has_form")
+                or signals.get("has_direct_contact")
+                or signals.get("has_contact_block")
+                or signals.get("has_messenger_contact")
+                or signals.get("has_widget")
+                or conversion_path_type in {
+                    SEOPage.ConversionPathType.FORM,
+                    SEOPage.ConversionPathType.CONTACTS,
+                    SEOPage.ConversionPathType.MESSENGER,
+                    SEOPage.ConversionPathType.WIDGET,
+                    SEOPage.ConversionPathType.MIXED,
+                }
+            )
+        )
+        signals["has_conversion_path"] = resolved_has_conversion_path
+        signals["conversion_path_type"] = conversion_path_type
+
+        score = int(row.get("commercial_readiness_score") or 0)
         status_key = str(row.get("commercial_status") or SEOPage.CommercialStatus.WARNING)
+        recommendations = get_commercial_recommendations(
+            signals,
+            has_conversion_path=resolved_has_conversion_path,
+            conversion_path_type=conversion_path_type,
+            score=score,
+        )
+        status_label = get_commercial_status_label(
+            status_key,
+            signals=signals,
+            has_conversion_path=resolved_has_conversion_path,
+            conversion_path_type=conversion_path_type,
+            score=score,
+        )
+        business_key = get_commercial_business_status(
+            status_key=status_key,
+            signals=signals,
+            has_conversion_path=resolved_has_conversion_path,
+            conversion_path_type=conversion_path_type,
+            score=score,
+        )
+        explanation = get_commercial_explanation(
+            signals=signals,
+            has_conversion_path=resolved_has_conversion_path,
+            conversion_path_type=conversion_path_type,
+            status_key=status_key,
+            score=score,
+        )
+        conversion_signals = {
+            "has_form": bool(signals.get("has_form")),
+            "has_cta": bool(signals.get("has_cta")),
+            "has_direct_contact": bool(signals.get("has_direct_contact") or signals.get("has_phone_or_contact")),
+            "has_contact_block": bool(signals.get("has_contact_block")),
+            "has_messenger_contact": bool(signals.get("has_messenger_contact") or signals.get("has_messenger")),
+            "has_widget": bool(signals.get("has_widget")),
+            "has_multi_channel_contact": bool(signals.get("has_multi_channel_contact")),
+            "has_offer_like_heading": bool(signals.get("has_offer_like_heading")),
+            "has_benefits_block": bool(signals.get("has_benefits_block")),
+            "has_faq": bool(signals.get("has_faq")),
+        }
         enriched.append(
             {
                 **row,
                 "commercial_signals": signals,
-                "commercial_recommendations": get_commercial_recommendations(signals),
-                "commercial_status_label": get_commercial_status_label(status_key),
+                "conversion_signals": conversion_signals,
+                "has_conversion_path": resolved_has_conversion_path,
+                "conversion_path_type": conversion_path_type,
+                "conversion_path_type_label": get_conversion_path_label(conversion_path_type),
+                "contact_signals": payload.get("contact_signals") or {},
+                "cta_signals": payload.get("cta_signals") or {},
+                "messenger_signals": payload.get("messenger_signals") or {},
+                "widget_signals": payload.get("widget_signals") or {},
+                "commercial_explanation": explanation,
+                "commercial_recommendations": recommendations,
+                "commercial_status_label": status_label,
+                "commercial_business_status": business_key,
+                "commercial_business_status_label": status_label,
             }
         )
     return enriched
@@ -565,6 +656,12 @@ def build_commercial_summary(pages_payload: list[dict]) -> dict[str, object]:
             "good_pages": 0,
             "warning_pages": 0,
             "critical_pages": 0,
+            "ready_pages": 0,
+            "has_channel_pages": 0,
+            "improvable_pages": 0,
+            "weak_pages": 0,
+            "no_conversion_path_pages": 0,
+            "conversion_path_types": {},
             "signals_presence": {},
             "top_recommendations": [],
             "pages": [],
@@ -573,6 +670,8 @@ def build_commercial_summary(pages_payload: list[dict]) -> dict[str, object]:
     good_pages = 0
     warning_pages = 0
     critical_pages = 0
+    business_status_counts = defaultdict(int)
+    conversion_path_counts = defaultdict(int)
     score_sum = 0
     signal_counts = defaultdict(int)
     recommendation_counts = defaultdict(int)
@@ -586,7 +685,12 @@ def build_commercial_summary(pages_payload: list[dict]) -> dict[str, object]:
             warning_pages += 1
 
         score_sum += int(row.get("commercial_readiness_score") or 0)
-        signals = row.get("commercial_signals") or {}
+        business_key = str(row.get("commercial_business_status") or "").strip().lower() or "improvable"
+        business_status_counts[business_key] += 1
+        path_type = str(row.get("conversion_path_type") or SEOPage.ConversionPathType.NONE)
+        conversion_path_counts[path_type] += 1
+
+        signals = row.get("conversion_signals") or row.get("commercial_signals") or {}
         for signal_key, value in signals.items():
             if bool(value):
                 signal_counts[signal_key] += 1
@@ -610,6 +714,12 @@ def build_commercial_summary(pages_payload: list[dict]) -> dict[str, object]:
         "good_pages": good_pages,
         "warning_pages": warning_pages,
         "critical_pages": critical_pages,
+        "ready_pages": int(business_status_counts["ready"]),
+        "has_channel_pages": int(business_status_counts["has_channel"]),
+        "improvable_pages": int(business_status_counts["improvable"]),
+        "weak_pages": int(business_status_counts["weak"]),
+        "no_conversion_path_pages": int(business_status_counts["none"]),
+        "conversion_path_types": {key: int(value) for key, value in conversion_path_counts.items()},
         "signals_presence": {key: int(value) for key, value in signal_counts.items()},
         "top_recommendations": top_recommendations,
         "pages": pages,

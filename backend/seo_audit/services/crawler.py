@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 import logging
 import re
 import time
@@ -26,6 +26,7 @@ SKIP_FILE_EXTENSIONS = (".pdf", ".jpg", ".jpeg", ".png", ".svg", ".zip", ".doc",
 HEADING_TAG_RE = re.compile(r"^h[1-6]$")
 WORD_RE = re.compile(r"[A-Za-z0-9\u0400-\u04FF]+")
 PHONE_RE = re.compile(r"(\+?\d[\d\-\s\(\)]{7,}\d)")
+EMAIL_RE = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
 
 SPEED_ISSUE_TYPES = {
     "slow_response",
@@ -59,16 +60,23 @@ INDEXING_ISSUE_TYPES = {
 }
 
 CTA_TEXT_HINTS = (
-    "оставить заявку",
-    "оставить запрос",
-    "заказать",
-    "купить",
-    "получить",
-    "связаться",
-    "отправить",
-    "консульта",
-    "перезвон",
-    "записаться",
+    "РѕСЃС‚Р°РІРёС‚СЊ Р·Р°СЏРІРєСѓ",
+    "РѕС‚РїСЂР°РІРёС‚СЊ Р·Р°СЏРІРєСѓ",
+    "РѕСЃС‚Р°РІРёС‚СЊ Р·Р°РїСЂРѕСЃ",
+    "РѕСЃС‚Р°РІРёС‚СЊ РєРѕРЅС‚Р°РєС‚С‹",
+    "РїРѕР»СѓС‡РёС‚СЊ РєРѕРЅСЃСѓР»СЊС‚Р°",
+    "РїРѕР»СѓС‡РёС‚СЊ СЂР°СЃС‡РµС‚",
+    "РїРѕР»СѓС‡РёС‚СЊ СЂР°СЃС‡С‘С‚",
+    "РІС‹Р±СЂР°С‚СЊ РєР°РЅР°Р»",
+    "СЃРІСЏР·Р°С‚СЊСЃСЏ",
+    "РЅР°РїРёСЃР°С‚СЊ",
+    "РѕР±СЃСѓРґРёС‚СЊ РїСЂРѕРµРєС‚",
+    "Р·Р°РєР°Р·Р°С‚СЊ",
+    "РєСѓРїРёС‚СЊ",
+    "РЅР°С‡Р°С‚СЊ",
+    "РєРѕРЅСЃСѓР»СЊС‚Р°",
+    "РїРµСЂРµР·РІРѕРЅ",
+    "Р·Р°РїРёСЃР°С‚СЊСЃСЏ",
     "call",
     "contact",
     "request",
@@ -76,25 +84,108 @@ CTA_TEXT_HINTS = (
     "book",
     "buy",
     "order",
+    "get quote",
+    "start now",
+    "write us",
 )
-CTA_ATTR_HINTS = ("cta", "lead", "order", "buy", "request", "contact", "submit")
+CTA_ATTR_HINTS = (
+    "cta",
+    "lead",
+    "order",
+    "buy",
+    "request",
+    "contact",
+    "submit",
+    "callback",
+    "consult",
+    "write",
+    "chat",
+    "floating",
+    "sticky",
+    "hero",
+    "action",
+)
+CONTACT_TEXT_HINTS = (
+    "РєРѕРЅС‚Р°РєС‚",
+    "СЃРІСЏР¶РёС‚РµСЃСЊ",
+    "СЃРІСЏР·Р°С‚СЊСЃСЏ",
+    "РЅР°РїРёС€РёС‚Рµ",
+    "РјС‹ РЅР° СЃРІСЏР·Рё",
+    "РІС‹Р±РµСЂРёС‚Рµ РєР°РЅР°Р»",
+    "СѓРґРѕР±РЅС‹Р№ РєР°РЅР°Р»",
+    "contact us",
+    "contacts",
+    "write us",
+    "get in touch",
+)
+CONTACT_ATTR_HINTS = (
+    "contact",
+    "contacts",
+    "callback",
+    "communication",
+    "messenger",
+    "social",
+    "connect",
+    "support",
+)
 OFFER_HINTS = (
-    "под ключ",
-    "под заказ",
-    "цена",
-    "стоимость",
-    "скидк",
-    "выгода",
-    "бесплатно",
-    "гарант",
-    "лучшее",
+    "РїРѕРґ РєР»СЋС‡",
+    "РїРѕРґ Р·Р°РєР°Р·",
+    "С†РµРЅР°",
+    "СЃС‚РѕРёРјРѕСЃС‚СЊ",
+    "СЃРєРёРґРє",
+    "РІС‹РіРѕРґР°",
+    "Р±РµСЃРїР»Р°С‚РЅРѕ",
+    "РіР°СЂР°РЅС‚",
+    "Р»СѓС‡С€РµРµ",
     "best",
     "offer",
     "solution",
+    "РґР»СЏ РІР°С€РµРіРѕ Р±РёР·РЅРµСЃР°",
 )
-BENEFITS_HINTS = ("преимущ", "почему мы", "why us", "benefit", "feature", "reason")
-FAQ_HINTS = ("faq", "вопрос", "question", "часто задаваем")
-MESSENGER_HINTS = ("wa.me", "whatsapp", "t.me", "telegram", "viber", "vk.me", "facebook.com/messages")
+BENEFITS_HINTS = ("РїСЂРµРёРјСѓС‰", "РїРѕС‡РµРјСѓ РјС‹", "why us", "benefit", "feature", "reason")
+FAQ_HINTS = ("faq", "РІРѕРїСЂРѕСЃ", "question", "С‡Р°СЃС‚Рѕ Р·Р°РґР°РІР°РµРј")
+MESSENGER_HINTS = (
+    "wa.me",
+    "api.whatsapp.com",
+    "whatsapp",
+    "t.me",
+    "telegram.me",
+    "telegram",
+    "vk.com",
+    "m.vk.com",
+    "vk.me",
+    "viber",
+    "max",
+    "facebook.com/messages",
+    "messenger.com",
+)
+MESSENGER_ACTION_HINTS = (
+    "РЅР°РїРёСЃР°С‚СЊ",
+    "write",
+    "message",
+    "chat",
+    "СЃРІСЏР·Р°С‚СЊСЃСЏ",
+    "contact",
+    "РєРѕРЅСЃСѓР»СЊС‚Р°",
+    "РІС‹Р±СЂР°С‚СЊ РєР°РЅР°Р»",
+)
+WIDGET_HINTS = (
+    "widget",
+    "chat-widget",
+    "floating",
+    "sticky-contact",
+    "fab",
+    "jivo",
+    "jivosite",
+    "livechat",
+    "crisp",
+    "intercom",
+    "chatra",
+    "tawk",
+    "callback",
+    "consult",
+)
 
 
 class AuditCancelledError(Exception):
@@ -751,7 +842,92 @@ def _contains_any(text: str, hints: tuple[str, ...]) -> bool:
     return any(item in probe for item in hints)
 
 
-def _collect_commercial_signals(soup: Optional[BeautifulSoup]) -> dict[str, bool]:
+def _tag_text_probe(tag) -> str:
+    if tag is None:
+        return ""
+    raw_text = str(tag.get_text(" ", strip=True) or "")
+    extras = [
+        str(tag.get("title") or ""),
+        str(tag.get("aria-label") or ""),
+        str(tag.get("placeholder") or ""),
+        str(tag.get("value") or ""),
+    ]
+    return _normalize_text(" ".join([raw_text, *extras]))
+
+
+def _is_footer_context(tag) -> bool:
+    if tag is None:
+        return False
+    current = tag
+    for _ in range(6):
+        if current is None:
+            break
+        if str(getattr(current, "name", "") or "").lower() == "footer":
+            return True
+        if _contains_any(_tag_attr_probe(current), ("footer", "site-footer", "copyright")):
+            return True
+        current = getattr(current, "parent", None)
+    return False
+
+
+def _is_contact_context(tag) -> bool:
+    if tag is None:
+        return False
+    current = tag
+    for _ in range(6):
+        if current is None:
+            break
+        probe = f"{_tag_attr_probe(current)} {_tag_text_probe(current)}"
+        if _contains_any(probe, CONTACT_TEXT_HINTS) or _contains_any(probe, CONTACT_ATTR_HINTS):
+            return True
+        current = getattr(current, "parent", None)
+    return False
+
+
+def _extract_messenger_platform(href: str) -> str:
+    probe = _normalize_text(href or "")
+    if not probe:
+        return "other"
+    if "whatsapp" in probe or "wa.me" in probe:
+        return "whatsapp"
+    if "telegram" in probe or "t.me" in probe:
+        return "telegram"
+    if "vk.com" in probe or "vk.me" in probe:
+        return "vk"
+    if "viber" in probe:
+        return "viber"
+    if "max" in probe:
+        return "max"
+    if "facebook.com/messages" in probe or "messenger.com" in probe:
+        return "messenger"
+    return "other"
+
+
+def _resolve_conversion_path_type(signals: dict[str, bool]) -> str:
+    path_flags = {
+        "form": bool(signals.get("has_form")),
+        "contacts": bool(signals.get("has_direct_contact") or signals.get("has_contact_block")),
+        "messenger": bool(signals.get("has_messenger_contact")),
+        "widget": bool(signals.get("has_widget")),
+    }
+    active = [name for name, enabled in path_flags.items() if enabled]
+    if not active:
+        return SEOPage.ConversionPathType.NONE
+    if len(active) > 1:
+        return SEOPage.ConversionPathType.MIXED
+    key = active[0]
+    if key == "form":
+        return SEOPage.ConversionPathType.FORM
+    if key == "contacts":
+        return SEOPage.ConversionPathType.CONTACTS
+    if key == "messenger":
+        return SEOPage.ConversionPathType.MESSENGER
+    if key == "widget":
+        return SEOPage.ConversionPathType.WIDGET
+    return SEOPage.ConversionPathType.NONE
+
+
+def _collect_commercial_signals(soup: Optional[BeautifulSoup]) -> dict[str, object]:
     if not soup:
         return {
             "has_form": False,
@@ -761,6 +937,35 @@ def _collect_commercial_signals(soup: Optional[BeautifulSoup]) -> dict[str, bool
             "has_offer_like_heading": False,
             "has_benefits_block": False,
             "has_faq": False,
+            "has_direct_contact": False,
+            "has_contact_block": False,
+            "has_messenger_contact": False,
+            "has_widget": False,
+            "has_multi_channel_contact": False,
+            "has_conversion_path": False,
+            "conversion_path_type": SEOPage.ConversionPathType.NONE,
+            "cta_signals": {
+                "count": 0,
+                "matched_texts": [],
+                "matched_attrs": [],
+            },
+            "contact_signals": {
+                "has_tel_link": False,
+                "has_mailto_link": False,
+                "has_phone_in_text": False,
+                "has_email_in_text": False,
+                "contact_blocks_count": 0,
+            },
+            "messenger_signals": {
+                "links_count": 0,
+                "links_in_contact_context": 0,
+                "platforms": [],
+                "has_actionable_link": False,
+            },
+            "widget_signals": {
+                "has_widget": False,
+                "matched_hints": [],
+            },
         }
 
     text_body = _normalize_text(soup.get_text(" ", strip=True))
@@ -770,27 +975,119 @@ def _collect_commercial_signals(soup: Optional[BeautifulSoup]) -> dict[str, bool
     if has_submit:
         has_form = True
 
-    has_cta = False
-    for tag in soup.find_all(["a", "button", "input"]):
-        tag_text = ""
-        if tag.name == "input":
-            tag_text = str(tag.get("value") or "")
-        else:
-            tag_text = str(tag.get_text(" ", strip=True) or "")
-        if _contains_any(tag_text, CTA_TEXT_HINTS) or _contains_any(_tag_attr_probe(tag), CTA_ATTR_HINTS):
-            has_cta = True
+    cta_matches_text: list[str] = []
+    cta_matches_attr: list[str] = []
+    cta_count = 0
+    for tag in soup.find_all(["a", "button", "input", "div", "span"]):
+        tag_name = str(getattr(tag, "name", "") or "").lower()
+        attr_probe = _tag_attr_probe(tag)
+        text_probe = _tag_text_probe(tag)
+        href_probe = _normalize_text(tag.get("href")) if tag_name == "a" else ""
+        role_probe = _normalize_text(tag.get("role"))
+        clickable = tag_name in {"a", "button", "input"} or role_probe == "button" or bool(tag.get("onclick"))
+        clickable = clickable or _contains_any(attr_probe, ("btn", "button", "cta", "action", "card", "click"))
+        if not clickable:
+            continue
+
+        text_match = _contains_any(text_probe, CTA_TEXT_HINTS)
+        attr_match = _contains_any(attr_probe, CTA_ATTR_HINTS) or _contains_any(href_probe, CTA_ATTR_HINTS)
+        if text_match or attr_match:
+            cta_count += 1
+            if text_match and text_probe and len(cta_matches_text) < 5:
+                cta_matches_text.append(text_probe[:96])
+            if attr_match and attr_probe and len(cta_matches_attr) < 5:
+                cta_matches_attr.append(attr_probe[:96])
+
+    has_cta = cta_count > 0 or (has_form and has_submit)
+
+    tel_links = soup.find_all("a", href=lambda v: str(v or "").strip().lower().startswith("tel:"))
+    mailto_links = soup.find_all("a", href=lambda v: str(v or "").strip().lower().startswith("mailto:"))
+    has_phone_in_text = bool(PHONE_RE.search(text_body))
+    has_email_in_text = bool(EMAIL_RE.search(text_body))
+
+    contact_blocks_count = 0
+    for block in soup.find_all(["section", "div", "aside", "nav", "footer"]):
+        probe = f"{_tag_attr_probe(block)} {_tag_text_probe(block)}"
+        if not (_contains_any(probe, CONTACT_TEXT_HINTS) or _contains_any(probe, CONTACT_ATTR_HINTS)):
+            continue
+        block_text = _normalize_text(block.get_text(" ", strip=True))
+        has_block_contact_link = bool(
+            block.find("a", href=lambda v: str(v or "").strip().lower().startswith("tel:"))
+            or block.find("a", href=lambda v: str(v or "").strip().lower().startswith("mailto:"))
+            or block.find("a", href=lambda v: _contains_any(str(v or ""), MESSENGER_HINTS))
+        )
+        has_block_contact_text = bool(PHONE_RE.search(block_text) or EMAIL_RE.search(block_text))
+        if has_block_contact_link or has_block_contact_text:
+            contact_blocks_count += 1
+
+    has_contact_block = contact_blocks_count > 0
+    has_direct_contact = bool(tel_links or mailto_links or has_phone_in_text or has_email_in_text or has_contact_block)
+
+    messenger_platforms: set[str] = set()
+    messenger_links_count = 0
+    messenger_links_in_context = 0
+    has_actionable_messenger_link = False
+    for link in soup.find_all("a", href=True):
+        href_raw = str(link.get("href") or "")
+        href_probe = _normalize_text(href_raw)
+        if not _contains_any(href_probe, MESSENGER_HINTS):
+            continue
+        messenger_links_count += 1
+        platform = _extract_messenger_platform(href_raw)
+        if platform:
+            messenger_platforms.add(platform)
+
+        text_probe = _tag_text_probe(link)
+        attr_probe = _tag_attr_probe(link)
+        is_contextual = _is_contact_context(link)
+        is_footer = _is_footer_context(link)
+        action_like = _contains_any(text_probe, MESSENGER_ACTION_HINTS) or _contains_any(attr_probe, CTA_ATTR_HINTS)
+        class_like_widget = _contains_any(attr_probe, ("floating", "widget", "fab", "chat", "contact", "cta"))
+
+        score = 0
+        if is_contextual:
+            score += 1
+            messenger_links_in_context += 1
+        if action_like:
+            score += 1
+        if class_like_widget:
+            score += 1
+        if is_footer and not is_contextual and not action_like:
+            score -= 1
+
+        if score >= 1:
+            has_actionable_messenger_link = True
+
+    has_messenger_contact = bool(
+        has_actionable_messenger_link
+        or len(messenger_platforms) >= 2
+        or (messenger_links_count > 0 and has_contact_block)
+    )
+
+    has_multi_channel_contact = bool(
+        len([item for item in messenger_platforms if item and item != "other"]) >= 2
+        or (has_direct_contact and has_messenger_contact)
+    )
+
+    widget_matches: list[str] = []
+    for node in soup.find_all(True):
+        probe = _tag_attr_probe(node)
+        if _contains_any(probe, WIDGET_HINTS):
+            matched = next((hint for hint in WIDGET_HINTS if hint in probe), "")
+            if matched and matched not in widget_matches:
+                widget_matches.append(matched)
+        if len(widget_matches) >= 6:
             break
-
-    has_phone_or_contact = bool(soup.find("a", href=lambda v: str(v or "").strip().lower().startswith("tel:")))
-    has_phone_or_contact = has_phone_or_contact or bool(
-        soup.find("a", href=lambda v: str(v or "").strip().lower().startswith("mailto:"))
-    )
-    has_phone_or_contact = has_phone_or_contact or bool(PHONE_RE.search(text_body))
-    has_phone_or_contact = has_phone_or_contact or _contains_any(text_body, ("контакт", "contact", "связаться"))
-
-    has_messenger = bool(
-        soup.find("a", href=lambda v: _contains_any(str(v or ""), MESSENGER_HINTS))
-    )
+    if len(widget_matches) < 6:
+        for tag in soup.find_all("script", src=True):
+            src_probe = _normalize_text(tag.get("src"))
+            if _contains_any(src_probe, WIDGET_HINTS):
+                matched = next((hint for hint in WIDGET_HINTS if hint in src_probe), "")
+                if matched and matched not in widget_matches:
+                    widget_matches.append(matched)
+            if len(widget_matches) >= 6:
+                break
+    has_widget = len(widget_matches) > 0
 
     heading_texts = []
     for tag in soup.find_all(["h1", "h2"])[:4]:
@@ -815,42 +1112,131 @@ def _collect_commercial_signals(soup: Optional[BeautifulSoup]) -> dict[str, bool
             has_faq = True
             break
 
-    return {
+    signals: dict[str, object] = {
         "has_form": has_form,
         "has_cta": has_cta,
-        "has_phone_or_contact": has_phone_or_contact,
-        "has_messenger": has_messenger,
+        "has_phone_or_contact": bool(has_direct_contact or has_messenger_contact),
+        "has_messenger": has_messenger_contact,
         "has_offer_like_heading": has_offer_like_heading,
         "has_benefits_block": has_benefits_block,
         "has_faq": has_faq,
+        "has_direct_contact": has_direct_contact,
+        "has_contact_block": has_contact_block,
+        "has_messenger_contact": has_messenger_contact,
+        "has_widget": has_widget,
+        "has_multi_channel_contact": has_multi_channel_contact,
+        "cta_signals": {
+            "count": int(cta_count),
+            "matched_texts": cta_matches_text,
+            "matched_attrs": cta_matches_attr,
+        },
+        "contact_signals": {
+            "has_tel_link": bool(tel_links),
+            "has_mailto_link": bool(mailto_links),
+            "has_phone_in_text": bool(has_phone_in_text),
+            "has_email_in_text": bool(has_email_in_text),
+            "contact_blocks_count": int(contact_blocks_count),
+        },
+        "messenger_signals": {
+            "links_count": int(messenger_links_count),
+            "links_in_contact_context": int(messenger_links_in_context),
+            "platforms": sorted(platform for platform in messenger_platforms if platform),
+            "has_actionable_link": bool(has_actionable_messenger_link),
+        },
+        "widget_signals": {
+            "has_widget": bool(has_widget),
+            "matched_hints": widget_matches,
+        },
     }
+    conversion_path_type = _resolve_conversion_path_type(signals)
+    has_conversion_path = conversion_path_type != SEOPage.ConversionPathType.NONE
+    signals["has_conversion_path"] = has_conversion_path
+    signals["conversion_path_type"] = conversion_path_type
+    return signals
 
 
-def _score_commercial_signals(signals: dict[str, bool]) -> tuple[int, str]:
+def _score_commercial_signals(signals: dict[str, object]) -> tuple[int, str]:
+    has_conversion_path = bool(signals.get("has_conversion_path"))
+    conversion_path_type = str(signals.get("conversion_path_type") or SEOPage.ConversionPathType.NONE)
+
     score = 0
-    score += 28 if signals.get("has_form") else 0
-    score += 20 if signals.get("has_cta") else 0
-    score += 16 if signals.get("has_phone_or_contact") else 0
-    score += 8 if signals.get("has_messenger") else 0
-    score += 12 if signals.get("has_offer_like_heading") else 0
-    score += 10 if signals.get("has_benefits_block") else 0
-    score += 6 if signals.get("has_faq") else 0
+    score += 24 if bool(signals.get("has_form")) else 0
+    score += 17 if bool(signals.get("has_cta")) else 0
+    score += 15 if bool(signals.get("has_direct_contact")) else 0
+    score += 15 if bool(signals.get("has_messenger_contact")) else 0
+    score += 12 if bool(signals.get("has_widget")) else 0
+    score += 8 if bool(signals.get("has_contact_block")) else 0
+    score += 8 if bool(signals.get("has_multi_channel_contact")) else 0
+    score += 7 if bool(signals.get("has_offer_like_heading")) else 0
+    score += 6 if bool(signals.get("has_benefits_block")) else 0
+    score += 4 if bool(signals.get("has_faq")) else 0
+
+    if not has_conversion_path:
+        score -= 35
+    elif conversion_path_type == SEOPage.ConversionPathType.MIXED:
+        score += 8
+    elif conversion_path_type == SEOPage.ConversionPathType.FORM:
+        score += 8
+    elif conversion_path_type in (
+        SEOPage.ConversionPathType.CONTACTS,
+        SEOPage.ConversionPathType.MESSENGER,
+        SEOPage.ConversionPathType.WIDGET,
+    ):
+        score += 7
+
     score = max(0, min(100, int(score)))
-    if score >= 70:
+    if not has_conversion_path and score < 45:
+        return score, SEOPage.CommercialStatus.CRITICAL
+    if score >= 78:
         return score, SEOPage.CommercialStatus.GOOD
-    if score >= 40:
+    if score >= 45:
         return score, SEOPage.CommercialStatus.WARNING
     return score, SEOPage.CommercialStatus.CRITICAL
 
 
-def _update_page_commercial_fields(page: SEOPage, signals: dict[str, bool], score: int, status: str) -> None:
-    page.has_form = bool(signals.get("has_form"))
-    page.has_cta = bool(signals.get("has_cta"))
-    page.has_phone_or_contact = bool(signals.get("has_phone_or_contact"))
-    page.has_messenger = bool(signals.get("has_messenger"))
-    page.has_offer_like_heading = bool(signals.get("has_offer_like_heading"))
-    page.has_benefits_block = bool(signals.get("has_benefits_block"))
-    page.has_faq = bool(signals.get("has_faq"))
+def _update_page_commercial_fields(page: SEOPage, signals: dict[str, object], score: int, status: str) -> None:
+    has_form = bool(signals.get("has_form"))
+    has_cta = bool(signals.get("has_cta"))
+    has_direct_contact = bool(signals.get("has_direct_contact"))
+    has_contact_block = bool(signals.get("has_contact_block"))
+    has_messenger_contact = bool(signals.get("has_messenger_contact"))
+    has_widget = bool(signals.get("has_widget"))
+    has_multi_channel_contact = bool(signals.get("has_multi_channel_contact"))
+    has_offer_like_heading = bool(signals.get("has_offer_like_heading"))
+    has_benefits_block = bool(signals.get("has_benefits_block"))
+    has_faq = bool(signals.get("has_faq"))
+    has_conversion_path = bool(signals.get("has_conversion_path"))
+    conversion_path_type = str(signals.get("conversion_path_type") or SEOPage.ConversionPathType.NONE)
+
+    page.has_form = has_form
+    page.has_cta = has_cta
+    page.has_phone_or_contact = bool(has_direct_contact or has_contact_block or has_messenger_contact or has_widget)
+    page.has_messenger = has_messenger_contact
+    page.has_offer_like_heading = has_offer_like_heading
+    page.has_benefits_block = has_benefits_block
+    page.has_faq = has_faq
+    page.has_conversion_path = has_conversion_path
+    page.conversion_path_type = conversion_path_type
+    page.commercial_signals_payload = {
+        "conversion_signals": {
+            "has_form": has_form,
+            "has_cta": has_cta,
+            "has_direct_contact": has_direct_contact,
+            "has_contact_block": has_contact_block,
+            "has_messenger_contact": has_messenger_contact,
+            "has_widget": has_widget,
+            "has_multi_channel_contact": has_multi_channel_contact,
+            "has_offer_like_heading": has_offer_like_heading,
+            "has_benefits_block": has_benefits_block,
+            "has_faq": has_faq,
+        },
+        "has_conversion_path": has_conversion_path,
+        "conversion_path_type": conversion_path_type,
+        "cta_signals": signals.get("cta_signals") or {},
+        "contact_signals": signals.get("contact_signals") or {},
+        "messenger_signals": signals.get("messenger_signals") or {},
+        "widget_signals": signals.get("widget_signals") or {},
+    }
     page.commercial_readiness_score = int(score or 0)
     page.commercial_status = str(status or SEOPage.CommercialStatus.WARNING)
     page.save(
@@ -862,6 +1248,9 @@ def _update_page_commercial_fields(page: SEOPage, signals: dict[str, bool], scor
             "has_offer_like_heading",
             "has_benefits_block",
             "has_faq",
+            "has_conversion_path",
+            "conversion_path_type",
+            "commercial_signals_payload",
             "commercial_readiness_score",
             "commercial_status",
         ]
@@ -1296,7 +1685,7 @@ def crawl_site_audit(
 ) -> SiteSEOAudit:
     start_url = _build_start_url(audit.domain)
     if not start_url:
-        raise ValueError("Не указан домен для SEO-аудита.")
+        raise ValueError("РќРµ СѓРєР°Р·Р°РЅ РґРѕРјРµРЅ РґР»СЏ SEO-Р°СѓРґРёС‚Р°.")
 
     link_crawl_limit = max_pages or MAX_PAGES_DEFAULT
     sitemap_crawl_limit = min(max_pages or MAX_SITEMAP_URLS_DEFAULT, MAX_SITEMAP_URLS_DEFAULT)
@@ -1306,7 +1695,7 @@ def crawl_site_audit(
 
     _check_cancelled(stop_check)
 
-    # Повторный запуск аудита должен заменять старые результаты, а не дублировать страницы и ошибки.
+    # РџРѕРІС‚РѕСЂРЅС‹Р№ Р·Р°РїСѓСЃРє Р°СѓРґРёС‚Р° РґРѕР»Р¶РµРЅ Р·Р°РјРµРЅСЏС‚СЊ СЃС‚Р°СЂС‹Рµ СЂРµР·СѓР»СЊС‚Р°С‚С‹, Р° РЅРµ РґСѓР±Р»РёСЂРѕРІР°С‚СЊ СЃС‚СЂР°РЅРёС†С‹ Рё РѕС€РёР±РєРё.
     audit.pages.all().delete()
     audit.used_sitemap = False
     audit.sitemap_urls_count = 0
@@ -1518,3 +1907,4 @@ def crawl_site_audit(
     _check_cancelled(stop_check)
     recalculate_audit_score(audit)
     return audit
+

@@ -300,7 +300,7 @@
         </button>
       </div>
       <p class="muted block-hint">
-        Проверка показывает, насколько страницы готовы к заявкам: форма, CTA, контакты, оффер, преимущества, FAQ.
+        Проверка показывает не только классическую форму, но и современные каналы обращения: мессенджеры, контакты и виджеты.
       </p>
 
       <template v-if="!collapsed.commercial">
@@ -311,15 +311,23 @@
           </article>
           <article class="commercial-summary-card">
             <span>Готовы к заявкам</span>
-            <strong class="status-done">{{ commercialSummary.good_pages }}</strong>
+            <strong class="status-done">{{ commercialSummary.ready_pages ?? commercialSummary.good_pages ?? 0 }}</strong>
           </article>
           <article class="commercial-summary-card">
-            <span>Есть замечания</span>
-            <strong class="status-stopped">{{ commercialSummary.warning_pages }}</strong>
+            <span>Есть канал обращения</span>
+            <strong class="status-running">{{ commercialSummary.has_channel_pages ?? 0 }}</strong>
+          </article>
+          <article class="commercial-summary-card">
+            <span>Можно усилить</span>
+            <strong class="status-stopped">{{ commercialSummary.improvable_pages ?? commercialSummary.warning_pages ?? 0 }}</strong>
           </article>
           <article class="commercial-summary-card">
             <span>Слабо подготовлены</span>
-            <strong class="status-error">{{ commercialSummary.critical_pages }}</strong>
+            <strong class="status-error">{{ commercialSummary.weak_pages ?? commercialSummary.critical_pages ?? 0 }}</strong>
+          </article>
+          <article class="commercial-summary-card">
+            <span>Нет сценария обращения</span>
+            <strong class="status-error">{{ commercialSummary.no_conversion_path_pages ?? 0 }}</strong>
           </article>
         </div>
 
@@ -339,6 +347,7 @@
                 <th>URL</th>
                 <th>Статус</th>
                 <th>Оценка</th>
+                <th>Сценарий обращения</th>
                 <th>Сигналы</th>
                 <th>Рекомендации</th>
               </tr>
@@ -347,20 +356,27 @@
               <tr v-for="page in commercialPages" :key="`commercial-${page.id}`">
                 <td class="url-cell">{{ page.url }}</td>
                 <td>
-                  <span class="severity-pill" :class="commercialStatusClass(page.commercial_status)">
-                    {{ page.commercial_status_label || commercialStatusLabel(page.commercial_status) }}
+                  <span class="severity-pill" :class="commercialBusinessStatusClass(page.commercial_business_status || page.commercial_status)">
+                    {{ page.commercial_business_status_label || page.commercial_status_label || commercialStatusLabel(page) }}
                   </span>
                 </td>
                 <td>{{ page.commercial_readiness_score ?? 0 }}/100</td>
                 <td>
+                  <div class="commercial-path-cell">
+                    <strong>{{ page.conversion_path_type_label || conversionPathTypeLabel(page.conversion_path_type) }}</strong>
+                    <span class="muted small">{{ page.commercial_explanation || "Сценарий обращения уточняется по данным страницы." }}</span>
+                  </div>
+                </td>
+                <td>
                   <div class="signal-grid">
-                    <span :class="signalClass(page.commercial_signals?.has_form)">Форма</span>
-                    <span :class="signalClass(page.commercial_signals?.has_cta)">CTA</span>
-                    <span :class="signalClass(page.commercial_signals?.has_phone_or_contact)">Контакт</span>
-                    <span :class="signalClass(page.commercial_signals?.has_messenger)">Мессенджер</span>
-                    <span :class="signalClass(page.commercial_signals?.has_offer_like_heading)">Оффер</span>
-                    <span :class="signalClass(page.commercial_signals?.has_benefits_block)">Преимущества</span>
-                    <span :class="signalClass(page.commercial_signals?.has_faq)">FAQ</span>
+                    <span :class="signalClass(conversionSignals(page).has_form, { soft: page.has_conversion_path })">Форма</span>
+                    <span :class="signalClass(conversionSignals(page).has_cta, { soft: page.has_conversion_path })">CTA</span>
+                    <span :class="signalClass(conversionSignals(page).has_direct_contact)">Прямой контакт</span>
+                    <span :class="signalClass(conversionSignals(page).has_messenger_contact)">Мессенджер</span>
+                    <span :class="signalClass(conversionSignals(page).has_widget)">Виджет</span>
+                    <span :class="signalClass(conversionSignals(page).has_offer_like_heading, { soft: true })">Оффер</span>
+                    <span :class="signalClass(conversionSignals(page).has_benefits_block, { soft: true })">Преимущества</span>
+                    <span :class="signalClass(conversionSignals(page).has_faq, { soft: true })">FAQ</span>
                   </div>
                 </td>
                 <td>
@@ -371,7 +387,7 @@
                 </td>
               </tr>
               <tr v-if="!commercialPages.length">
-                <td colspan="5">Пока недостаточно данных для коммерческого анализа страниц.</td>
+                <td colspan="6">Пока недостаточно данных для коммерческого анализа страниц.</td>
               </tr>
             </tbody>
           </table>
@@ -745,6 +761,11 @@ const commercialSummary = computed(() => {
     good_pages: 0,
     warning_pages: 0,
     critical_pages: 0,
+    ready_pages: 0,
+    has_channel_pages: 0,
+    improvable_pages: 0,
+    weak_pages: 0,
+    no_conversion_path_pages: 0,
     top_recommendations: [],
     pages: [],
   };
@@ -925,22 +946,50 @@ function priorityClass(value) {
   if (key === "important") return "priority-important";
   return "priority-later";
 }
-function signalClass(value) {
-  return value ? "signal-ok" : "signal-missing";
+function conversionSignals(page) {
+  const payload = page?.conversion_signals || page?.commercial_signals || {};
+  return {
+    has_form: Boolean(payload?.has_form),
+    has_cta: Boolean(payload?.has_cta),
+    has_direct_contact: Boolean(payload?.has_direct_contact ?? payload?.has_phone_or_contact),
+    has_messenger_contact: Boolean(payload?.has_messenger_contact ?? payload?.has_messenger),
+    has_widget: Boolean(payload?.has_widget),
+    has_offer_like_heading: Boolean(payload?.has_offer_like_heading),
+    has_benefits_block: Boolean(payload?.has_benefits_block),
+    has_faq: Boolean(payload?.has_faq),
+  };
 }
-function commercialStatusClass(value) {
+function signalClass(value, options = {}) {
+  if (value) return "signal-ok";
+  if (options?.soft) return "signal-soft";
+  return "signal-missing";
+}
+function commercialBusinessStatusClass(value) {
   const key = String(value || "").toLowerCase();
-  if (key === "good") return "severity-low";
-  if (key === "warning") return "severity-medium";
-  if (key === "critical") return "severity-high";
+  if (key === "ready" || key === "good") return "severity-low";
+  if (key === "has_channel") return "severity-low";
+  if (key === "improvable" || key === "warning") return "severity-medium";
+  if (key === "weak" || key === "critical") return "severity-high";
+  if (key === "none") return "severity-high";
   return "";
 }
-function commercialStatusLabel(value) {
+function commercialStatusLabel(page) {
+  const key = String(page?.commercial_business_status || page?.commercial_status || "").toLowerCase();
+  if (key === "ready" || key === "good") return "Готова к заявкам";
+  if (key === "has_channel") return "Есть канал обращения";
+  if (key === "improvable" || key === "warning") return "Можно усилить конверсию";
+  if (key === "weak" || key === "critical") return "Слабо подготовлена";
+  if (key === "none") return "Нет сценария обращения";
+  return "Можно усилить конверсию";
+}
+function conversionPathTypeLabel(value) {
   const key = String(value || "").toLowerCase();
-  if (key === "good") return "Готова к заявкам";
-  if (key === "warning") return "Есть замечания";
-  if (key === "critical") return "Слабо подготовлена";
-  return "Есть замечания";
+  if (key === "form") return "Классическая форма";
+  if (key === "contacts") return "Прямые контакты";
+  if (key === "messenger") return "Мессенджеры или соцсети";
+  if (key === "widget") return "Виджет или плавающая кнопка";
+  if (key === "mixed") return "Смешанный сценарий";
+  return "Не найден";
 }
 function comparisonTrendClass(value) {
   const key = String(value || "").toLowerCase();
@@ -1373,6 +1422,16 @@ onBeforeUnmount(() => {
 .signal-ok {
   color: #166534;
   background: #dcfce7;
+}
+
+.signal-soft {
+  color: #1e40af;
+  background: #dbeafe;
+}
+
+.commercial-path-cell {
+  display: grid;
+  gap: 0.3rem;
 }
 
 .issue-pages-list span {

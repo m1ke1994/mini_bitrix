@@ -259,3 +259,75 @@ class SEOProductScoringHelpersTests(TestCase):
         self.assertEqual(comparison["sitemap_xml"]["status"], "appeared")
         self.assertEqual(comparison["new_issues_count"], 1)
         self.assertEqual(comparison["fixed_issues_count"], 1)
+
+    def test_commercial_summary_detects_alternative_channel_without_hard_negative(self):
+        pages_payload = [
+            {
+                "id": 11,
+                "url": "https://channels.example.com/",
+                "commercial_status": SEOPage.CommercialStatus.WARNING,
+                "commercial_readiness_score": 58,
+                "has_form": False,
+                "has_cta": False,
+                "has_phone_or_contact": True,
+                "has_messenger": True,
+                "has_offer_like_heading": True,
+                "has_benefits_block": False,
+                "has_faq": False,
+                "has_conversion_path": True,
+                "conversion_path_type": SEOPage.ConversionPathType.MESSENGER,
+                "commercial_signals_payload": {
+                    "conversion_signals": {
+                        "has_form": False,
+                        "has_cta": False,
+                        "has_direct_contact": False,
+                        "has_contact_block": True,
+                        "has_messenger_contact": True,
+                        "has_widget": False,
+                        "has_multi_channel_contact": True,
+                        "has_offer_like_heading": True,
+                        "has_benefits_block": False,
+                        "has_faq": False,
+                    }
+                },
+            }
+        ]
+        summary = build_commercial_summary(pages_payload)
+        self.assertTrue(summary["has_data"])
+        self.assertEqual(summary["has_channel_pages"], 1)
+        self.assertEqual(summary["no_conversion_path_pages"], 0)
+        page = summary["pages"][0]
+        self.assertTrue(page["has_conversion_path"])
+        self.assertIn(page["conversion_path_type"], {"messenger", "mixed"})
+        self.assertEqual(page["commercial_business_status"], "has_channel")
+        self.assertTrue(
+            all("Добавьте хотя бы один явный сценарий обращения" not in item for item in page["commercial_recommendations"])
+        )
+        self.assertTrue(all("Добавьте контакты для быстрого обращения" not in item for item in page["commercial_recommendations"]))
+
+    def test_commercial_summary_marks_missing_path_as_none(self):
+        pages_payload = [
+            {
+                "id": 12,
+                "url": "https://empty-conversion.example.com/",
+                "commercial_status": SEOPage.CommercialStatus.CRITICAL,
+                "commercial_readiness_score": 10,
+                "has_form": False,
+                "has_cta": False,
+                "has_phone_or_contact": False,
+                "has_messenger": False,
+                "has_offer_like_heading": False,
+                "has_benefits_block": False,
+                "has_faq": False,
+                "has_conversion_path": False,
+                "conversion_path_type": SEOPage.ConversionPathType.NONE,
+                "commercial_signals_payload": {},
+            }
+        ]
+        summary = build_commercial_summary(pages_payload)
+        self.assertTrue(summary["has_data"])
+        self.assertEqual(summary["no_conversion_path_pages"], 1)
+        self.assertEqual(summary["weak_pages"], 0)
+        page = summary["pages"][0]
+        self.assertEqual(page["commercial_business_status"], "none")
+        self.assertTrue(any("Добавьте хотя бы один явный сценарий обращения" in item for item in page["commercial_recommendations"]))

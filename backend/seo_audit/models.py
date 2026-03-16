@@ -56,6 +56,14 @@ class SEOPage(models.Model):
         WARNING = "warning", "Needs improvement"
         CRITICAL = "critical", "Weak conversion readiness"
 
+    class ConversionPathType(models.TextChoices):
+        NONE = "none", "No conversion path"
+        FORM = "form", "Form"
+        CONTACTS = "contacts", "Direct contacts"
+        MESSENGER = "messenger", "Messenger or social contact"
+        WIDGET = "widget", "Widget"
+        MIXED = "mixed", "Mixed conversion mechanics"
+
     audit = models.ForeignKey(SiteSEOAudit, on_delete=models.CASCADE, related_name="pages")
     url = models.TextField()
     status_code = models.PositiveIntegerField(default=0)
@@ -97,6 +105,13 @@ class SEOPage(models.Model):
     has_offer_like_heading = models.BooleanField(default=False)
     has_benefits_block = models.BooleanField(default=False)
     has_faq = models.BooleanField(default=False)
+    has_conversion_path = models.BooleanField(default=False)
+    conversion_path_type = models.CharField(
+        max_length=16,
+        choices=ConversionPathType.choices,
+        default=ConversionPathType.NONE,
+    )
+    commercial_signals_payload = models.JSONField(default=dict, blank=True)
     commercial_readiness_score = models.PositiveSmallIntegerField(default=0)
     commercial_status = models.CharField(
         max_length=16,
