@@ -55,6 +55,12 @@ class AIRecommendationsServiceTests(SimpleTestCase):
         _request_openai(model="gpt-5-mini", system_prompt="system", user_prompt="user")
 
         body = mocked_post.call_args.kwargs["json"]
+        self.assertEqual(body.get("model"), "gpt-5-mini")
+        self.assertEqual(body.get("instructions"), "system")
+        self.assertEqual(body.get("input"), "user")
+        self.assertGreater(int(body.get("max_output_tokens") or 0), 0)
+        self.assertIn("reasoning", body)
+        self.assertIn("text", body)
         self.assertNotIn("temperature", body)
 
     @patch("core.services.ai_recommendations.requests.post")
@@ -67,6 +73,8 @@ class AIRecommendationsServiceTests(SimpleTestCase):
         _request_openai(model="gpt-4.1-mini", system_prompt="system", user_prompt="user")
 
         body = mocked_post.call_args.kwargs["json"]
+        self.assertEqual(body.get("instructions"), "system")
+        self.assertEqual(body.get("input"), "user")
         self.assertEqual(body.get("temperature"), 0.2)
 
     @patch("core.services.ai_recommendations.requests.post")

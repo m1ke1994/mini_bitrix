@@ -27,6 +27,7 @@ class OpenAIRequestError(Exception):
     error_type: str | None = None
     error_param: str | None = None
     error_code: str | None = None
+    request_id: str | None = None
 
     def __str__(self) -> str:
         return self.message
@@ -96,6 +97,52 @@ def _normalize_items(items: Any) -> list[str]:
         if len(normalized) >= MAX_ITEMS:
             break
     return normalized
+
+
+def _decode_json_string(raw: str) -> str:
+    text = str(raw or "")
+    if not text:
+        return ""
+    try:
+        return json.loads(f'"{text}"')
+    except Exception:
+        return text.replace('\\"', '"').replace("\\n", "\n").strip()
+
+
+def _extract_json_like_payload(text: str) -> dict[str, Any] | None:
+    raw = str(text or "").strip()
+    if not raw:
+        return None
+
+    title_match = re.search(r'"title"\s*:\s*"((?:\\.|[^"\\])*)"', raw, flags=re.DOTALL)
+    summary_match = re.search(r'"summary"\s*:\s*"((?:\\.|[^"\\])*)"', raw, flags=re.DOTALL)
+    priority_match = re.search(r'"priority"\s*:\s*"((?:\\.|[^"\\])*)"', raw, flags=re.DOTALL)
+    items_match = re.search(r'"items"\s*:\s*\[(.*?)\]', raw, flags=re.DOTALL)
+
+    if not any([title_match, summary_match, priority_match, items_match]):
+        return None
+
+    items: list[str] = []
+    if items_match:
+        items_block = str(items_match.group(1) or "")
+        item_matches = re.findall(r'"((?:\\.|[^"\\])*)"', items_block, flags=re.DOTALL)
+        for chunk in item_matches:
+            decoded = _decode_json_string(chunk).strip()
+            if decoded:
+                items.append(decoded)
+            if len(items) >= MAX_ITEMS:
+                break
+
+    payload: dict[str, Any] = {}
+    if title_match:
+        payload["title"] = _decode_json_string(title_match.group(1)).strip()
+    if summary_match:
+        payload["summary"] = _decode_json_string(summary_match.group(1)).strip()
+    if priority_match:
+        payload["priority"] = _decode_json_string(priority_match.group(1)).strip().lower()
+    if items:
+        payload["items"] = items
+    return payload
 
 
 def _extract_json_candidate(text: str) -> str:
@@ -197,6 +244,9 @@ def _normalize_ai_payload(*, module: str, raw_text: str) -> dict[str, Any]:
         parsed = None
 
     if not parsed:
+        parsed = _extract_json_like_payload(candidate)
+
+    if not parsed:
         return _build_result_from_text(module=module, text=raw_text)
 
     title = str(parsed.get("title") or "").strip()
@@ -225,19 +275,24 @@ def _normalize_ai_payload(*, module: str, raw_text: str) -> dict[str, Any]:
     }
 
 
-def _request_openai(*, model: str, system_prompt: str, user_prompt: str) -> dict[str, Any]:
+def _request_openai(
+    *,
+    model: str,
+    system_prompt: str,
+    user_prompt: str,
+    max_output_tokens_override: int | None = None,
+) -> dict[str, Any]:
     safe_model = str(model or "").strip()
     if not safe_model:
         raise OpenAIRequestError("Model name is empty.", error_type="configuration_error")
 
-    max_output_tokens = int(getattr(settings, "AI_RECOMMENDATIONS_MAX_OUTPUT_TOKENS", 900) or 900)
+    default_max_output_tokens = int(getattr(settings, "AI_RECOMMENDATIONS_MAX_OUTPUT_TOKENS", 900) or 900)
+    max_output_tokens = int(max_output_tokens_override or default_max_output_tokens)
     body: dict[str, Any] = {
         "model": safe_model,
         "max_output_tokens": max_output_tokens,
-        "input": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
+        "instructions": system_prompt,
+        "input": user_prompt,
     }
 
     # GPT-5 models reject temperature and are more stable with low reasoning effort for concise JSON output.
@@ -248,15 +303,65 @@ def _request_openai(*, model: str, system_prompt: str, user_prompt: str) -> dict
         body["temperature"] = 0.2
 
     timeout_seconds = float(getattr(settings, "AI_RECOMMENDATIONS_TIMEOUT_SECONDS", 20) or 20)
-    response = requests.post(
+    logger.info(
+        "ai_recommendations openai request: endpoint=%s model=%s timeout=%s max_output_tokens=%s has_reasoning=%s has_text=%s input_len=%s instructions_len=%s",
         OPENAI_RESPONSES_URL,
-        headers={
-            "Authorization": f"Bearer {settings.OPENAI_API_KEY}",
-            "Content-Type": "application/json",
-        },
-        json=body,
-        timeout=timeout_seconds,
+        safe_model,
+        timeout_seconds,
+        max_output_tokens,
+        bool(body.get("reasoning")),
+        bool(body.get("text")),
+        len(str(user_prompt or "")),
+        len(str(system_prompt or "")),
     )
+    response = None
+    current_timeout = timeout_seconds
+    for attempt in (1, 2):
+        try:
+            response = requests.post(
+                OPENAI_RESPONSES_URL,
+                headers={
+                    "Authorization": f"Bearer {settings.OPENAI_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json=body,
+                timeout=current_timeout,
+            )
+            break
+        except requests.exceptions.ReadTimeout as exc:
+            logger.warning(
+                "ai_recommendations openai timeout: model=%s attempt=%s timeout=%s error=%s",
+                safe_model,
+                attempt,
+                current_timeout,
+                exc,
+            )
+            if attempt == 1:
+                current_timeout = max(timeout_seconds * 2, timeout_seconds + 10)
+                continue
+            raise OpenAIRequestError(
+                f"OpenAI request timed out after retry: {exc}",
+                error_type="network_timeout",
+            ) from exc
+        except requests.exceptions.RequestException as exc:
+            logger.warning(
+                "ai_recommendations openai network error: model=%s attempt=%s error=%s",
+                safe_model,
+                attempt,
+                exc,
+            )
+            if attempt == 1:
+                continue
+            raise OpenAIRequestError(
+                f"OpenAI request failed: {exc}",
+                error_type="network_error",
+            ) from exc
+    if response is None:
+        raise OpenAIRequestError("OpenAI request failed before receiving response", error_type="network_error")
+    response_headers = getattr(response, "headers", {}) or {}
+    if not hasattr(response_headers, "get"):
+        response_headers = {}
+    request_id = response_headers.get("x-request-id") or response_headers.get("openai-request-id")
 
     if response.status_code >= 400:
         payload: dict[str, Any] = {}
@@ -269,21 +374,52 @@ def _request_openai(*, model: str, system_prompt: str, user_prompt: str) -> dict
             error_payload = {}
 
         message = str(error_payload.get("message") or f"OpenAI request failed with status {response.status_code}.")
+        logger.error(
+            "ai_recommendations openai http error: model=%s status=%s request_id=%s error_type=%s error_param=%s error_code=%s",
+            safe_model,
+            response.status_code,
+            request_id,
+            error_payload.get("type"),
+            error_payload.get("param"),
+            error_payload.get("code"),
+        )
         raise OpenAIRequestError(
             message=message,
             status_code=response.status_code,
             error_type=str(error_payload.get("type") or ""),
             error_param=str(error_payload.get("param") or ""),
             error_code=str(error_payload.get("code") or ""),
+            request_id=str(request_id or ""),
         )
 
     try:
         payload = response.json()
     except Exception as exc:
-        raise OpenAIRequestError(f"Failed to parse OpenAI JSON: {exc}", status_code=response.status_code) from exc
+        raise OpenAIRequestError(
+            f"Failed to parse OpenAI JSON: {exc}",
+            status_code=response.status_code,
+            request_id=str(request_id or ""),
+        ) from exc
 
     if not isinstance(payload, dict):
-        raise OpenAIRequestError("OpenAI response is not a JSON object", status_code=response.status_code)
+        raise OpenAIRequestError(
+            "OpenAI response is not a JSON object",
+            status_code=response.status_code,
+            request_id=str(request_id or ""),
+        )
+    payload_status = str(payload.get("status") or "").strip() or "unknown"
+    incomplete_details = payload.get("incomplete_details")
+    output_items = payload.get("output") if isinstance(payload.get("output"), list) else []
+    logger.info(
+        "ai_recommendations openai response: model=%s status=%s request_id=%s response_status=%s output_items=%s has_output_text=%s incomplete_details=%s",
+        safe_model,
+        response.status_code,
+        request_id,
+        payload_status,
+        len(output_items),
+        bool(payload.get("output_text")),
+        incomplete_details if isinstance(incomplete_details, dict) else None,
+    )
     return payload
 
 
@@ -544,9 +680,10 @@ def _generate_recommendations(
 
     payload_size = len(json.dumps(payload_for_model, ensure_ascii=False))
     logger.info(
-        "ai_recommendations request start: module=%s model=%s timeout=%s payload_size=%s force_refresh=%s",
+        "ai_recommendations request start: module=%s model=%s endpoint=%s timeout=%s payload_size=%s force_refresh=%s",
         module,
         model,
+        OPENAI_RESPONSES_URL,
         timeout_seconds,
         payload_size,
         force_refresh,
@@ -562,6 +699,15 @@ def _generate_recommendations(
 
     try:
         raw_response = _request_openai(model=model, system_prompt=system_prompt, user_prompt=user_prompt)
+        response_status = str(raw_response.get("status") or "").strip()
+        incomplete_details = raw_response.get("incomplete_details")
+        logger.info(
+            "ai_recommendations response meta: module=%s model=%s status=%s incomplete_details=%s",
+            module,
+            model,
+            response_status or "unknown",
+            incomplete_details if isinstance(incomplete_details, dict) else None,
+        )
         output_text = _extract_output_text(raw_response)
         if not output_text:
             response_status = str(raw_response.get("status") or "").strip()
@@ -569,6 +715,40 @@ def _generate_recommendations(
             incomplete_details = raw_response.get("incomplete_details")
             if isinstance(incomplete_details, dict):
                 incomplete_reason = str(incomplete_details.get("reason") or "").strip()
+            # If the model ran out of output budget, retry once with a larger max_output_tokens.
+            if incomplete_reason == "max_output_tokens":
+                retry_max = min(
+                    int(getattr(settings, "AI_RECOMMENDATIONS_MAX_OUTPUT_TOKENS", 900) or 900) * 2,
+                    1800,
+                )
+                logger.warning(
+                    "ai_recommendations retry due to incomplete output: module=%s model=%s reason=%s retry_max_output_tokens=%s",
+                    module,
+                    model,
+                    incomplete_reason,
+                    retry_max,
+                )
+                retry_response = _request_openai(
+                    model=model,
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    max_output_tokens_override=retry_max,
+                )
+                retry_text = _extract_output_text(retry_response)
+                if retry_text:
+                    result = _normalize_ai_payload(module=module, raw_text=retry_text)
+                    _cache_set_safe(
+                        cache_key,
+                        result,
+                        ttl_seconds=int(getattr(settings, "AI_RECOMMENDATIONS_TTL_SECONDS", 10800) or 10800),
+                    )
+                    logger.info(
+                        "ai_recommendations retry success: module=%s model=%s items=%s",
+                        module,
+                        model,
+                        len(result.get("items") or []),
+                    )
+                    return result
             details = []
             if response_status:
                 details.append(f"status={response_status}")
@@ -596,10 +776,11 @@ def _generate_recommendations(
         return result
     except OpenAIRequestError as exc:
         logger.error(
-            "ai_recommendations openai error: module=%s model=%s status=%s type=%s param=%s code=%s message=%s",
+            "ai_recommendations openai error: module=%s model=%s status=%s request_id=%s type=%s param=%s code=%s message=%s",
             module,
             model,
             exc.status_code,
+            exc.request_id,
             exc.error_type,
             exc.error_param,
             exc.error_code,
