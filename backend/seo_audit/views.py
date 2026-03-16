@@ -7,7 +7,7 @@ from celery.result import AsyncResult
 from django.db.models import Prefetch
 from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
-from rest_framework import permissions, status
+from rest_framework import permissions, renderers, status
 from rest_framework.views import APIView
 
 from accounts.permissions import IsClientUser
@@ -23,6 +23,22 @@ from seo_audit.services.scoring import (
 from subscriptions.permissions import HasActiveSubscription
 
 logger = logging.getLogger(__name__)
+
+
+class CSVRenderer(renderers.BaseRenderer):
+    media_type = "text/csv"
+    format = "csv"
+    charset = "utf-8"
+    render_style = "binary"
+
+    def render(self, data, accepted_media_type=None, renderer_context=None):
+        if data is None:
+            return b""
+        if isinstance(data, bytes):
+            return data
+        if isinstance(data, str):
+            return data.encode(self.charset)
+        return str(data).encode(self.charset)
 
 
 def json_response(data, http_status: int):
@@ -348,6 +364,7 @@ class SEOAuditCompareView(APIView):
 
 class SEOAuditExportView(APIView):
     permission_classes = [permissions.IsAuthenticated, IsClientUser, HasActiveSubscription]
+    renderer_classes = [CSVRenderer, renderers.JSONRenderer]
 
     def get(self, request, audit_id: int):
         audit = SiteSEOAudit.objects.filter(id=audit_id, client=request.client).first()

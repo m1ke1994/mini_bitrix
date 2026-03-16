@@ -187,7 +187,11 @@ class SEOAuditViewsExtendedTests(TestCase):
             severity=SEOIssue.Severity.LOW,
         )
 
-        response = self.http.get(f"/api/seo/{current.id}/export/", {"with_audit_id": previous.id})
+        response = self.http.get(
+            f"/api/seo/{current.id}/export/",
+            {"with_audit_id": previous.id},
+            HTTP_ACCEPT="text/csv",
+        )
         self.assertEqual(response.status_code, 200)
         self.assertIn("text/csv", response["Content-Type"])
         self.assertIn("attachment;", response["Content-Disposition"])
@@ -198,3 +202,34 @@ class SEOAuditViewsExtendedTests(TestCase):
         self.assertIn("issue_groups", csv_payload)
         self.assertIn("commercial_pages", csv_payload)
         self.assertIn("comparison", csv_payload)
+
+    def test_export_endpoint_works_with_json_accept_too(self):
+        domain = "export-json.example.com"
+        audit = self._create_done_audit(
+            domain=domain,
+            has_robots=True,
+            has_sitemap=True,
+            issue_type="missing_description",
+            severity=SEOIssue.Severity.LOW,
+        )
+
+        response = self.http.get(f"/api/seo/{audit.id}/export/", HTTP_ACCEPT="application/json")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("text/csv", response["Content-Type"])
+
+    def test_export_endpoint_works_with_browser_like_accept_header(self):
+        domain = "export-browser.example.com"
+        audit = self._create_done_audit(
+            domain=domain,
+            has_robots=True,
+            has_sitemap=True,
+            issue_type="missing_description",
+            severity=SEOIssue.Severity.LOW,
+        )
+
+        response = self.http.get(
+            f"/api/seo/{audit.id}/export/",
+            HTTP_ACCEPT="text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("text/csv", response["Content-Type"])
