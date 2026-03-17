@@ -1,6 +1,18 @@
 <template>
   <section class="dashboard-section behavior-page">
-    <div class="chart-card">
+    <nav class="dashboard-subnav behavior-tabs" aria-label="Разделы поведения пользователя">
+      <a
+        v-for="tab in behaviorTabItems"
+        :key="tab.id"
+        href="#"
+        :class="{ active: activeBehaviorTab === tab.id }"
+        @click.prevent="setActiveBehaviorTab(tab.id)"
+      >
+        {{ tab.label }}
+      </a>
+    </nav>
+
+    <div v-if="activeBehaviorTab === 'behavior-overview'" class="chart-card">
       <div class="card-head">
         <h2>Поведение пользователя на сайте</h2>
       </div>
@@ -10,7 +22,7 @@
       </p>
     </div>
 
-    <div class="chart-card behavior-ai-card">
+    <div v-if="activeBehaviorTab === 'behavior-overview'" class="chart-card behavior-ai-card">
       <div class="card-head card-head-wrap">
         <h2>AI-рекомендации по повышению конверсии</h2>
         <button
@@ -46,7 +58,7 @@
     <p v-if="error" class="error">{{ error }}</p>
     <p v-if="loading" class="muted loading-note">Обновление данных...</p>
 
-    <div class="stats behavior-stats">
+    <div v-if="activeBehaviorTab === 'behavior-overview'" class="stats behavior-stats">
       <article class="stat-card">
         <h3>Уникальные пользователи в анализе</h3>
         <strong>{{ uniqueUsersInAnalysis }}</strong>
@@ -73,7 +85,7 @@
       </article>
     </div>
 
-    <div class="chart-card">
+    <div v-if="activeBehaviorTab === 'behavior-scroll'" class="chart-card">
       <div class="card-head">
         <h2>Глубина просмотра страницы</h2>
       </div>
@@ -100,7 +112,7 @@
       </div>
     </div>
 
-    <div class="chart-card">
+    <div v-if="activeBehaviorTab === 'behavior-forms'" class="chart-card">
       <div class="card-head">
         <h2>События форм</h2>
       </div>
@@ -150,7 +162,7 @@
       </div>
     </div>
 
-    <div class="chart-card">
+    <div v-if="activeBehaviorTab === 'behavior-forms'" class="chart-card">
       <div class="card-head">
         <h2>Воронка формы</h2>
       </div>
@@ -178,7 +190,7 @@
       </div>
     </div>
 
-    <div class="chart-card">
+    <div v-if="activeBehaviorTab === 'behavior-forms'" class="chart-card">
       <div class="card-head">
         <h2>Аналитика полей формы</h2>
       </div>
@@ -227,7 +239,7 @@
       </template>
     </div>
 
-    <div class="chart-card">
+    <div v-if="activeBehaviorTab === 'behavior-cta-sections'" class="chart-card">
       <div class="card-head">
         <h2>Эффективность кнопок</h2>
       </div>
@@ -261,7 +273,7 @@
       </div>
     </div>
 
-    <div class="chart-card">
+    <div v-if="activeBehaviorTab === 'behavior-cta-sections'" class="chart-card">
       <div class="card-head">
         <h2>Аналитика секций</h2>
       </div>
@@ -299,7 +311,7 @@
       </div>
     </div>
 
-    <div class="chart-card">
+    <div v-if="activeBehaviorTab === 'behavior-segmentation'" class="chart-card">
       <div class="card-head">
         <h2>Сегментация по источникам</h2>
       </div>
@@ -339,7 +351,7 @@
       </div>
     </div>
 
-    <div class="chart-card">
+    <div v-if="activeBehaviorTab === 'behavior-segmentation'" class="chart-card">
       <div class="card-head">
         <h2>Сегментация по устройствам</h2>
       </div>
@@ -379,7 +391,7 @@
       </div>
     </div>
 
-    <div class="chart-card">
+    <div v-if="activeBehaviorTab === 'behavior-micro'" class="chart-card">
       <div class="card-head">
         <h2>Полезные действия на сайте</h2>
       </div>
@@ -414,7 +426,7 @@
       </div>
     </div>
 
-    <div v-if="showAnomaliesTable" class="chart-card">
+    <div v-if="activeBehaviorTab === 'behavior-changes' && showAnomaliesTable" class="chart-card">
       <div class="card-head">
         <h2>Изменения за период</h2>
       </div>
@@ -447,7 +459,7 @@
       </div>
     </div>
 
-    <div v-else-if="showAnomaliesCompact" class="chart-card compact-note">
+    <div v-else-if="activeBehaviorTab === 'behavior-changes' && showAnomaliesCompact" class="chart-card compact-note">
       <div class="card-head">
         <h2>Изменения за период</h2>
       </div>
@@ -457,7 +469,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted } from "vue";
+import { computed, onMounted, ref } from "vue";
 
 import { useAiRecommendations } from "../composables/useAiRecommendations";
 import { useAnalyticsSummary } from "../composables/useAnalyticsSummary";
@@ -473,6 +485,18 @@ const {
   fallbackTitle: "Рекомендации временно недоступны",
   fallbackSummary: "Не удалось получить AI-анализ по поведенческим данным. Попробуйте позже.",
 });
+
+const behaviorTabItems = [
+  { id: "behavior-overview", label: "Обзор" },
+  { id: "behavior-scroll", label: "Глубина просмотра" },
+  { id: "behavior-forms", label: "Формы" },
+  { id: "behavior-cta-sections", label: "Кнопки и секции" },
+  { id: "behavior-segmentation", label: "Сегментация" },
+  { id: "behavior-micro", label: "Полезные действия" },
+  { id: "behavior-changes", label: "Изменения" },
+];
+
+const activeBehaviorTab = ref("behavior-overview");
 
 const aiSignals = computed(() => summary.value.ai_event_signals || {});
 const overview = computed(() => aiSignals.value.overview || {});
@@ -702,6 +726,12 @@ function aiPriorityLabel(priority) {
   if (normalized === "high") return "Высокий";
   if (normalized === "low") return "Низкий";
   return "Средний";
+}
+
+function setActiveBehaviorTab(tabId) {
+  const key = String(tabId || "").trim();
+  if (!key) return;
+  activeBehaviorTab.value = key;
 }
 
 async function refreshAiRecommendations() {
