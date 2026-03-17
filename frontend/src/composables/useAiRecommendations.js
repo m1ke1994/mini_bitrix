@@ -6,10 +6,12 @@ function buildFallback({ title, summary }) {
   return {
     success: false,
     source: "fallback",
+    fallback: true,
     title,
     summary,
     items: [],
     priority: "medium",
+    user_message: summary,
     cached: false,
   };
 }
@@ -35,6 +37,9 @@ function normalizePayload(payload, fallback) {
   const title = String(payload.title || "").trim() || fallback.title;
   const summary = String(payload.summary || "").trim() || fallback.summary;
   const items = normalizeItems(payload.items);
+  const source = String(payload.source || fallback.source).trim().toLowerCase() || fallback.source;
+  const fallbackMode = Boolean(payload.fallback) || source === "fallback";
+  const userMessage = String(payload.user_message || "").trim();
   return {
     ...fallback,
     ...payload,
@@ -43,7 +48,9 @@ function normalizePayload(payload, fallback) {
     items,
     priority: normalizePriority(payload.priority),
     success: Boolean(payload.success),
-    source: String(payload.source || fallback.source),
+    source,
+    fallback: fallbackMode,
+    user_message: userMessage || summary,
     cached: Boolean(payload.cached),
   };
 }

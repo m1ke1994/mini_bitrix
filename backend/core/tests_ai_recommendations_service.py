@@ -2,6 +2,7 @@
 from datetime import date
 from unittest.mock import patch
 
+import requests
 from django.core.cache import cache
 from django.test import SimpleTestCase, override_settings
 
@@ -300,3 +301,55 @@ class AIRecommendationsServiceTests(SimpleTestCase):
         self.assertTrue(isinstance(result.get("fix_plan"), list))
         self.assertTrue(isinstance(result.get("recommendations"), list))
         self.assertGreaterEqual(len(result.get("recommendations") or []), 1)
+
+    @patch(
+        "core.services.ai_recommendations.requests.post",
+        side_effect=requests.exceptions.ReadTimeout("openai timeout"),
+    )
+    def test_seo_recommendations_timeout_returns_structured_fallback(self, mocked_post):
+        result = get_seo_ai_recommendations(
+            client_id=1,
+            audit_id=14,
+            audit_payload={
+                "domain": "example.com",
+                "score": 58,
+                "seo_score": 58,
+                "pages_count": 6,
+                "has_robots_txt": True,
+                "has_sitemap_xml": True,
+                "pages_with_speed_issues": 2,
+                "pages_with_indexing_issues": 1,
+                "errors": [],
+                "issue_groups": [],
+                "breakdown": {"high_issues": 1, "medium_issues": 2, "low_issues": 1},
+            },
+            force_refresh=True,
+        )
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["source"], "fallback")
+        self.assertTrue(result.get("fallback"))
+        self.assertIn("overview", result)
+        self.assertIn("metrics_review", result)
+        self.assertGreaterEqual(len(result.get("items") or []), 1)
+        self.assertEqual(result.get("items"), result.get("recommendations"))
+        self.assertEqual(result.get("debug", {}).get("error_type"), "network_timeout")
+        self.assertEqual(mocked_post.call_count, 2)
+
+    @patch(
+        "core.services.ai_recommendations.requests.post",
+        side_effect=requests.exceptions.ConnectionError("openai unavailable"),
+    )
+    def test_conversion_recommendations_network_error_stays_openai_error(self, mocked_post):
+        result = get_conversion_ai_recommendations(
+            client_id=1,
+            period_from=date(2026, 3, 1),
+            period_to=date(2026, 3, 16),
+            summary_payload={"visitors_unique": 0, "ai_event_signals": {}},
+            force_refresh=True,
+        )
+
+        self.assertFalse(result["success"])
+        self.assertEqual(result["source"], "openai_error")
+        self.assertIn("debug", result)
+        self.assertEqual(mocked_post.call_count, 2)

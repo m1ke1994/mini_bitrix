@@ -87,7 +87,12 @@
         Анализируем результаты аудита и формируем рекомендации...
       </p>
 
-      <template v-else-if="seoAiHasResult">
+      <template v-else-if="seoAiHasRenderableResult">
+        <div v-if="seoAiIsFallbackResult" class="seo-ai-fallback-banner" role="status" aria-live="polite">
+          <strong>Резервный режим AI-рекомендаций</strong>
+          <p>{{ seoAiFallbackBannerMessage }}</p>
+        </div>
+
         <div class="seo-ai-summary-box">
           <p class="seo-ai-summary">{{ seoAiRecommendations.summary }}</p>
 
@@ -95,7 +100,7 @@
             <span class="priority-pill" :class="seoAiPriorityClass(seoAiRecommendations.priority)">
               Приоритет: {{ seoAiPriorityLabel(seoAiRecommendations.priority) }}
             </span>
-            <span class="seo-meta-chip">Источник: AI</span>
+            <span class="seo-meta-chip">Источник: {{ seoAiSourceLabel }}</span>
             <span v-if="seoAiRecommendations.cached" class="seo-meta-chip">Кэшированный ответ</span>
           </div>
         </div>
@@ -184,7 +189,17 @@
         </section>
       </template>
 
-      <p v-else class="muted seo-ai-error">{{ seoAiFailureMessage }}</p>
+      <div v-else class="seo-ai-error-panel">
+        <p class="muted seo-ai-error">{{ seoAiFailureMessage }}</p>
+        <button
+          type="button"
+          class="seo-ai-refresh-btn seo-ai-retry-btn"
+          :disabled="!canRunSeoAiAnalysis"
+          @click="runSeoAiAnalysis"
+        >
+          {{ seoAiLoading ? "Анализ..." : "Повторить запрос" }}
+        </button>
+      </div>
     </div>
 
     <div v-if="auditId" class="seo-anchor-nav-wrap">
@@ -943,18 +958,45 @@ const canRunSeoAiAnalysis = computed(
   () => Boolean(auditId.value) && rawStatus.value === "done" && !seoAiLoading.value,
 );
 
-const seoAiHasResult = computed(
-  () =>
-    Boolean(seoAiRecommendations.value?.success) &&
-    String(seoAiRecommendations.value?.source || "").trim().toLowerCase() === "ai",
+const seoAiResponse = computed(() =>
+  seoAiRecommendations.value && typeof seoAiRecommendations.value === "object"
+    ? seoAiRecommendations.value
+    : {},
 );
+
+const seoAiResultMode = computed(() => {
+  if (isAiResponse(seoAiResponse.value)) return "success-ai";
+  if (isFallbackResponse(seoAiResponse.value)) return "success-fallback";
+  if (isErrorResponse(seoAiResponse.value)) return "hard-error";
+  return "hard-error";
+});
+
+const seoAiHasRenderableResult = computed(
+  () => seoAiResultMode.value === "success-ai" || seoAiResultMode.value === "success-fallback",
+);
+const seoAiIsFallbackResult = computed(() => seoAiResultMode.value === "success-fallback");
+
+const seoAiSourceLabel = computed(() => {
+  if (seoAiResultMode.value === "success-ai") return "AI";
+  if (seoAiResultMode.value === "success-fallback") return "Fallback";
+  const source = String(seoAiResponse.value?.source || "").trim().toLowerCase();
+  if (source === "fallback") return "Fallback";
+  if (source === "ai") return "AI";
+  return "Не определён";
+});
+
+const seoAiFallbackBannerMessage = computed(() => {
+  const fromPayload = String(seoAiResponse.value?.user_message || "").trim();
+  if (fromPayload) return fromPayload;
+  return "AI-анализ временно недоступен. Показаны базовые рекомендации по данным последнего аудита.";
+});
 
 const seoAiFailureMessage = computed(() => {
   const fromRequest = String(seoAiError.value || "").trim();
   if (fromRequest) return fromRequest;
-  const fromPayload = String(seoAiRecommendations.value?.summary || "").trim();
-  if (fromPayload && !seoAiHasResult.value) return fromPayload;
-  return "Не удалось получить AI-рекомендации. Попробуйте запустить анализ ещё раз.";
+  const fromPayload = String(seoAiResponse.value?.summary || "").trim();
+  if (fromPayload) return fromPayload;
+  return "Не удалось загрузить AI-рекомендации. Попробуйте позже.";
 });
 
 const runningHint = computed(() =>
@@ -1100,6 +1142,39 @@ function normalizeTextList(rows, maxItems = 7) {
     .map((item) => String(item || "").trim())
     .filter((item) => Boolean(item))
     .slice(0, maxItems);
+}
+
+function hasStructuredSeoAiContent(payload) {
+  if (!payload || typeof payload !== "object") return false;
+  const overview = payload.overview && typeof payload.overview === "object" ? payload.overview : null;
+  const hasOverview = overview ? Object.values(overview).some((item) => Boolean(String(item || "").trim())) : false;
+  const hasHighlights = normalizeTextList(payload.highlights, 1).length > 0;
+  const hasMetrics = Array.isArray(payload.metrics_review) && payload.metrics_review.length > 0;
+  const hasProblems = Array.isArray(payload.problems) && payload.problems.length > 0;
+  const hasFixPlan = Array.isArray(payload.fix_plan) && payload.fix_plan.length > 0;
+  const hasRecommendations = normalizeTextList(payload.recommendations, 1).length > 0;
+  const hasItems = normalizeTextList(payload.items, 1).length > 0;
+  return hasOverview || hasHighlights || hasMetrics || hasProblems || hasFixPlan || hasRecommendations || hasItems;
+}
+
+function isAiResponse(payload) {
+  if (!payload || typeof payload !== "object") return false;
+  const source = String(payload.source || "").trim().toLowerCase();
+  if (source !== "ai") return false;
+  return Boolean(payload.success) || hasStructuredSeoAiContent(payload);
+}
+
+function isFallbackResponse(payload) {
+  if (!payload || typeof payload !== "object") return false;
+  const source = String(payload.source || "").trim().toLowerCase();
+  const fallbackFlag = Boolean(payload.fallback) || source === "fallback";
+  if (!fallbackFlag) return false;
+  return hasStructuredSeoAiContent(payload);
+}
+
+function isErrorResponse(payload) {
+  if (!payload || typeof payload !== "object") return true;
+  return !isAiResponse(payload) && !isFallbackResponse(payload);
 }
 
 function normalizeSeoMetricStatus(value) {
@@ -1329,7 +1404,18 @@ function toggleBlock(key) {
 async function runSeoAiAnalysis() {
   if (!canRunSeoAiAnalysis.value) return;
   seoAiStarted.value = true;
-  await loadSeoAiRecommendations({ force: true });
+  const previousResult =
+    seoAiRecommendations.value && typeof seoAiRecommendations.value === "object"
+      ? { ...seoAiRecommendations.value }
+      : null;
+  const nextResult = await loadSeoAiRecommendations({ force: true });
+  if (
+    isErrorResponse(nextResult) &&
+    previousResult &&
+    (isAiResponse(previousResult) || isFallbackResponse(previousResult))
+  ) {
+    seoAiRecommendations.value = previousResult;
+  }
 }
 
 function stopPolling() {
@@ -2040,6 +2126,27 @@ onBeforeUnmount(() => {
   border: 1px dashed #bfdbfe;
 }
 
+.seo-ai-fallback-banner {
+  display: grid;
+  gap: 0.35rem;
+  margin-bottom: 0.7rem;
+  padding: 0.72rem 0.8rem;
+  border-radius: 0.85rem;
+  border: 1px solid #fde68a;
+  background: linear-gradient(180deg, #fffbeb 0%, #fffdf5 100%);
+  color: #92400e;
+}
+
+.seo-ai-fallback-banner strong {
+  font-size: 0.86rem;
+}
+
+.seo-ai-fallback-banner p {
+  margin: 0;
+  font-size: 0.84rem;
+  line-height: 1.4;
+}
+
 .seo-ai-summary-box {
   padding: 0.95rem 1rem;
   border-radius: 1rem;
@@ -2176,8 +2283,19 @@ onBeforeUnmount(() => {
   gap: 0.4rem;
 }
 
+.seo-ai-error-panel {
+  margin-top: 0.6rem;
+  display: grid;
+  gap: 0.6rem;
+  justify-items: start;
+}
+
+.seo-ai-retry-btn {
+  min-width: 12rem;
+}
+
 .seo-ai-error {
-  margin-top: 0.5rem;
+  margin: 0;
 }
 
 .seo-metric-status-info {

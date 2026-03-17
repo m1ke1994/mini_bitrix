@@ -533,6 +533,7 @@ def _build_seo_structured_result(
     return {
         "success": True,
         "source": "ai",
+        "fallback": False,
         "title": title[:160],
         "summary": summary[:520],
         "priority": priority,
@@ -816,6 +817,70 @@ def _build_error_response(
             "timeout_seconds": float(getattr(settings, "AI_RECOMMENDATIONS_TIMEOUT_SECONDS", 20) or 20),
         },
         "generated_at": timezone.now().isoformat(),
+        "cached": False,
+    }
+
+    if period:
+        result["period"] = period
+
+    return result
+
+
+def _extract_error_type(exc: Exception) -> str:
+    if isinstance(exc, OpenAIRequestError):
+        error_type = str(exc.error_type or exc.error_code or "").strip().lower()
+        if error_type:
+            return error_type
+        if exc.status_code:
+            return f"http_{int(exc.status_code)}"
+        return "openai_error"
+
+    return str(exc.__class__.__name__ or "unexpected_error").strip().lower() or "unexpected_error"
+
+
+def _build_seo_fallback_result(
+    *,
+    model: str,
+    cache_scope: str,
+    payload_for_model: dict[str, Any],
+    exc: Exception,
+    period: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    error_payload = _build_error_response(
+        module="seo",
+        model=model,
+        cache_scope=cache_scope,
+        payload_for_model=payload_for_model,
+        exc=exc,
+        period=period,
+    )
+
+    overview = _build_seo_default_overview(payload_for_model)
+    highlights = _build_seo_default_highlights(payload_for_model)
+    metrics_review = _build_seo_default_metrics_review(payload_for_model)
+    problems = _build_seo_default_problems(payload_for_model)
+    fix_plan = _build_seo_default_fix_plan(problems)
+    recommendations = _build_seo_default_recommendations(payload_for_model, problems)
+
+    result = {
+        "success": True,
+        "source": "fallback",
+        "fallback": True,
+        "title": "Рекомендации по SEO временно недоступны",
+        "summary": "Сейчас AI-анализ временно недоступен. Ниже показаны базовые рекомендации на основе данных последнего SEO-аудита.",
+        "user_message": "AI-анализ временно недоступен. Показаны базовые рекомендации по данным последнего аудита.",
+        "priority": "medium",
+        "overview": overview,
+        "highlights": highlights[:MAX_HIGHLIGHTS],
+        "metrics_review": metrics_review[:MAX_METRICS_REVIEW],
+        "problems": problems[:MAX_PROBLEMS],
+        "fix_plan": fix_plan[:MAX_FIX_PLAN],
+        "recommendations": recommendations[:MAX_ITEMS],
+        # backward compatibility for existing UI/composables
+        "items": recommendations[:MAX_ITEMS],
+        "debug": error_payload.get("debug"),
+        "debug_context": error_payload.get("debug_context"),
+        "generated_at": error_payload.get("generated_at") or timezone.now().isoformat(),
         "cached": False,
     }
 
@@ -1283,20 +1348,31 @@ def _generate_recommendations(
     force_refresh: bool,
     period: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    enabled = bool(getattr(settings, "AI_RECOMMENDATIONS_ENABLED", False))
-    has_key = bool(getattr(settings, "OPENAI_API_KEY", ""))
     timeout_seconds = float(getattr(settings, "AI_RECOMMENDATIONS_TIMEOUT_SECONDS", 20) or 20)
 
     if not _is_ai_enabled():
+        disabled_error = OpenAIRequestError(
+            message="AI recommendations are disabled or OPENAI_API_KEY is missing.",
+            error_type="configuration_error",
+        )
+        if module == "seo":
+            fallback_reason = _extract_error_type(disabled_error)
+            logger.warning("seo ai fallback activated")
+            logger.warning("seo ai fallback reason=%s", fallback_reason)
+            return _build_seo_fallback_result(
+                model=model,
+                cache_scope=cache_scope,
+                payload_for_model=payload_for_model,
+                exc=disabled_error,
+                period=period,
+            )
+
         return _build_error_response(
             module=module,
             model=model,
             cache_scope=cache_scope,
             payload_for_model=payload_for_model,
-            exc=OpenAIRequestError(
-                message="AI recommendations are disabled or OPENAI_API_KEY is missing.",
-                error_type="configuration_error",
-            ),
+            exc=disabled_error,
             period=period,
         )
 
@@ -1441,6 +1517,8 @@ def _generate_recommendations(
             model,
             len(result.get("items") or []),
         )
+        if module == "seo":
+            logger.info("seo ai success: model=%s source=%s", model, result.get("source"))
 
         if period:
             result["period"] = period
@@ -1454,6 +1532,26 @@ def _generate_recommendations(
             model,
             exc,
         )
+        if module == "seo":
+            fallback_reason = _extract_error_type(exc)
+            logger.warning("seo ai fallback activated")
+            logger.warning("seo ai fallback reason=%s", fallback_reason)
+            try:
+                return _build_seo_fallback_result(
+                    model=model,
+                    cache_scope=cache_scope,
+                    payload_for_model=payload_for_model,
+                    exc=exc,
+                    period=period,
+                )
+            except Exception as fallback_exc:
+                logger.exception(
+                    "seo ai hard failure: fallback builder failed: model=%s error=%s",
+                    model,
+                    fallback_exc,
+                )
+                exc = fallback_exc
+
         return _build_error_response(
             module=module,
             model=model,
