@@ -9,6 +9,7 @@ from django.test import SimpleTestCase, override_settings
 from core.services.ai_recommendations import (
     _cache_key,
     _cache_set_safe,
+    _extract_output_text,
     _request_openai,
     _seo_prompt_payload,
     get_conversion_ai_recommendations,
@@ -28,11 +29,35 @@ def _mock_response(*, status_code: int, payload: dict):
     return _Response(status_code, payload)
 
 
+def _seo_audit_payload(**overrides):
+    payload = {
+        "domain": "example.com",
+        "score": 61,
+        "seo_score": 61,
+        "pages_count": 5,
+        "has_robots_txt": True,
+        "has_sitemap_xml": True,
+        "pages_with_speed_issues": 1,
+        "pages_with_indexing_issues": 1,
+        "avg_ttfb_ms": 430,
+        "avg_performance_score": 72,
+        "errors": [],
+        "issue_groups": [],
+        "breakdown": {"high_issues": 1, "medium_issues": 1, "low_issues": 0},
+    }
+    payload.update(overrides)
+    return payload
+
+
 @override_settings(
     OPENAI_API_KEY="test-key",
     AI_RECOMMENDATIONS_ENABLED=True,
     AI_RECOMMENDATIONS_TIMEOUT_SECONDS=10,
     AI_RECOMMENDATIONS_TTL_SECONDS=300,
+    AI_RECOMMENDATIONS_MAX_OUTPUT_TOKENS=900,
+    AI_RECOMMENDATIONS_MAX_OUTPUT_TOKENS_SEO=2200,
+    AI_RECOMMENDATIONS_MAX_OUTPUT_TOKENS_CONVERSION=900,
+    AI_RECOMMENDATIONS_MAX_OUTPUT_TOKENS_RETRY_CAP=3200,
     OPENAI_MODEL_SEO="gpt-5-mini",
     OPENAI_MODEL_CONVERSION="gpt-5-mini",
     CACHES={
@@ -80,6 +105,48 @@ class AIRecommendationsServiceTests(SimpleTestCase):
         self.assertNotIn("temperature", body)
         self.assertNotIn("reasoning", body)
         self.assertNotIn("text", body)
+
+    def test_extract_output_text_from_top_level_output_text(self):
+        text = _extract_output_text({"output_text": "  {\"title\":\"x\"}  "})
+        self.assertEqual(text, '{"title":"x"}')
+
+    def test_extract_output_text_from_output_content_text(self):
+        payload = {
+            "output": [
+                {
+                    "type": "message",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": {"value": '{"title":"x","summary":"y","items":["z"],"priority":"high"}'},
+                        }
+                    ],
+                }
+            ]
+        }
+        text = _extract_output_text(payload)
+        self.assertIn('"title":"x"', text)
+
+    def test_extract_output_text_from_nested_unexpected_fields(self):
+        payload = {
+            "output": [
+                {
+                    "type": "message",
+                    "content": [
+                        {
+                            "type": "json",
+                            "payload": {
+                                "result": {
+                                    "final_answer": '{"title":"nested","summary":"ok","items":["a"],"priority":"medium"}'
+                                }
+                            },
+                        }
+                    ],
+                }
+            ]
+        }
+        text = _extract_output_text(payload)
+        self.assertIn('"title":"nested"', text)
 
     @patch("core.services.ai_recommendations.requests.post")
     def test_seo_recommendations_ignores_cached_fallback_payload(self, mocked_post):
@@ -220,6 +287,224 @@ class AIRecommendationsServiceTests(SimpleTestCase):
         self.assertEqual(result["source"], "ai")
         self.assertEqual(result["priority"], "high")
         self.assertGreaterEqual(len(result.get("items") or []), 1)
+
+    @patch("core.services.ai_recommendations.requests.post")
+    def test_seo_incomplete_with_partial_text_uses_ai_without_retry(self, mocked_post):
+        mocked_post.return_value = _mock_response(
+            status_code=200,
+            payload={
+                "status": "incomplete",
+                "incomplete_details": {"reason": "max_output_tokens"},
+                "output": [
+                    {
+                        "type": "message",
+                        "content": [
+                            {
+                                "type": "output_text",
+                                "text": '{"title":"Partial","summary":"short","items":["a"],"priority":"high"}',
+                            }
+                        ],
+                    }
+                ],
+            },
+        )
+
+        result = get_seo_ai_recommendations(
+            client_id=1,
+            audit_id=111,
+            audit_payload=_seo_audit_payload(),
+            force_refresh=True,
+        )
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["source"], "ai")
+        self.assertEqual(mocked_post.call_count, 1)
+
+    @patch("core.services.ai_recommendations.requests.post")
+    def test_seo_incomplete_without_text_retries_and_succeeds(self, mocked_post):
+        mocked_post.side_effect = [
+            _mock_response(
+                status_code=200,
+                payload={
+                    "status": "incomplete",
+                    "incomplete_details": {"reason": "max_output_tokens"},
+                    "output": [{"type": "reasoning", "summary": []}],
+                },
+            ),
+            _mock_response(
+                status_code=200,
+                payload={
+                    "status": "completed",
+                    "output_text": '{"title":"Retry success","summary":"ok","items":["a"],"priority":"medium"}',
+                },
+            ),
+        ]
+
+        result = get_seo_ai_recommendations(
+            client_id=1,
+            audit_id=112,
+            audit_payload=_seo_audit_payload(),
+            force_refresh=True,
+        )
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["source"], "ai")
+        self.assertEqual(mocked_post.call_count, 2)
+
+    @patch("core.services.ai_recommendations.requests.post")
+    def test_seo_retry_uses_module_token_limits(self, mocked_post):
+        mocked_post.side_effect = [
+            _mock_response(
+                status_code=200,
+                payload={
+                    "status": "completed",
+                    "output": [],
+                },
+            ),
+            _mock_response(
+                status_code=200,
+                payload={
+                    "status": "completed",
+                    "output_text": '{"title":"Retry token test","summary":"ok","items":["a"],"priority":"medium"}',
+                },
+            ),
+        ]
+
+        result = get_seo_ai_recommendations(
+            client_id=1,
+            audit_id=113,
+            audit_payload=_seo_audit_payload(),
+            force_refresh=True,
+        )
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["source"], "ai")
+        self.assertEqual(mocked_post.call_count, 2)
+
+        first_max_tokens = mocked_post.call_args_list[0].kwargs["json"]["max_output_tokens"]
+        second_max_tokens = mocked_post.call_args_list[1].kwargs["json"]["max_output_tokens"]
+        self.assertEqual(first_max_tokens, 2200)
+        self.assertGreater(second_max_tokens, first_max_tokens)
+        self.assertLessEqual(second_max_tokens, 3200)
+
+    @patch("core.services.ai_recommendations.requests.post")
+    def test_seo_retry_without_usable_text_returns_fallback(self, mocked_post):
+        mocked_post.side_effect = [
+            _mock_response(
+                status_code=200,
+                payload={
+                    "status": "incomplete",
+                    "incomplete_details": {"reason": "max_output_tokens"},
+                    "output": [],
+                },
+            ),
+            _mock_response(
+                status_code=200,
+                payload={
+                    "status": "incomplete",
+                    "incomplete_details": {"reason": "max_output_tokens"},
+                    "output": [],
+                },
+            ),
+        ]
+
+        result = get_seo_ai_recommendations(
+            client_id=1,
+            audit_id=114,
+            audit_payload=_seo_audit_payload(),
+            force_refresh=True,
+        )
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["source"], "fallback")
+        self.assertTrue(result.get("fallback"))
+        self.assertEqual(result.get("debug", {}).get("error_type"), "empty_output")
+        self.assertEqual(mocked_post.call_count, 2)
+
+    @patch("core.services.ai_recommendations.requests.post")
+    def test_seo_parse_json_string_wrapped_output_text(self, mocked_post):
+        mocked_post.return_value = _mock_response(
+            status_code=200,
+            payload={
+                "status": "completed",
+                "output_text": (
+                    '"{\\"title\\":\\"Wrapped\\",\\"summary\\":\\"ok\\",\\"priority\\":\\"low\\",'
+                    '\\"problems\\":[{\\"title\\":\\"P1\\",\\"severity\\":\\"medium\\",\\"description\\":\\"D\\"}],'
+                    '\\"recommendations\\":[\\"R1\\"],'
+                    '\\"fix_plan\\":[{\\"step\\":1,\\"title\\":\\"S1\\",\\"details\\":\\"Do it\\"}]}"'
+                ),
+            },
+        )
+
+        result = get_seo_ai_recommendations(
+            client_id=1,
+            audit_id=115,
+            audit_payload=_seo_audit_payload(),
+            force_refresh=True,
+        )
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["source"], "ai")
+        self.assertEqual(result["title"], "Wrapped")
+
+    @patch("core.services.ai_recommendations.requests.post")
+    def test_seo_nonstandard_output_item_structure_is_extracted(self, mocked_post):
+        mocked_post.return_value = _mock_response(
+            status_code=200,
+            payload={
+                "status": "completed",
+                "output": [
+                    {
+                        "type": "message",
+                        "content": [
+                            {
+                                "type": "json",
+                                "payload": {
+                                    "result": {
+                                        "answer": (
+                                            '{"title":"Nested path","summary":"ok","priority":"medium",'
+                                            '"problems":[{"title":"p","severity":"low","description":"d"}],'
+                                            '"recommendations":["r"],'
+                                            '"fix_plan":[{"step":1,"title":"s","details":"d"}]}'
+                                        )
+                                    }
+                                },
+                            }
+                        ],
+                    }
+                ],
+            },
+        )
+
+        result = get_seo_ai_recommendations(
+            client_id=1,
+            audit_id=117,
+            audit_payload=_seo_audit_payload(),
+            force_refresh=True,
+        )
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["source"], "ai")
+        self.assertEqual(result["title"], "Nested path")
+
+    @patch("core.services.ai_recommendations.requests.post")
+    def test_seo_completed_empty_output_fallback_after_retry(self, mocked_post):
+        mocked_post.side_effect = [
+            _mock_response(status_code=200, payload={"status": "completed", "output": []}),
+            _mock_response(status_code=200, payload={"status": "completed", "output": []}),
+        ]
+
+        result = get_seo_ai_recommendations(
+            client_id=1,
+            audit_id=116,
+            audit_payload=_seo_audit_payload(),
+            force_refresh=True,
+        )
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["source"], "fallback")
+        self.assertEqual(result.get("debug", {}).get("error_type"), "empty_output")
+        self.assertEqual(mocked_post.call_count, 2)
 
     @patch("core.services.ai_recommendations.requests.post")
     def test_seo_recommendations_return_structured_payload(self, mocked_post):
