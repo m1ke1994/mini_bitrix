@@ -2,7 +2,19 @@
   <section class="dashboard-section seo-audit-page">
     <p v-if="error" class="error">{{ error }}</p>
 
-    <div id="seo-overview" class="chart-card seo-section-card seo-overview-card">
+    <nav class="dashboard-subnav seo-audit-tabs" aria-label="Разделы SEO-аудита">
+      <a
+        v-for="item in seoSectionNavItems"
+        :key="item.id"
+        href="#"
+        :class="{ active: activeSeoTab === item.id, disabled: isSeoTabDisabled(item.id) }"
+        @click.prevent="setActiveSeoTab(item.id)"
+      >
+        {{ item.label }}
+      </a>
+    </nav>
+
+    <div v-if="activeSeoTab === 'seo-overview'" id="seo-overview" class="chart-card seo-section-card seo-overview-card">
       <div class="card-head card-head-wrap">
         <div class="section-headline">
           <h2>SEO-аудит сайта</h2>
@@ -52,7 +64,7 @@
       </p>
     </div>
 
-    <div v-if="auditId" class="chart-card seo-section-card seo-ai-card">
+    <div v-if="auditId && activeSeoTab === 'seo-overview'" class="chart-card seo-section-card seo-ai-card">
       <div class="card-head card-head-wrap">
         <div class="section-headline">
           <h2>AI-рекомендации по SEO</h2>
@@ -202,22 +214,7 @@
       </div>
     </div>
 
-    <div v-if="auditId" class="seo-anchor-nav-wrap">
-      <nav class="seo-anchor-nav" aria-label="Разделы SEO-аудита">
-        <button
-          v-for="item in seoSectionNavItems"
-          :key="item.id"
-          type="button"
-          class="seo-anchor-nav-btn"
-          :class="{ active: activeSeoSection === item.id }"
-          @click="scrollToSeoSection(item.id)"
-        >
-          {{ item.label }}
-        </button>
-      </nav>
-    </div>
-
-    <div class="stats seo-stats">
+    <div v-if="activeSeoTab === 'seo-overview'" class="stats seo-stats">
       <article class="stat-card">
         <h3>Статус</h3>
         <strong :class="statusClass">{{ statusLabel }}</strong>
@@ -264,7 +261,7 @@
       </article>
     </div>
 
-    <div id="seo-compare" v-if="auditId" class="chart-card seo-section-card">
+    <div id="seo-compare" v-if="auditId && activeSeoTab === 'seo-compare'" class="chart-card seo-section-card">
       <div class="card-head card-head-wrap">
         <div class="section-headline">
           <h2>Сравнение аудитов во времени</h2>
@@ -506,7 +503,7 @@
       </p>
     </div>
 
-    <div id="seo-performance" v-if="auditId" class="chart-card seo-section-card">
+    <div id="seo-performance" v-if="auditId && activeSeoTab === 'seo-performance'" class="chart-card seo-section-card">
       <div class="card-head card-head-wrap">
         <div class="section-headline">
           <h2>Скорость и производительность</h2>
@@ -576,7 +573,7 @@
       </template>
     </div>
 
-    <div id="seo-indexing" v-if="auditId" class="chart-card seo-section-card">
+    <div id="seo-indexing" v-if="auditId && activeSeoTab === 'seo-indexing'" class="chart-card seo-section-card">
       <div class="card-head card-head-wrap">
         <div class="section-headline">
           <h2>Индексация</h2>
@@ -650,7 +647,7 @@
       </template>
     </div>
 
-    <div id="seo-pages" v-if="auditId" class="chart-card seo-section-card">
+    <div id="seo-pages" v-if="auditId && activeSeoTab === 'seo-pages'" class="chart-card seo-section-card">
       <div class="card-head card-head-wrap">
         <div class="section-headline">
           <h2>Страницы</h2>
@@ -702,7 +699,7 @@
       </template>
     </div>
 
-    <div id="seo-errors" v-if="auditId" class="chart-card seo-section-card">
+    <div id="seo-errors" v-if="auditId && activeSeoTab === 'seo-errors'" class="chart-card seo-section-card">
       <div class="card-head card-head-wrap">
         <div class="section-headline">
           <h2>Ошибки</h2>
@@ -769,7 +766,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
 import { useAiRecommendations } from "../composables/useAiRecommendations";
 import api from "../services/api";
@@ -825,6 +822,8 @@ const seoSectionNavItems = [
   { id: "seo-errors", label: "Ошибки" },
 ];
 
+const SEO_OVERVIEW_TAB_ID = "seo-overview";
+
 const auditId = ref(null);
 const audit = ref(null);
 const domain = ref("");
@@ -840,7 +839,7 @@ const historyRows = ref([]);
 const selectedCompareAuditId = ref("");
 const comparison = ref(null);
 const comparisonLoading = ref(false);
-const activeSeoSection = ref("seo-overview");
+const activeSeoTab = ref("seo-overview");
 const seoAiStarted = ref(false);
 
 const {
@@ -863,7 +862,6 @@ const collapsed = ref({
 });
 
 let pollTimer = null;
-let sectionScrollRaf = null;
 
 const pages = computed(() => (Array.isArray(audit.value?.pages) ? audit.value.pages : []));
 const groupedErrors = computed(() => {
@@ -1099,6 +1097,18 @@ const statusClass = computed(() => {
   if (isInProgress.value) return "status-running";
   return "status-idle";
 });
+
+function isSeoTabDisabled(tabId) {
+  const key = String(tabId || "").trim();
+  if (!key || key === SEO_OVERVIEW_TAB_ID) return false;
+  return !auditId.value;
+}
+
+function setActiveSeoTab(tabId) {
+  const key = String(tabId || "").trim();
+  if (!key || isSeoTabDisabled(key)) return;
+  activeSeoTab.value = key;
+}
 
 function canUseStorage() {
   return typeof window !== "undefined" && typeof window.localStorage !== "undefined";
@@ -1355,50 +1365,8 @@ function deltaClass(value) {
   return "delta-neutral";
 }
 
-function syncActiveSeoSection() {
-  if (typeof document === "undefined") return;
-  if (!auditId.value) {
-    activeSeoSection.value = "seo-overview";
-    return;
-  }
-
-  const offset = 150;
-  let currentId = seoSectionNavItems[0].id;
-  for (const item of seoSectionNavItems) {
-    const node = document.getElementById(item.id);
-    if (!node) continue;
-    const top = node.getBoundingClientRect().top;
-    if (top <= offset) currentId = item.id;
-    else break;
-  }
-  activeSeoSection.value = currentId;
-}
-
-function handleSeoScroll() {
-  if (typeof window === "undefined") return;
-  if (sectionScrollRaf) return;
-  sectionScrollRaf = window.requestAnimationFrame(() => {
-    sectionScrollRaf = null;
-    syncActiveSeoSection();
-  });
-}
-
-function scrollToSeoSection(sectionId) {
-  const targetId = String(sectionId || "").trim();
-  if (!targetId || typeof document === "undefined") return;
-  const node = document.getElementById(targetId);
-  if (!node) return;
-  activeSeoSection.value = targetId;
-  node.scrollIntoView({ behavior: "smooth", block: "start" });
-}
-
 function toggleBlock(key) {
   collapsed.value = { ...collapsed.value, [key]: !collapsed.value[key] };
-  if (typeof window !== "undefined") {
-    window.setTimeout(() => {
-      syncActiveSeoSection();
-    }, 0);
-  }
 }
 
 async function runSeoAiAnalysis() {
@@ -1466,8 +1434,6 @@ async function loadAudit({ silent = false, allowLatestFallback = true } = {}) {
       seoAiStarted.value = false;
       resetSeoAiRecommendations();
     }
-    await nextTick();
-    syncActiveSeoSection();
   } catch (e) {
     const responseStatus = Number(e?.response?.status || 0);
     if (responseStatus === 404 && allowLatestFallback) {
@@ -1517,8 +1483,6 @@ async function loadLatestAudit({ silent = false, preferCurrentDomain = false, su
     if (data?.domain) domain.value = String(data.domain);
     persistState();
     await loadAudit({ silent: true, allowLatestFallback: false });
-    await nextTick();
-    syncActiveSeoSection();
     return true;
   } catch (e) {
     if (!suppressError) error.value = e?.response?.data?.detail || "Не удалось загрузить последний SEO-аудит.";
@@ -1624,19 +1588,20 @@ async function manualRefresh() {
 
 watch(
   auditId,
-  async (value, prevValue) => {
+  (value, prevValue) => {
     if (value !== prevValue) {
       seoAiStarted.value = false;
       resetSeoAiRecommendations();
     }
     if (!value) {
-      activeSeoSection.value = "seo-overview";
+      activeSeoTab.value = SEO_OVERVIEW_TAB_ID;
       seoAiStarted.value = false;
       resetSeoAiRecommendations();
       return;
     }
-    await nextTick();
-    syncActiveSeoSection();
+    if (isSeoTabDisabled(activeSeoTab.value)) {
+      activeSeoTab.value = SEO_OVERVIEW_TAB_ID;
+    }
   },
   { immediate: false },
 );
@@ -1644,9 +1609,6 @@ watch(
 defineExpose({ manualRefresh });
 
 onMounted(() => {
-  if (typeof window !== "undefined") {
-    window.addEventListener("scroll", handleSeoScroll, { passive: true });
-  }
   restoreState();
   bootstrapping.value = true;
   const bootstrap = async () => {
@@ -1660,13 +1622,6 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   stopPolling();
-  if (typeof window !== "undefined") {
-    window.removeEventListener("scroll", handleSeoScroll);
-  }
-  if (sectionScrollRaf && typeof window !== "undefined") {
-    window.cancelAnimationFrame(sectionScrollRaf);
-    sectionScrollRaf = null;
-  }
 });
 </script>
 
@@ -1774,8 +1729,7 @@ onBeforeUnmount(() => {
 .seo-compare-btn:hover,
 .seo-ai-refresh-btn:hover,
 .collapse-btn:hover,
-.issue-filter-btn:hover,
-.seo-anchor-nav-btn:hover {
+.issue-filter-btn:hover {
   transform: translateY(-1px);
 }
 
@@ -1851,45 +1805,10 @@ onBeforeUnmount(() => {
   scroll-margin-top: 6.7rem;
 }
 
-.seo-anchor-nav-wrap {
-  position: sticky;
-  top: 0.6rem;
-  z-index: 16;
-  margin: 0.95rem 0 1rem;
-}
-
-.seo-anchor-nav {
-  display: flex;
-  gap: 0.5rem;
-  overflow-x: auto;
-  padding: 0.52rem;
-  border: 1px solid #dbe5f1;
-  border-radius: 0.95rem;
-  background: rgba(255, 255, 255, 0.94);
-  backdrop-filter: blur(10px);
-  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.05);
-}
-
-.seo-anchor-nav-btn {
-  flex: 0 0 auto;
-  min-height: 2.15rem;
-  border: 1px solid #d1d9e6;
-  border-radius: 999px;
-  padding: 0 0.8rem;
-  font-size: 0.79rem;
-  font-weight: 700;
-  color: #334155;
-  background: #fff;
-  cursor: pointer;
-  transition: all 0.18s ease;
-  white-space: nowrap;
-}
-
-.seo-anchor-nav-btn.active {
-  border-color: #2563eb;
-  background: #dbeafe;
-  color: #1d4ed8;
-  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.06);
+.seo-audit-tabs a.disabled {
+  opacity: 0.55;
+  pointer-events: none;
+  cursor: default;
 }
 
 .seo-stats {
@@ -2438,10 +2357,6 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 960px) {
-  .seo-anchor-nav-wrap {
-    top: 0.35rem;
-  }
-
   .seo-start-row,
   .comparison-grid,
   .comparison-lists {
@@ -2473,16 +2388,6 @@ onBeforeUnmount(() => {
 
   .seo-start-row {
     grid-template-columns: 1fr;
-  }
-
-  .seo-anchor-nav {
-    padding: 0.45rem;
-    border-radius: 0.85rem;
-  }
-
-  .seo-anchor-nav-btn {
-    min-height: 2rem;
-    font-size: 0.76rem;
   }
 
   .comparison-values {
