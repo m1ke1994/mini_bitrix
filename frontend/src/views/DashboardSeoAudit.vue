@@ -22,8 +22,16 @@
             Запустите аудит домена, чтобы увидеть технические проблемы, точки роста и приоритеты исправлений.
           </p>
         </div>
-        <button type="button" class="seo-export-btn" :disabled="!canExport" @click="exportReport">
-          {{ exporting ? "Подготовка..." : "Экспортировать отчёт" }}
+        <button
+          type="button"
+          class="seo-export-btn"
+          :class="{ 'is-busy': exporting }"
+          :aria-busy="exporting ? 'true' : 'false'"
+          :disabled="!canExport"
+          @click="exportReport"
+        >
+          <span v-if="exporting" class="btn-spinner" aria-hidden="true"></span>
+          <span class="seo-btn-label">{{ exporting ? "Подготовка..." : "Экспортировать отчёт" }}</span>
         </button>
       </div>
 
@@ -42,15 +50,25 @@
         <button
           type="button"
           class="seo-start-btn"
-          :class="{ 'is-busy': isInProgress }"
+          :class="{ 'is-busy': isInProgress || starting }"
+          :aria-busy="starting || isInProgress ? 'true' : 'false'"
           :disabled="!canStartAudit"
           @click="startAudit"
         >
-          {{ starting ? "Запуск..." : "Запустить аудит" }}
+          <span v-if="starting" class="btn-spinner" aria-hidden="true"></span>
+          <span class="seo-btn-label">{{ starting ? "Запуск..." : "Запустить аудит" }}</span>
         </button>
 
-        <button type="button" class="seo-stop-btn" :disabled="!canStopAudit" @click="stopAudit">
-          {{ stopping ? "Остановка..." : "Остановить аудит" }}
+        <button
+          type="button"
+          class="seo-stop-btn"
+          :class="{ 'is-busy': stopping }"
+          :aria-busy="stopping ? 'true' : 'false'"
+          :disabled="!canStopAudit"
+          @click="stopAudit"
+        >
+          <span v-if="stopping" class="btn-spinner" aria-hidden="true"></span>
+          <span class="seo-btn-label">{{ stopping ? "Остановка..." : "Остановить аудит" }}</span>
         </button>
       </div>
 
@@ -75,10 +93,13 @@
         <button
           type="button"
           class="seo-ai-refresh-btn"
+          :class="{ 'is-busy': seoAiLoading }"
+          :aria-busy="seoAiLoading ? 'true' : 'false'"
           :disabled="!canRunSeoAiAnalysis"
           @click="runSeoAiAnalysis"
         >
-          {{ seoAiLoading ? "Анализ..." : "Запустить AI-анализ SEO" }}
+          <span v-if="seoAiLoading" class="btn-spinner" aria-hidden="true"></span>
+          <span class="seo-btn-label">{{ seoAiLoading ? "Анализ..." : "Запустить AI-анализ SEO" }}</span>
         </button>
       </div>
 
@@ -95,7 +116,8 @@
         </div>
       </template>
 
-      <p v-else-if="seoAiLoading" class="muted">
+      <p v-else-if="seoAiLoading" class="muted seo-ai-loading-indicator" role="status" aria-live="polite">
+        <span class="seo-spinner" aria-hidden="true"></span>
         Анализируем результаты аудита и формируем рекомендации...
       </p>
 
@@ -206,10 +228,13 @@
         <button
           type="button"
           class="seo-ai-refresh-btn seo-ai-retry-btn"
+          :class="{ 'is-busy': seoAiLoading }"
+          :aria-busy="seoAiLoading ? 'true' : 'false'"
           :disabled="!canRunSeoAiAnalysis"
           @click="runSeoAiAnalysis"
         >
-          {{ seoAiLoading ? "Анализ..." : "Повторить запрос" }}
+          <span v-if="seoAiLoading" class="btn-spinner" aria-hidden="true"></span>
+          <span class="seo-btn-label">{{ seoAiLoading ? "Анализ..." : "Повторить запрос" }}</span>
         </button>
       </div>
     </div>
@@ -963,8 +988,9 @@ const seoAiResponse = computed(() =>
 );
 
 const seoAiResultMode = computed(() => {
-  if (isAiResponse(seoAiResponse.value)) return "success-ai";
   if (isFallbackResponse(seoAiResponse.value)) return "success-fallback";
+  if (isAiResponse(seoAiResponse.value)) return "success-ai";
+  if (hasStructuredSeoAiContent(seoAiResponse.value)) return "success-ai";
   if (isErrorResponse(seoAiResponse.value)) return "hard-error";
   return "hard-error";
 });
@@ -1195,22 +1221,49 @@ function hasStructuredSeoAiContent(payload) {
     normalizeSeoRecommendationRows(payload.recommendations, 1).length > 0 ||
     normalizeTextList(payload.recommendations, 1).length > 0;
   const hasItems = normalizeTextList(payload.items, 1).length > 0;
-  return hasOverview || hasHighlights || hasMetrics || hasProblems || hasFixPlan || hasRecommendations || hasItems;
+  const hasSummary = Boolean(String(payload.summary || payload.user_message || "").trim());
+  return (
+    hasOverview ||
+    hasHighlights ||
+    hasMetrics ||
+    hasProblems ||
+    hasFixPlan ||
+    hasRecommendations ||
+    hasItems ||
+    hasSummary
+  );
+}
+
+function normalizeBooleanFlag(value, defaultValue = false) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value !== 0;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["1", "true", "yes", "ok", "success"].includes(normalized)) return true;
+    if (["0", "false", "no", "none", "null", ""].includes(normalized)) return false;
+  }
+  return defaultValue;
+}
+
+function resolveResponseSource(payload) {
+  return String(payload?.source || "").trim().toLowerCase();
 }
 
 function isAiResponse(payload) {
   if (!payload || typeof payload !== "object") return false;
-  const source = String(payload.source || "").trim().toLowerCase();
-  if (source !== "ai" && source !== "openai") return false;
-  return Boolean(payload.success) || hasStructuredSeoAiContent(payload);
+  const source = resolveResponseSource(payload);
+  const hasContent = hasStructuredSeoAiContent(payload);
+  const fallbackFlag = normalizeBooleanFlag(payload.fallback, source === "fallback");
+  const successFlag = normalizeBooleanFlag(payload.success, source === "ai" || source === "openai");
+  if (fallbackFlag || source === "fallback") return false;
+  if (source === "ai" || source === "openai") return successFlag || hasContent;
+  return successFlag && hasContent;
 }
 
 function isFallbackResponse(payload) {
   if (!payload || typeof payload !== "object") return false;
-  const source = String(payload.source || "").trim().toLowerCase();
-  const fallbackFlag = Boolean(payload.fallback) || source === "fallback";
-  if (!fallbackFlag) return false;
-  return hasStructuredSeoAiContent(payload);
+  const source = resolveResponseSource(payload);
+  return normalizeBooleanFlag(payload.fallback, source === "fallback");
 }
 
 function isErrorResponse(payload) {
@@ -1719,10 +1772,10 @@ onBeforeUnmount(() => {
 
 .seo-input,
 .seo-select {
-  min-height: 2.8rem;
+  min-height: 2.65rem;
   border-radius: 0.75rem;
   border: 1px solid var(--color-border);
-  padding: 0.6rem 0.85rem;
+  padding: 0.52rem 0.82rem;
   font: inherit;
   width: 100%;
   background: #fff;
@@ -1743,10 +1796,15 @@ onBeforeUnmount(() => {
 .seo-ai-refresh-btn,
 .collapse-btn,
 .issue-pages-toggle {
-  min-height: 2.75rem;
-  border-radius: 0.75rem;
+  min-height: 2.4rem;
+  border-radius: 0.68rem;
   border: 1px solid var(--color-border);
-  padding: 0 1rem;
+  padding: 0.42rem 0.82rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.46rem;
+  font-size: 0.9rem;
   font-weight: 700;
   cursor: pointer;
   background: #fff;
@@ -1774,6 +1832,13 @@ onBeforeUnmount(() => {
 .seo-start-btn.is-busy {
   background: linear-gradient(135deg, #64748b, #334155);
   box-shadow: none;
+}
+
+.seo-stop-btn.is-busy,
+.seo-export-btn.is-busy,
+.seo-ai-refresh-btn.is-busy,
+.seo-compare-btn.is-busy {
+  cursor: progress;
 }
 
 .seo-stop-btn {
@@ -1824,6 +1889,33 @@ onBeforeUnmount(() => {
   border: 2px solid #bfdbfe;
   border-top-color: #1d4ed8;
   animation: seo-spin 0.9s linear infinite;
+}
+
+.btn-spinner {
+  width: 0.86rem;
+  height: 0.86rem;
+  border-radius: 999px;
+  border: 2px solid currentColor;
+  border-right-color: rgba(15, 23, 42, 0.2);
+  animation: seo-spin 0.75s linear infinite;
+  flex-shrink: 0;
+}
+
+.seo-start-btn .btn-spinner {
+  border-color: rgba(255, 255, 255, 0.95);
+  border-right-color: rgba(255, 255, 255, 0.35);
+}
+
+.seo-stop-btn .btn-spinner {
+  border-color: #b91c1c;
+  border-right-color: rgba(239, 68, 68, 0.32);
+}
+
+.seo-ai-loading-indicator {
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .seo-hint {
@@ -2047,9 +2139,10 @@ onBeforeUnmount(() => {
 
 .seo-ai-card {
   margin-top: 0.85rem;
-  background: linear-gradient(180deg, #f7fbff 0%, #fdfefe 100%);
-  border: 1px solid #dbeafe;
-  box-shadow: 0 12px 30px rgba(59, 130, 246, 0.05);
+  background: linear-gradient(180deg, #f5faff 0%, #fcfeff 100%);
+  border: 1px solid #bfdbfe;
+  border-left: 4px solid #60a5fa;
+  box-shadow: 0 14px 32px rgba(37, 99, 235, 0.08);
   position: relative;
   overflow: hidden;
 }
