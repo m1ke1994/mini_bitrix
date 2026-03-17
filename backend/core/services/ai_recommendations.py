@@ -21,6 +21,9 @@ MAX_HIGHLIGHTS = 5
 MAX_METRICS_REVIEW = 8
 MAX_PROBLEMS = 8
 MAX_FIX_PLAN = 7
+MAX_SEO_RECOMMENDATIONS = 10
+MAX_SEO_PROMPT_PROBLEMS = 14
+MAX_SEO_PAGES_PER_PROBLEM = 2
 MAX_OUTPUT_DIAGNOSTIC_ITEMS = 12
 MAX_TEXT_DIAGNOSTIC_PATHS = 20
 MAX_LOG_TEXT_PREVIEW = 200
@@ -112,7 +115,7 @@ def _resolve_max_output_tokens(module: str) -> int:
     fallback = _safe_int_setting("AI_RECOMMENDATIONS_MAX_OUTPUT_TOKENS", 900)
     module_key = str(module or "").strip().lower()
     if module_key == "seo":
-        return max(256, _safe_int_setting("AI_RECOMMENDATIONS_MAX_OUTPUT_TOKENS_SEO", max(fallback, 2200)))
+        return max(256, _safe_int_setting("AI_RECOMMENDATIONS_MAX_OUTPUT_TOKENS_SEO", 700))
     if module_key == "conversion":
         return max(
             256,
@@ -123,9 +126,9 @@ def _resolve_max_output_tokens(module: str) -> int:
 
 def _resolve_retry_max_output_tokens(module: str, base_tokens: int) -> int:
     base = max(256, int(base_tokens or 0))
-    default_cap = 3200 if str(module or "").strip().lower() == "seo" else 2000
+    default_cap = 1200 if str(module or "").strip().lower() == "seo" else 2000
     retry_cap = max(base, _safe_int_setting("AI_RECOMMENDATIONS_MAX_OUTPUT_TOKENS_RETRY_CAP", default_cap))
-    retry_candidate = max(base + 300, int(base * 1.5))
+    retry_candidate = max(base + 150, int(base * 1.35))
     return min(retry_candidate, retry_cap)
 
 
@@ -538,6 +541,203 @@ def _normalize_overview(items: Any, default_item: dict[str, str]) -> dict[str, s
         if value:
             result[key] = value[:140]
     return result
+
+
+def _severity_sort_value(value: Any) -> int:
+    key = _severity_key(value)
+    if key == "high":
+        return 0
+    if key == "medium":
+        return 1
+    return 2
+
+
+def _normalize_problem_pages(value: Any, *, max_items: int = MAX_SEO_PAGES_PER_PROBLEM) -> list[str]:
+    if not isinstance(value, (list, tuple)):
+        return []
+
+    pages: list[str] = []
+    seen: set[str] = set()
+    for raw in value:
+        page = str(raw or "").strip()
+        if not page or page in seen:
+            continue
+        seen.add(page)
+        pages.append(page[:220])
+        if len(pages) >= max_items:
+            break
+    return pages
+
+
+def _normalize_seo_recommendations(items: Any, *, max_items: int = MAX_SEO_RECOMMENDATIONS) -> list[dict[str, str]]:
+    if not isinstance(items, (list, tuple)):
+        return []
+
+    result: list[dict[str, str]] = []
+    seen: set[str] = set()
+
+    for raw in items:
+        problem = ""
+        severity = "medium"
+        fix = ""
+        issue_type = ""
+
+        if isinstance(raw, dict):
+            problem = str(
+                raw.get("problem")
+                or raw.get("title")
+                or raw.get("issue")
+                or raw.get("issue_title")
+                or ""
+            ).strip()
+            severity = _severity_key(raw.get("severity"))
+            fix = str(
+                raw.get("fix")
+                or raw.get("recommendation")
+                or raw.get("details")
+                or raw.get("action")
+                or ""
+            ).strip()
+            issue_type = str(raw.get("issue_type") or "").strip().lower()
+        else:
+            text = str(raw or "").strip()
+            if text:
+                problem = text
+                fix = text
+
+        if not problem and fix:
+            problem = fix
+
+        if problem and not fix:
+            fix = _default_recommendation_for_issue(issue_type, problem)
+
+        if not (problem and fix):
+            continue
+
+        normalized_problem = problem[:180]
+        normalized_fix = fix[:320]
+        key = f"{normalized_problem.lower()}::{normalized_fix.lower()}"
+        if key in seen:
+            continue
+        seen.add(key)
+
+        result.append(
+            {
+                "problem": normalized_problem,
+                "severity": severity,
+                "fix": normalized_fix,
+            }
+        )
+        if len(result) >= max_items:
+            break
+
+    result.sort(key=lambda item: (_severity_sort_value(item.get("severity")), item.get("problem") or ""))
+    return result[:max_items]
+
+
+def _build_seo_fallback_recommendations(payload_for_model: dict[str, Any]) -> list[dict[str, str]]:
+    problems = payload_for_model.get("problems")
+    if not isinstance(problems, list):
+        return []
+
+    generated: list[dict[str, str]] = []
+    for problem in problems:
+        if not isinstance(problem, dict):
+            continue
+
+        problem_title = str(problem.get("problem") or problem.get("title") or "").strip()
+        if not problem_title:
+            continue
+        severity = _severity_key(problem.get("severity"))
+        issue_type = str(problem.get("issue_type") or "").strip().lower()
+        fix = str(problem.get("fix_hint") or "").strip() or _default_recommendation_for_issue(issue_type, problem_title)
+
+        generated.append(
+            {
+                "problem": problem_title[:180],
+                "severity": severity,
+                "fix": fix[:320],
+            }
+        )
+        if len(generated) >= MAX_SEO_RECOMMENDATIONS:
+            break
+
+    generated.sort(key=lambda item: (_severity_sort_value(item.get("severity")), item.get("problem") or ""))
+    return generated[:MAX_SEO_RECOMMENDATIONS]
+
+
+def _build_seo_compact_result(
+    *,
+    parsed: dict[str, Any] | None,
+    payload_for_model: dict[str, Any],
+    fallback_text: str,
+) -> dict[str, Any]:
+    parsed = parsed or {}
+
+    recommendations_raw = parsed.get("recommendations")
+    if not isinstance(recommendations_raw, list):
+        if isinstance(recommendations_raw, dict):
+            recommendations_raw = [recommendations_raw]
+        elif isinstance(parsed.get("recommendations"), str):
+            recommendations_raw = [parsed.get("recommendations")]
+        if isinstance(parsed.get("items"), list):
+            recommendations_raw = parsed.get("items")
+        elif isinstance(parsed.get("problems"), list):
+            recommendations_raw = parsed.get("problems")
+        else:
+            recommendations_raw = []
+
+    if not recommendations_raw:
+        single_problem = str(parsed.get("problem") or "").strip()
+        single_fix = str(parsed.get("fix") or "").strip()
+        if single_problem and single_fix:
+            recommendations_raw = [
+                {
+                    "problem": single_problem,
+                    "severity": _severity_key(parsed.get("severity")),
+                    "fix": single_fix,
+                }
+            ]
+
+    recommendations = _normalize_seo_recommendations(recommendations_raw, max_items=MAX_SEO_RECOMMENDATIONS)
+
+    if not recommendations and str(fallback_text or "").strip():
+        text_lines = [
+            re.sub(r"^[\s\-\*\u2022\d\.\)\(]+", "", str(line or "").strip())
+            for line in str(fallback_text or "").splitlines()
+        ]
+        text_lines = [line for line in text_lines if line]
+        recommendations = _normalize_seo_recommendations(text_lines, max_items=MAX_SEO_RECOMMENDATIONS)
+
+    if not recommendations:
+        fallback_candidate = _extract_json_candidate(fallback_text)
+        fallback_list: Any = None
+        for variant in (fallback_candidate, str(fallback_text or "").strip()):
+            if not variant:
+                continue
+            try:
+                parsed_variant = json.loads(variant)
+            except Exception:
+                continue
+            if isinstance(parsed_variant, list):
+                fallback_list = parsed_variant
+                break
+            if isinstance(parsed_variant, dict) and isinstance(parsed_variant.get("recommendations"), list):
+                fallback_list = parsed_variant.get("recommendations")
+                break
+
+        if isinstance(fallback_list, list):
+            recommendations = _normalize_seo_recommendations(fallback_list, max_items=MAX_SEO_RECOMMENDATIONS)
+
+    if not recommendations:
+        recommendations = _build_seo_fallback_recommendations(payload_for_model)
+
+    return {
+        "success": True,
+        "source": "openai",
+        "fallback": False,
+        "recommendations": recommendations[:MAX_SEO_RECOMMENDATIONS],
+    }
 
 
 def _build_seo_structured_result(
@@ -1128,7 +1328,7 @@ def _normalize_ai_payload(
         parsed = _extract_json_like_payload(raw_text)
 
     if module == "seo":
-        return _build_seo_structured_result(
+        return _build_seo_compact_result(
             parsed=parsed,
             payload_for_model=payload_for_model or {},
             fallback_text=raw_text,
@@ -1247,42 +1447,18 @@ def _build_seo_fallback_result(
     exc: Exception,
     period: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    error_payload = _build_error_response(
-        module="seo",
-        model=model,
-        cache_scope=cache_scope,
-        payload_for_model=payload_for_model,
-        exc=exc,
-        period=period,
-    )
-
-    overview = _build_seo_default_overview(payload_for_model)
-    highlights = _build_seo_default_highlights(payload_for_model)
-    metrics_review = _build_seo_default_metrics_review(payload_for_model)
-    problems = _build_seo_default_problems(payload_for_model)
-    fix_plan = _build_seo_default_fix_plan(problems)
-    recommendations = _build_seo_default_recommendations(payload_for_model, problems)
+    recommendations = _build_seo_fallback_recommendations(payload_for_model)
+    if not recommendations:
+        recommendations = _normalize_seo_recommendations(
+            _build_seo_default_recommendations(payload_for_model, _build_seo_default_problems(payload_for_model)),
+            max_items=MAX_SEO_RECOMMENDATIONS,
+        )
 
     result = {
         "success": True,
         "source": "fallback",
         "fallback": True,
-        "title": "Рекомендации по SEO временно недоступны",
-        "summary": "Сейчас AI-анализ временно недоступен. Ниже показаны базовые рекомендации на основе данных последнего SEO-аудита.",
-        "user_message": "AI-анализ временно недоступен. Показаны базовые рекомендации по данным последнего аудита.",
-        "priority": "medium",
-        "overview": overview,
-        "highlights": highlights[:MAX_HIGHLIGHTS],
-        "metrics_review": metrics_review[:MAX_METRICS_REVIEW],
-        "problems": problems[:MAX_PROBLEMS],
-        "fix_plan": fix_plan[:MAX_FIX_PLAN],
-        "recommendations": recommendations[:MAX_ITEMS],
-        # backward compatibility for existing UI/composables
-        "items": recommendations[:MAX_ITEMS],
-        "debug": error_payload.get("debug"),
-        "debug_context": error_payload.get("debug_context"),
-        "generated_at": error_payload.get("generated_at") or timezone.now().isoformat(),
-        "cached": False,
+        "recommendations": recommendations[:MAX_SEO_RECOMMENDATIONS],
     }
 
     if period:
@@ -1334,59 +1510,37 @@ def _request_openai(
         len(str(system_prompt or "")),
     )
 
-    response: requests.Response | None = None
-    current_timeout = timeout_seconds
-
-    for attempt in (1, 2):
-        try:
-            response = requests.post(
-                OPENAI_RESPONSES_URL,
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                },
-                json=body,
-                timeout=current_timeout,
-            )
-            break
-
-        except requests.exceptions.ReadTimeout as exc:
-            logger.warning(
-                "ai_recommendations openai timeout: model=%s attempt=%s timeout=%s error=%s",
-                safe_model,
-                attempt,
-                current_timeout,
-                exc,
-            )
-            if attempt == 1:
-                current_timeout = max(timeout_seconds * 2, timeout_seconds + 10)
-                continue
-
-            raise OpenAIRequestError(
-                f"OpenAI request timed out after retry: {exc}",
-                error_type="network_timeout",
-            ) from exc
-
-        except requests.exceptions.RequestException as exc:
-            logger.warning(
-                "ai_recommendations openai network error: model=%s attempt=%s error=%s",
-                safe_model,
-                attempt,
-                exc,
-            )
-            if attempt == 1:
-                continue
-
-            raise OpenAIRequestError(
-                f"OpenAI request failed: {exc}",
-                error_type="network_error",
-            ) from exc
-
-    if response is None:
-        raise OpenAIRequestError(
-            "OpenAI request failed before receiving response.",
-            error_type="network_error",
+    try:
+        response = requests.post(
+            OPENAI_RESPONSES_URL,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json=body,
+            timeout=timeout_seconds,
         )
+    except requests.exceptions.ReadTimeout as exc:
+        logger.warning(
+            "ai_recommendations openai timeout: model=%s timeout=%s error=%s",
+            safe_model,
+            timeout_seconds,
+            exc,
+        )
+        raise OpenAIRequestError(
+            f"OpenAI request timed out: {exc}",
+            error_type="network_timeout",
+        ) from exc
+    except requests.exceptions.RequestException as exc:
+        logger.warning(
+            "ai_recommendations openai network error: model=%s error=%s",
+            safe_model,
+            exc,
+        )
+        raise OpenAIRequestError(
+            f"OpenAI request failed: {exc}",
+            error_type="network_error",
+        ) from exc
 
     response_headers = getattr(response, "headers", {}) or {}
     if not hasattr(response_headers, "get"):
@@ -1510,84 +1664,78 @@ def _is_ai_enabled() -> bool:
 
 
 def _seo_prompt_payload(detail_payload: dict[str, Any]) -> dict[str, Any]:
-    issue_groups = detail_payload.get("issue_groups") or []
-    errors = detail_payload.get("errors") or []
-    top_issues: list[dict[str, Any]] = []
+    issue_groups = [item for item in (detail_payload.get("issue_groups") or []) if isinstance(item, dict)]
+    errors = [item for item in (detail_payload.get("errors") or []) if isinstance(item, dict)]
 
-    severity_order = {"high": 0, "medium": 1, "low": 2}
     sorted_groups = sorted(
-        [group for group in issue_groups if isinstance(group, dict)],
+        issue_groups,
         key=lambda group: (
-            severity_order.get(str(group.get("severity") or "").lower(), 3),
-            -int(group.get("pages_affected") or 0),
+            _severity_sort_value(group.get("severity")),
+            -_safe_int(group.get("pages_affected")),
+            -_safe_int(group.get("issues_count")),
         ),
     )
 
-    for group in sorted_groups[:6]:
-        title = str(group.get("title") or group.get("issue_type") or "").strip()
-        top_issues.append(
+    problems: list[dict[str, Any]] = []
+    for group in sorted_groups:
+        title = str(group.get("title") or group.get("issue_title") or group.get("issue_type") or "").strip()
+        if not title:
+            continue
+        problems.append(
             {
-                "issue_type": group.get("issue_type"),
-                "title": title[:120],
-                "severity": group.get("severity"),
-                "pages_affected": int(group.get("pages_affected") or 0),
+                "problem": title[:180],
+                "severity": _severity_key(group.get("severity")),
+                "issue_type": str(group.get("issue_type") or "").strip().lower(),
+                "pages_affected": _safe_int(group.get("pages_affected")),
+                "pages": _normalize_problem_pages(group.get("pages"), max_items=MAX_SEO_PAGES_PER_PROBLEM),
+                "fix_hint": str(group.get("description") or "").strip()[:320],
             }
         )
+        if len(problems) >= MAX_SEO_PROMPT_PROBLEMS:
+            break
 
-    def has_issue(issue_type: str) -> bool:
-        return any(
-            str(item.get("issue_type") or "").strip().lower() == issue_type
-            for item in errors
-            if isinstance(item, dict)
-        )
+    if not problems and errors:
+        grouped_errors: dict[str, dict[str, Any]] = {}
+        for item in errors:
+            issue_type = str(item.get("issue_type") or "").strip().lower()
+            title = str(item.get("issue_title") or issue_type or "").strip()
+            if not title:
+                continue
+            key = issue_type or title.lower()
+            entry = grouped_errors.get(key)
+            if not entry:
+                entry = {
+                    "problem": title[:180],
+                    "severity": _severity_key(item.get("severity")),
+                    "issue_type": issue_type,
+                    "pages_affected": 0,
+                    "pages": [],
+                    "fix_hint": str(item.get("recommendation") or "").strip()[:320],
+                }
+                grouped_errors[key] = entry
+            entry["severity"] = _severity_key(
+                entry["severity"]
+                if _severity_sort_value(entry["severity"]) <= _severity_sort_value(item.get("severity"))
+                else item.get("severity")
+            )
+            entry["pages_affected"] = int(entry["pages_affected"] or 0) + 1
+            page_url = str(item.get("page_url") or "").strip()
+            if page_url and page_url not in entry["pages"] and len(entry["pages"]) < MAX_SEO_PAGES_PER_PROBLEM:
+                entry["pages"].append(page_url[:220])
 
-    breakdown = detail_payload.get("breakdown") or {}
-    issue_type_counts: dict[str, int] = {}
-    for item in errors:
-        if not isinstance(item, dict):
-            continue
-        issue_key = str(item.get("issue_type") or "").strip().lower()
-        if not issue_key:
-            continue
-        issue_type_counts[issue_key] = issue_type_counts.get(issue_key, 0) + 1
-
-    issue_type_counts_sorted = sorted(issue_type_counts.items(), key=lambda pair: pair[1], reverse=True)[:8]
+        problems = sorted(
+            list(grouped_errors.values()),
+            key=lambda problem: (
+                _severity_sort_value(problem.get("severity")),
+                -_safe_int(problem.get("pages_affected")),
+            ),
+        )[:MAX_SEO_PROMPT_PROBLEMS]
 
     return {
-        "domain": detail_payload.get("domain"),
+        "domain": str(detail_payload.get("domain") or "").strip(),
         "seo_score": int(detail_payload.get("score") or detail_payload.get("seo_score") or 0),
-        "critical_issues_count": int(breakdown.get("high_issues") or 0),
-        "warning_issues_count": int(breakdown.get("medium_issues") or 0),
-        "low_issues_count": int(breakdown.get("low_issues") or 0),
         "pages_count": int(detail_payload.get("pages_count") or 0),
-        "title_status": "issues" if has_issue("missing_title") else "ok",
-        "description_status": "issues" if has_issue("missing_description") else "ok",
-        "h1_status": "issues" if has_issue("missing_h1") else "ok",
-        "canonical_status": "issues" if has_issue("missing_canonical") else "ok",
-        "robots_status": "ok" if detail_payload.get("has_robots_txt") else "missing",
-        "sitemap_status": "ok" if detail_payload.get("has_sitemap_xml") else "missing",
-        "indexing_status": "issues" if int(detail_payload.get("pages_with_indexing_issues") or 0) > 0 else "ok",
-        "page_speed_status": "issues" if int(detail_payload.get("pages_with_speed_issues") or 0) > 0 else "ok",
-        "pages_with_speed_issues": int(detail_payload.get("pages_with_speed_issues") or 0),
-        "pages_with_indexing_issues": int(detail_payload.get("pages_with_indexing_issues") or 0),
-        "content_length_status": (
-            "issues"
-            if any(has_issue(name) for name in ("thin_content", "too_short_content", "low_word_count"))
-            else "ok"
-        ),
-        "image_alt_status": (
-            "issues"
-            if any(has_issue(name) for name in ("missing_alt", "missing_image_alt"))
-            else "ok"
-        ),
-        "internal_links_status": "issues" if has_issue("low_internal_links") else "ok",
-        "avg_ttfb_ms": int(detail_payload.get("avg_ttfb_ms") or 0),
-        "avg_performance_score": int(detail_payload.get("avg_performance_score") or 0),
-        "issue_type_counts": [
-            {"issue_type": issue_type, "count": count}
-            for issue_type, count in issue_type_counts_sorted
-        ],
-        "top_issues": top_issues,
+        "problems": problems[:MAX_SEO_PROMPT_PROBLEMS],
     }
 
 
@@ -1746,36 +1894,27 @@ def _build_user_prompt(*, module: str, payload_for_model: dict[str, Any], retry_
     payload_json = json.dumps(payload_for_model, ensure_ascii=False)
 
     if module == "seo":
-        if retry_mode:
-            return (
-                "Return valid JSON only (no markdown).\n"
-                "Language: Russian.\n"
-                "Use only provided SEO audit data and keep output compact.\n"
-                'Required keys: {"title","summary","priority","problems","recommendations","fix_plan"}.\n'
-                "Limits: summary 1-2 short sentences; problems 3; recommendations 3; fix_plan up to 4 steps.\n"
-                'Each problem item: {"title","severity","description"}.\n'
-                'Each fix_plan item: {"step","title","details"}.\n'
-                f"SEO audit data:\n{payload_json}"
-            )
-
-        return (
+        guidance = (
             "Return valid JSON only (no markdown).\n"
             "Language: Russian.\n"
-            "Analyze only provided SEO audit data. No assumptions outside data.\n"
-            "Required keys:\n"
-            "{\n"
-            '  "title": "...",\n'
-            '  "summary": "...",\n'
-            '  "priority": "high|medium|low",\n'
-            '  "problems": [{"title":"...","severity":"high|medium|low","description":"..."}],\n'
-            '  "recommendations": ["..."],\n'
-            '  "fix_plan": [{"step":1,"title":"...","details":"..."}]\n'
-            "}\n"
-            'Optional keys: "overview", "highlights", "metrics_review".\n'
-            "Limits: summary 1-2 short sentences; problems 3-5; recommendations 3-5; fix_plan up to 5 steps; "
-            "highlights up to 4; metrics_review up to 6.\n"
-            f"SEO audit data:\n{payload_json}"
+            "Use only provided SEO data.\n"
+            'Return exactly one object with one key: {"recommendations":[...]}\n'
+            'Each recommendation object must contain exactly: {"problem":"...","severity":"high|medium|low","fix":"..."}\n'
+            "Do not include summary, title, overview, metrics, highlights, fix_plan, comments, or extra keys.\n"
+            f"Max {MAX_SEO_RECOMMENDATIONS} recommendations.\n"
+            "Sort by severity: high, then medium, then low.\n"
+            "Fix must be short, practical, and actionable in 1 sentence.\n"
+            'If there are no issues, return {"recommendations": []}.\n'
         )
+
+        if retry_mode:
+            return (
+                f"{guidance}"
+                "Retry mode: keep wording even shorter and avoid long explanations.\n"
+                f"SEO data:\n{payload_json}"
+            )
+
+        return f"{guidance}SEO data:\n{payload_json}"
 
     if retry_mode:
         return (
@@ -1839,7 +1978,7 @@ def _generate_recommendations(
         if cached_payload:
             cached_success = bool(cached_payload.get("success"))
             cached_source = str(cached_payload.get("source") or "").strip().lower()
-            if cached_success and cached_source == "ai":
+            if cached_success and cached_source in {"ai", "openai"}:
                 cached_payload = dict(cached_payload)
                 cached_payload["cached"] = True
                 return cached_payload
@@ -1864,8 +2003,22 @@ def _generate_recommendations(
         initial_max_tokens,
         force_refresh,
     )
+    if module == "seo":
+        seo_problems = payload_for_model.get("problems") if isinstance(payload_for_model, dict) else []
+        logger.info(
+            "seo ai payload summary: problems_count=%s seo_score=%s pages_count=%s",
+            len(seo_problems) if isinstance(seo_problems, list) else 0,
+            payload_for_model.get("seo_score") if isinstance(payload_for_model, dict) else None,
+            payload_for_model.get("pages_count") if isinstance(payload_for_model, dict) else None,
+        )
 
     user_prompt = _build_user_prompt(module=module, payload_for_model=payload_for_model, retry_mode=False)
+    if module == "seo":
+        logger.info(
+            "seo ai prompt prepared: prompt_chars=%s retry_mode=%s",
+            len(user_prompt),
+            False,
+        )
 
     try:
         raw_response = _request_openai(
@@ -1923,6 +2076,12 @@ def _generate_recommendations(
         if not output_text:
             retry_max = _resolve_retry_max_output_tokens(module, initial_max_tokens)
             retry_prompt = _build_user_prompt(module=module, payload_for_model=payload_for_model, retry_mode=True)
+            if module == "seo":
+                logger.info(
+                    "seo ai prompt prepared: prompt_chars=%s retry_mode=%s",
+                    len(retry_prompt),
+                    True,
+                )
             logger.warning(
                 "openai retry triggered due to missing usable text: module=%s model=%s response_status=%s incomplete_reason=%s retry_max_output_tokens=%s",
                 module,
@@ -2012,10 +2171,16 @@ def _generate_recommendations(
             "ai_recommendations request success: module=%s model=%s items=%s",
             module,
             model,
-            len(result.get("items") or []),
+            len(result.get("items") or []) if module != "seo" else len(result.get("recommendations") or []),
         )
         if module == "seo":
-            logger.info("seo ai success: model=%s source=%s", model, result.get("source"))
+            logger.info(
+                "seo ai success: model=%s source=%s recommendations_count=%s output_size=%s",
+                model,
+                result.get("source"),
+                len(result.get("recommendations") or []),
+                len(output_text or ""),
+            )
 
         if period:
             result["period"] = period
@@ -2072,10 +2237,10 @@ def get_seo_ai_recommendations(
     model = str(getattr(settings, "OPENAI_MODEL_SEO", "gpt-5-mini") or "gpt-5-mini")
 
     system_prompt = (
-        "You are a senior SEO analyst for TrackNode. "
-        "Analyze only the provided SEO audit payload. "
-        "Do not hallucinate missing facts. "
-        "Return concise and practical recommendations in Russian JSON."
+        "You are a senior technical SEO specialist. "
+        "Analyze only provided SEO issues. "
+        "Return only short practical fixes in compact JSON. "
+        "Do not include explanations outside requested schema."
     )
 
     return _generate_recommendations(
@@ -2167,3 +2332,4 @@ def run_ai_connectivity_check(model: str | None = None) -> dict[str, Any]:
             )["debug"],
             "generated_at": timezone.now().isoformat(),
         }
+

@@ -190,7 +190,7 @@ class SEOAuditViewsExtendedTests(TestCase):
         )
         mocked_ai_service.return_value = {
             "success": True,
-            "source": "ai",
+            "source": "openai",
             "title": "AI-рекомендации по SEO",
             "summary": "Найдены приоритетные улучшения.",
             "items": ["Сократите длину title на ключевых страницах."],
@@ -201,7 +201,7 @@ class SEOAuditViewsExtendedTests(TestCase):
         self.assertEqual(response.status_code, 200)
         payload = response.json()
         self.assertTrue(payload["success"])
-        self.assertEqual(payload["source"], "ai")
+        self.assertEqual(payload["source"], "openai")
         self.assertEqual(payload["priority"], "high")
         mocked_ai_service.assert_called_once()
         call_kwargs = mocked_ai_service.call_args.kwargs

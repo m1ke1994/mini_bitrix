@@ -106,7 +106,7 @@
         </div>
 
         <div class="seo-ai-summary-box">
-          <p class="seo-ai-summary">{{ seoAiRecommendations.summary }}</p>
+          <p class="seo-ai-summary">{{ seoAiSummaryText }}</p>
 
           <div class="seo-ai-meta">
             <span class="priority-pill" :class="seoAiPriorityClass(seoAiRecommendations.priority)">
@@ -979,8 +979,14 @@ const seoAiSourceLabel = computed(() => {
   if (seoAiResultMode.value === "success-fallback") return "Fallback";
   const source = String(seoAiResponse.value?.source || "").trim().toLowerCase();
   if (source === "fallback") return "Fallback";
-  if (source === "ai") return "AI";
+  if (source === "ai" || source === "openai") return "AI";
   return "Не определён";
+});
+
+const seoAiSummaryText = computed(() => {
+  const summary = String(seoAiRecommendations.value?.summary || "").trim();
+  if (summary) return summary;
+  return "Краткие рекомендации по исправлению SEO-проблем.";
 });
 
 const seoAiFallbackBannerMessage = computed(() => {
@@ -1072,7 +1078,11 @@ const seoAiFixPlan = computed(() => {
 });
 
 const seoAiActionItems = computed(() => {
-  const structured = normalizeTextList(seoAiRecommendations.value?.recommendations, 7);
+  const compactRows = normalizeSeoRecommendationRows(seoAiRecommendations.value?.recommendations, 10);
+  if (compactRows.length) {
+    return compactRows.map((item) => `${item.problem}: ${item.fix}`);
+  }
+  const structured = normalizeTextList(seoAiRecommendations.value?.recommendations, 10);
   if (structured.length) return structured;
   return normalizeTextList(seoAiRecommendations.value?.items, 7);
 });
@@ -1154,6 +1164,25 @@ function normalizeTextList(rows, maxItems = 7) {
     .slice(0, maxItems);
 }
 
+function normalizeSeoRecommendationRows(rows, maxItems = 10) {
+  if (!Array.isArray(rows)) return [];
+  const normalized = rows
+    .map((item) => ({
+      problem: String(item?.problem || item?.title || "").trim(),
+      severity: normalizeSeverity(item?.severity),
+      fix: String(item?.fix || item?.recommendation || item?.details || "").trim(),
+    }))
+    .filter((item) => item.problem && item.fix)
+    .slice(0, maxItems);
+  return normalized.sort((left, right) => {
+    const weight = { high: 0, medium: 1, low: 2 };
+    const leftWeight = weight[left.severity] ?? 3;
+    const rightWeight = weight[right.severity] ?? 3;
+    if (leftWeight !== rightWeight) return leftWeight - rightWeight;
+    return left.problem.localeCompare(right.problem);
+  });
+}
+
 function hasStructuredSeoAiContent(payload) {
   if (!payload || typeof payload !== "object") return false;
   const overview = payload.overview && typeof payload.overview === "object" ? payload.overview : null;
@@ -1162,7 +1191,9 @@ function hasStructuredSeoAiContent(payload) {
   const hasMetrics = Array.isArray(payload.metrics_review) && payload.metrics_review.length > 0;
   const hasProblems = Array.isArray(payload.problems) && payload.problems.length > 0;
   const hasFixPlan = Array.isArray(payload.fix_plan) && payload.fix_plan.length > 0;
-  const hasRecommendations = normalizeTextList(payload.recommendations, 1).length > 0;
+  const hasRecommendations =
+    normalizeSeoRecommendationRows(payload.recommendations, 1).length > 0 ||
+    normalizeTextList(payload.recommendations, 1).length > 0;
   const hasItems = normalizeTextList(payload.items, 1).length > 0;
   return hasOverview || hasHighlights || hasMetrics || hasProblems || hasFixPlan || hasRecommendations || hasItems;
 }
@@ -1170,7 +1201,7 @@ function hasStructuredSeoAiContent(payload) {
 function isAiResponse(payload) {
   if (!payload || typeof payload !== "object") return false;
   const source = String(payload.source || "").trim().toLowerCase();
-  if (source !== "ai") return false;
+  if (source !== "ai" && source !== "openai") return false;
   return Boolean(payload.success) || hasStructuredSeoAiContent(payload);
 }
 
