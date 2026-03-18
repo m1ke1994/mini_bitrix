@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 from datetime import timedelta
-from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
@@ -99,6 +98,8 @@ class SEOAuditViewsExtendedTests(TestCase):
         self.assertIn("commercial_summary", payload)
         self.assertIn("audit_history", payload)
         self.assertIn("comparison_preview", payload)
+        self.assertIn("recommendations", payload)
+        self.assertEqual(payload["recommendations"]["source"], "local")
         pages = payload.get("commercial_summary", {}).get("pages") or []
         self.assertTrue(len(pages) >= 1)
         page = pages[0]
@@ -179,8 +180,7 @@ class SEOAuditViewsExtendedTests(TestCase):
         self.assertIn("new_issues_count", payload)
         self.assertIn("fixed_issues_count", payload)
 
-    @patch("seo_audit.views.get_seo_ai_recommendations")
-    def test_ai_recommendations_endpoint_returns_ai_payload(self, mocked_ai_service):
+    def test_ai_recommendations_endpoint_returns_local_payload(self):
         audit = self._create_done_audit(
             domain="ai-seo.example.com",
             has_robots=True,
@@ -188,29 +188,16 @@ class SEOAuditViewsExtendedTests(TestCase):
             issue_type="missing_description",
             severity=SEOIssue.Severity.MEDIUM,
         )
-        mocked_ai_service.return_value = {
-            "success": True,
-            "source": "openai",
-            "title": "AI-рекомендации по SEO",
-            "summary": "Найдены приоритетные улучшения.",
-            "items": ["Сократите длину title на ключевых страницах."],
-            "priority": "high",
-        }
 
         response = self.http.get(f"/api/seo/{audit.id}/ai-recommendations/")
         self.assertEqual(response.status_code, 200)
         payload = response.json()
         self.assertTrue(payload["success"])
-        self.assertEqual(payload["source"], "openai")
-        self.assertEqual(payload["priority"], "high")
-        mocked_ai_service.assert_called_once()
-        call_kwargs = mocked_ai_service.call_args.kwargs
-        self.assertEqual(call_kwargs["client_id"], self.client_obj.id)
-        self.assertEqual(call_kwargs["audit_id"], audit.id)
-        self.assertFalse(call_kwargs["force_refresh"])
+        self.assertEqual(payload["source"], "local")
+        self.assertIn("items", payload)
+        self.assertIn("summary", payload)
 
-    @patch("seo_audit.views.get_seo_ai_recommendations")
-    def test_ai_recommendations_endpoint_supports_force_refresh(self, mocked_ai_service):
+    def test_ai_recommendations_endpoint_ignores_force_refresh_and_returns_local_payload(self):
         audit = self._create_done_audit(
             domain="ai-refresh.example.com",
             has_robots=True,
@@ -218,19 +205,12 @@ class SEOAuditViewsExtendedTests(TestCase):
             issue_type="missing_description",
             severity=SEOIssue.Severity.LOW,
         )
-        mocked_ai_service.return_value = {
-            "success": False,
-            "source": "fallback",
-            "title": "Рекомендации временно недоступны",
-            "summary": "Попробуйте позже.",
-            "items": [],
-            "priority": "medium",
-        }
 
         response = self.http.get(f"/api/seo/{audit.id}/ai-recommendations/?refresh=1")
         self.assertEqual(response.status_code, 200)
-        call_kwargs = mocked_ai_service.call_args.kwargs
-        self.assertTrue(call_kwargs["force_refresh"])
+        payload = response.json()
+        self.assertEqual(payload["source"], "local")
+        self.assertIn("items", payload)
 
     def test_export_endpoint_returns_csv_report(self):
         domain = "export.example.com"

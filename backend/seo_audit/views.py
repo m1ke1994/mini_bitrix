@@ -11,9 +11,9 @@ from rest_framework import permissions, renderers, status
 from rest_framework.views import APIView
 
 from accounts.permissions import IsClientUser
-from core.services.ai_recommendations import get_seo_ai_recommendations
 from seo_audit.models import SEOIssue, SEOPage, SiteSEOAudit
 from seo_audit.serializers import SEOAuditStartSerializer, SEOIssueSerializer, SEOPageSerializer, SiteSEOAuditSerializer
+from seo_audit.services.local_recommendations import build_seo_recommendations
 from seo_audit.services.scoring import (
     build_audit_comparison,
     build_commercial_summary,
@@ -205,6 +205,7 @@ def _build_audit_detail_payload(*, audit: SiteSEOAudit, client) -> dict:
     if not (audit.status == SiteSEOAudit.Status.RUNNING and audit.finished_at is None):
         payload["finished_at"] = audit_payload.get("finished_at", audit.finished_at)
 
+    payload["recommendations"] = build_seo_recommendations(payload)
     return payload
 
 
@@ -371,15 +372,8 @@ class SEOAuditAiRecommendationsView(APIView):
         if not audit:
             return json_response({"detail": "Аудит не найден.", "ok": False}, http_status=status.HTTP_404_NOT_FOUND)
 
-        force_refresh = str(request.query_params.get("refresh") or "").strip().lower() in {"1", "true", "yes"}
         detail_payload = _build_audit_detail_payload(audit=audit, client=request.client)
-        payload = get_seo_ai_recommendations(
-            client_id=request.client.id,
-            audit_id=audit.id,
-            audit_payload=detail_payload,
-            force_refresh=force_refresh,
-        )
-        return json_response(payload, http_status=status.HTTP_200_OK)
+        return json_response(detail_payload.get("recommendations") or build_seo_recommendations(detail_payload), http_status=status.HTTP_200_OK)
 
 
 class SEOAuditExportView(APIView):
