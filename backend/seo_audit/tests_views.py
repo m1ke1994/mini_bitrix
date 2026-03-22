@@ -212,7 +212,7 @@ class SEOAuditViewsExtendedTests(TestCase):
         self.assertEqual(payload["source"], "local")
         self.assertIn("items", payload)
 
-    def test_export_endpoint_returns_csv_report(self):
+    def test_export_endpoint_returns_pdf_report(self):
         domain = "export.example.com"
         previous = self._create_done_audit(
             domain=domain,
@@ -232,18 +232,13 @@ class SEOAuditViewsExtendedTests(TestCase):
         response = self.http.get(
             f"/api/seo/{current.id}/export/",
             {"with_audit_id": previous.id},
-            HTTP_ACCEPT="text/csv",
+            HTTP_ACCEPT="application/pdf",
         )
         self.assertEqual(response.status_code, 200)
-        self.assertIn("text/csv", response["Content-Type"])
+        self.assertIn("application/pdf", response["Content-Type"])
         self.assertIn("attachment;", response["Content-Disposition"])
-
-        csv_payload = response.content.decode("utf-8")
-        self.assertIn("summary,audit_id", csv_payload)
-        self.assertIn("fix_plan", csv_payload)
-        self.assertIn("issue_groups", csv_payload)
-        self.assertIn("commercial_pages", csv_payload)
-        self.assertIn("comparison", csv_payload)
+        self.assertIn(".pdf", response["Content-Disposition"].lower())
+        self.assertTrue(response.content.startswith(b"%PDF"))
 
     def test_export_endpoint_works_with_json_accept_too(self):
         domain = "export-json.example.com"
@@ -257,7 +252,8 @@ class SEOAuditViewsExtendedTests(TestCase):
 
         response = self.http.get(f"/api/seo/{audit.id}/export/", HTTP_ACCEPT="application/json")
         self.assertEqual(response.status_code, 200)
-        self.assertIn("text/csv", response["Content-Type"])
+        self.assertIn("application/pdf", response["Content-Type"])
+        self.assertTrue(response.content.startswith(b"%PDF"))
 
     def test_export_endpoint_works_with_browser_like_accept_header(self):
         domain = "export-browser.example.com"
@@ -274,4 +270,5 @@ class SEOAuditViewsExtendedTests(TestCase):
             HTTP_ACCEPT="text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         )
         self.assertEqual(response.status_code, 200)
-        self.assertIn("text/csv", response["Content-Type"])
+        self.assertIn("application/pdf", response["Content-Type"])
+        self.assertTrue(response.content.startswith(b"%PDF"))

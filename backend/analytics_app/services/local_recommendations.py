@@ -216,7 +216,10 @@ def build_behavior_recommendations(summary_payload: dict[str, Any] | None) -> di
             key="zero-lead-pages",
             priority="high",
             score=len(zero_lead_pages),
-            text=f"На страницах {_format_paths(zero_lead_pages)} есть трафик без заявок. Усильте первый экран, оффер и заметный CTA рядом с ключевым контентом.",
+            text=(
+                f"На страницах {_format_paths(zero_lead_pages)} есть трафик без заявок. "
+                "Усильте первый экран, оффер и заметную кнопку действия (CTA) рядом с ключевым контентом."
+            ),
         )
 
     home_page = next((row for row in page_rows if row["pathname"] == "/"), None)
@@ -243,7 +246,10 @@ def build_behavior_recommendations(summary_payload: dict[str, Any] | None) -> di
                 key="form-visibility",
                 priority="medium",
                 score=int(form_visible),
-                text="Переход к началу формы слабый. Сделайте форму заметнее в первом экране и добавьте короткий оффер рядом с CTA.",
+                text=(
+                    "Переход к началу формы слабый. Сделайте форму заметнее в первом экране "
+                    "и добавьте короткий оффер рядом с кнопкой действия (CTA)."
+                ),
             )
 
     if form_started > 0:
@@ -289,7 +295,10 @@ def build_behavior_recommendations(summary_payload: dict[str, Any] | None) -> di
             key="best-page-pattern",
             priority="medium",
             score=int(best_page["leads"]),
-            text=f"Страница {_short_path(best_page['pathname'])} конвертирует лучше других. Используйте её структуру, оффер и CTA как шаблон для слабых страниц.",
+            text=(
+                f"Страница {_short_path(best_page['pathname'])} конвертирует лучше других. "
+                "Используйте её структуру, оффер и кнопку действия (CTA) как шаблон для слабых страниц."
+            ),
         )
 
     weak_cta = None
@@ -306,7 +315,10 @@ def build_behavior_recommendations(summary_payload: dict[str, Any] | None) -> di
             key="weak-cta",
             priority="medium",
             score=_safe_int(weak_cta.get("shows")),
-            text="На части кнопок низкий CTR. Перепроверьте текст CTA: добавьте конкретную пользу и ожидаемый результат после клика.",
+            text=(
+                "На части кнопок низкий CTR. Перепроверьте текст кнопки действия (CTA): "
+                "добавьте конкретную пользу и ожидаемый результат после клика."
+            ),
         )
 
     if len(recommendations) < MIN_ITEMS:
@@ -321,7 +333,10 @@ def build_behavior_recommendations(summary_payload: dict[str, Any] | None) -> di
             key="primary-cta",
             priority="low",
             score=1,
-            text="На страницах с трафиком оставьте один главный сценарий до заявки: один основной CTA, короткий оффер и минимум отвлекающих блоков.",
+            text=(
+                "На страницах с трафиком оставьте один главный сценарий до заявки: "
+                "одну основную кнопку действия (CTA), короткий оффер и минимум отвлекающих блоков."
+            ),
         )
     if len(recommendations) < MIN_ITEMS:
         push(

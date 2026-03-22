@@ -255,14 +255,14 @@ def build_seo_recommendations(audit_payload: dict[str, Any] | None) -> dict[str,
             key="titles-missing-duplicate",
             priority="high" if issue_type_counts["missing_title"] > 0 else "medium",
             score=missing_or_duplicate_title,
-            text="Добавьте уникальные title на страницы, где они отсутствуют или дублируются.",
+            text="На части страниц нет уникального заголовка в поиске (title). Добавьте разные title для каждой важной страницы.",
         )
     elif title_issue_count > 0:
         push(
             key="titles-length",
             priority="medium",
             score=title_issue_count,
-            text="Приведите длину title к нормальному диапазону на страницах, где заголовки слишком короткие или длинные.",
+            text="Проверьте длину title: слишком короткие и слишком длинные заголовки хуже работают в поисковой выдаче.",
         )
 
     description_issue_count = sum(issue_type_counts[item] for item in DESCRIPTION_ISSUE_TYPES)
@@ -271,7 +271,7 @@ def build_seo_recommendations(audit_payload: dict[str, Any] | None) -> dict[str,
             key="descriptions",
             priority="medium",
             score=description_issue_count,
-            text="Проверьте description на страницах с пустыми, слишком короткими или слишком длинными мета-описаниями.",
+            text="Заполните понятные описания страниц для поиска (meta description), где они пустые, слишком короткие или слишком длинные.",
         )
 
     h1_issue_count = sum(issue_type_counts[item] for item in H1_ISSUE_TYPES)
@@ -280,7 +280,7 @@ def build_seo_recommendations(audit_payload: dict[str, Any] | None) -> dict[str,
             key="h1",
             priority="medium",
             score=h1_issue_count,
-            text="Исправьте структуру заголовков: на каждой странице должен быть один понятный H1 без дублей и пропусков уровней.",
+            text="Проверьте главный заголовок страницы (H1): он должен быть один и чётко описывать, о чём страница.",
         )
 
     alt_issue_count = sum(issue_type_counts[item] for item in ALT_ISSUE_TYPES)
@@ -289,7 +289,7 @@ def build_seo_recommendations(audit_payload: dict[str, Any] | None) -> dict[str,
             key="alt",
             priority="medium" if alt_issue_count >= 3 else "low",
             score=alt_issue_count,
-            text="Добавьте alt-атрибуты для значимых изображений на страницах, где они пустые или отсутствуют.",
+            text="У некоторых изображений нет текстового описания (alt). Добавьте короткие понятные описания для важных изображений.",
         )
 
     indexing_issue_count = sum(issue_type_counts[item] for item in INDEXING_ISSUE_TYPES)
@@ -300,7 +300,7 @@ def build_seo_recommendations(audit_payload: dict[str, Any] | None) -> dict[str,
             key="indexing",
             priority="high" if robots_issue_count > 0 or canonical_issue_count > 0 else "medium",
             score=indexing_issue_count + pages_with_indexing_issues,
-            text="Проверьте настройки индексации и canonical на страницах, где обнаружены проблемы сканирования.",
+            text="Проверьте правила индексации и основной адрес страницы (canonical): из-за ошибок часть страниц может не попадать в поиск.",
         )
 
     sitemap_issue_count = sum(issue_type_counts[item] for item in SITEMAP_ISSUE_TYPES)
@@ -322,9 +322,13 @@ def build_seo_recommendations(audit_payload: dict[str, Any] | None) -> dict[str,
         or (avg_performance_score > 0 and avg_performance_score < 65)
     )
     if has_speed_problem:
-        speed_text = "Оптимизируйте тяжёлые изображения и сократите блокирующие ресурсы, чтобы улучшить скорость загрузки."
+        speed_text = (
+            "Упростите загрузку страниц: сожмите тяжёлые изображения и уменьшите количество блокирующих скриптов и стилей."
+        )
         if issue_type_counts["slow_ttfb"] > 0 or avg_ttfb_ms >= 1000:
-            speed_text = "Снизьте TTFB, сократите блокирующие скрипты и оптимизируйте тяжёлые изображения на медленных страницах."
+            speed_text = (
+                "Сервер отвечает слишком медленно (высокий TTFB). Ускорьте ответ сервера, уменьшите блокирующие скрипты и оптимизируйте тяжёлые изображения."
+            )
         push(
             key="speed",
             priority="high" if issue_type_counts["slow_ttfb"] > 0 or pages_with_speed_issues >= 3 else "medium",

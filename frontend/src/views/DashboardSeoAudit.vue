@@ -636,8 +636,8 @@
             <thead>
               <tr>
                 <th>URL</th>
-                <th>Мета-тег robots</th>
-                <th>Canonical URL</th>
+                <th>Правило индексации (meta robots)</th>
+                <th>Основной адрес страницы (canonical)</th>
                 <th>Индексация</th>
                 <th>В sitemap</th>
                 <th>Блок robots</th>
@@ -647,8 +647,8 @@
             <tbody>
               <tr v-for="page in pages" :key="`indexing-${page.id}`">
                 <td data-label="URL" class="url-cell">{{ page.url }}</td>
-                <td data-label="Мета-тег robots">{{ page.meta_robots || "—" }}</td>
-                <td data-label="Canonical URL" class="url-cell">{{ page.canonical_url || "—" }}</td>
+                <td data-label="Правило индексации (meta robots)">{{ page.meta_robots || "—" }}</td>
+                <td data-label="Основной адрес страницы (canonical)" class="url-cell">{{ page.canonical_url || "—" }}</td>
                 <td data-label="Индексация">
                   <span class="severity-pill" :class="indexabilityStatusClass(page.indexability_status)">
                     {{ indexabilityStatusLabel(page.indexability_status) }}
@@ -699,8 +699,8 @@
                 <th>Title</th>
                 <th>Длина Title</th>
                 <th>Длина Description</th>
-                <th>H1</th>
-                <th>Количество H1</th>
+                <th>Главный заголовок страницы (H1)</th>
+                <th>Сколько главных заголовков (H1)</th>
                 <th>Слов</th>
               </tr>
             </thead>
@@ -711,8 +711,8 @@
                 <td data-label="Title">{{ page.title || "—" }}</td>
                 <td data-label="Длина Title">{{ page.title_length }}</td>
                 <td data-label="Длина Description">{{ page.description_length }}</td>
-                <td data-label="H1">{{ page.h1 || "—" }}</td>
-                <td data-label="Количество H1">{{ page.h1_count }}</td>
+                <td data-label="Главный заголовок страницы (H1)">{{ page.h1 || "—" }}</td>
+                <td data-label="Сколько главных заголовков (H1)">{{ page.h1_count }}</td>
                 <td data-label="Слов">{{ page.word_count }}</td>
               </tr>
               <tr v-if="!pages.length">
@@ -838,6 +838,21 @@ const issueFilters = [
   { value: "other", label: "Прочее" },
 ];
 
+const TECH_TERM_HINTS = [
+  { pattern: /\bCTA\b(?!\))/gi, replacement: "призыв к действию (текст кнопки или ссылки)" },
+  { pattern: /\bSTA\b(?!\))/gi, replacement: "призыв к действию (текст кнопки или ссылки)" },
+  { pattern: /\bmeta\s+description\b(?!\))/gi, replacement: "описание страницы в поиске (meta description)" },
+  { pattern: /\bmeta\s+robots\b(?!\))/gi, replacement: "правило индексации страницы (meta robots)" },
+  { pattern: /\bcanonical\b(?!\))/gi, replacement: "основной адрес страницы (canonical)" },
+  { pattern: /\bindexation\b/gi, replacement: "индексация" },
+  { pattern: /\bredirect\s+chain\b(?!\))/gi, replacement: "цепочка перенаправлений (redirect chain)" },
+  { pattern: /\bTTFB\b(?!\))/g, replacement: "время до первого ответа сервера (TTFB)" },
+  { pattern: /\bH1\b(?!\))/g, replacement: "главный заголовок страницы (H1)" },
+  { pattern: /\balt\b(?!\))/gi, replacement: "текстовое описание изображения (alt)" },
+  { pattern: /\bnoindex\b(?!\))/gi, replacement: "запрет индексации страницы (noindex)" },
+  { pattern: /\bnofollow\b(?!\))/gi, replacement: "ограничение передачи веса по ссылкам (nofollow)" },
+];
+
 const seoSectionNavItems = [
   { id: "seo-overview", label: "SEO-аудит сайта" },
   { id: "seo-compare", label: "Сравнение аудитов" },
@@ -880,10 +895,10 @@ const {
 });
 
 const collapsed = ref({
-  speed: true,
-  indexing: true,
-  pages: true,
-  errors: true,
+  speed: false,
+  indexing: false,
+  pages: false,
+  errors: false,
 });
 
 let pollTimer = null;
@@ -1011,7 +1026,7 @@ const seoAiSourceLabel = computed(() => {
 
 const seoAiSummaryText = computed(() => {
   const summary = String(seoAiRecommendations.value?.summary || "").trim();
-  if (summary) return summary;
+  if (summary) return humanizeRecommendationText(summary);
   return "Краткие рекомендации по исправлению SEO-проблем.";
 });
 
@@ -1060,7 +1075,11 @@ const seoAiOverviewChips = computed(() => {
     .filter((item) => Boolean(item));
 });
 
-const seoAiHighlights = computed(() => normalizeTextList(seoAiRecommendations.value?.highlights, 5));
+const seoAiHighlights = computed(() =>
+  normalizeTextList(seoAiRecommendations.value?.highlights, 5)
+    .map((item) => humanizeRecommendationText(item))
+    .filter((item) => Boolean(item)),
+);
 
 const seoAiMetricsReview = computed(() => {
   if (!Array.isArray(seoAiRecommendations.value?.metrics_review)) return [];
@@ -1069,7 +1088,7 @@ const seoAiMetricsReview = computed(() => {
       label: String(item?.label || "").trim(),
       value: String(item?.value || "").trim(),
       status: normalizeSeoMetricStatus(item?.status),
-      comment: String(item?.comment || "").trim(),
+      comment: humanizeRecommendationText(item?.comment || ""),
     }))
     .filter((item) => item.label && item.value)
     .slice(0, 8);
@@ -1079,9 +1098,9 @@ const seoAiProblems = computed(() => {
   if (!Array.isArray(seoAiRecommendations.value?.problems)) return [];
   return seoAiRecommendations.value.problems
     .map((item) => ({
-      title: String(item?.title || "").trim(),
+      title: humanizeRecommendationText(item?.title || ""),
       severity: normalizeSeverity(item?.severity),
-      description: String(item?.description || "").trim(),
+      description: humanizeRecommendationText(item?.description || ""),
     }))
     .filter((item) => item.title)
     .slice(0, 8);
@@ -1094,8 +1113,8 @@ const seoAiFixPlan = computed(() => {
       const step = Number(item?.step ?? index + 1);
       return {
         step: Number.isFinite(step) && step > 0 ? Math.round(step) : index + 1,
-        title: String(item?.title || "").trim(),
-        details: String(item?.details || "").trim(),
+        title: humanizeRecommendationText(item?.title || ""),
+        details: humanizeRecommendationText(item?.details || ""),
       };
     })
     .filter((item) => item.title)
@@ -1106,11 +1125,19 @@ const seoAiFixPlan = computed(() => {
 const seoAiActionItems = computed(() => {
   const compactRows = normalizeSeoRecommendationRows(seoAiRecommendations.value?.recommendations, 10);
   if (compactRows.length) {
-    return compactRows.map((item) => `${item.problem}: ${item.fix}`);
+    return compactRows.map((item) => {
+      const problem = humanizeRecommendationText(item.problem);
+      const fix = humanizeRecommendationText(item.fix);
+      return `${problem}: ${fix}`;
+    });
   }
   const structured = normalizeTextList(seoAiRecommendations.value?.recommendations, 10);
-  if (structured.length) return structured;
-  return normalizeTextList(seoAiRecommendations.value?.items, 7);
+  if (structured.length) {
+    return structured.map((item) => humanizeRecommendationText(item)).filter((item) => Boolean(item));
+  }
+  return normalizeTextList(seoAiRecommendations.value?.items, 7)
+    .map((item) => humanizeRecommendationText(item))
+    .filter((item) => Boolean(item));
 });
 
 const scoreClass = computed(() => scoreClassByValue(scoreValue.value));
@@ -1188,6 +1215,15 @@ function normalizeTextList(rows, maxItems = 7) {
     .map((item) => String(item || "").trim())
     .filter((item) => Boolean(item))
     .slice(0, maxItems);
+}
+
+function humanizeRecommendationText(value) {
+  let text = String(value || "").trim();
+  if (!text) return "";
+  for (const hint of TECH_TERM_HINTS) {
+    text = text.replace(hint.pattern, hint.replacement);
+  }
+  return text.replace(/\s{2,}/g, " ").trim();
 }
 
 function normalizeSeoRecommendationRows(rows, maxItems = 10) {
@@ -1641,15 +1677,29 @@ async function exportReport() {
     if (selected) params.with_audit_id = selected;
     const response = await api.get(`/api/seo/${auditId.value}/export/`, {
       params,
-      headers: { Accept: "text/csv" },
+      headers: { Accept: "application/pdf" },
+      responseType: "blob",
     });
     const contentDisposition = response?.headers?.get?.("content-disposition") || "";
-    const match = /filename=\"?([^\";]+)\"?/i.exec(contentDisposition);
-    const filename = match?.[1] || `seo-audit-${auditId.value}.csv`;
-    let payload = response?.data;
-    if (typeof payload === "undefined" || payload === null) payload = "";
-    if (typeof payload !== "string") payload = JSON.stringify(payload, null, 2);
-    const blob = new Blob([payload], { type: "text/csv;charset=utf-8;" });
+    const utf8Match = /filename\*=UTF-8''([^;]+)/i.exec(contentDisposition);
+    const plainMatch = /filename=\"?([^\";]+)\"?/i.exec(contentDisposition);
+    let filename = utf8Match?.[1] || plainMatch?.[1] || "";
+    try {
+      filename = decodeURIComponent(filename);
+    } catch {
+      // keep original name
+    }
+    if (!filename) filename = `seo-audit-${auditId.value}.pdf`;
+    if (!String(filename).toLowerCase().endsWith(".pdf")) filename = `${filename}.pdf`;
+
+    const payload = response?.data;
+    const blob =
+      payload instanceof Blob
+        ? payload
+        : new Blob([payload], {
+            type: "application/pdf",
+          });
+
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;

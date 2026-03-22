@@ -343,14 +343,14 @@ def _build_seo_default_metrics_review(payload: dict[str, Any]) -> list[dict[str,
 def _default_recommendation_for_issue(issue_type: str, title: str) -> str:
     issue_key = str(issue_type or "").strip().lower()
     mapping = {
-        "missing_title": "Добавьте уникальные title на приоритетные страницы с коммерческим трафиком.",
-        "missing_description": "Заполните meta description с понятным оффером и релевантными ключевыми фразами.",
-        "missing_h1": "Добавьте уникальный H1, отражающий основной поисковый интент страницы.",
-        "missing_canonical": "Укажите canonical на страницах с риском дублей, чтобы консолидировать индекс.",
+        "missing_title": "Добавьте уникальные заголовки страниц в поиске (title) на приоритетные страницы с трафиком.",
+        "missing_description": "Заполните описание страницы для поиска (meta description): коротко, понятно и по смыслу страницы.",
+        "missing_h1": "Добавьте один понятный главный заголовок страницы (H1), чтобы пользователь сразу видел тему страницы.",
+        "missing_canonical": "Укажите основной адрес страницы (canonical), чтобы убрать дубли и не распылять результаты индексации.",
         "low_word_count": "Усилите контент: добавьте полезные блоки и ответы на вопросы пользователя.",
         "thin_content": "Расширьте слабый контент, чтобы покрыть интент и повысить релевантность страницы.",
-        "missing_alt": "Добавьте alt-теги к изображениям с коротким описанием содержания.",
-        "slow_ttfb": "Проверьте серверный отклик и настройте кеширование/CDN для снижения задержки.",
+        "missing_alt": "Добавьте текстовые описания изображений (alt), чтобы поисковые системы понимали, что показано на картинке.",
+        "slow_ttfb": "Сервер отвечает слишком долго (TTFB). Проверьте кеширование, базу данных и серверные настройки.",
         "slow_response": "Оптимизируйте ресурсы страницы и устраните тяжёлые скрипты для ускорения загрузки.",
     }
     if issue_key in mapping:
@@ -387,14 +387,14 @@ def _build_seo_default_problems(payload: dict[str, Any]) -> list[dict[str, str]]
 
     generated: list[dict[str, str]] = []
     status_checks = [
-        ("title_status", "Проблемы с title"),
-        ("description_status", "Проблемы с description"),
-        ("h1_status", "Проблемы с H1"),
-        ("canonical_status", "Проблемы с canonical"),
+        ("title_status", "Проблемы с заголовком страницы в поиске (title)"),
+        ("description_status", "Проблемы с описанием страницы в поиске (description)"),
+        ("h1_status", "Проблемы с главным заголовком страницы (H1)"),
+        ("canonical_status", "Проблемы с основным адресом страницы (canonical)"),
         ("indexing_status", "Риски индексации"),
         ("page_speed_status", "Проблемы скорости страниц"),
         ("content_length_status", "Слабый контент"),
-        ("image_alt_status", "Отсутствуют alt у изображений"),
+        ("image_alt_status", "Нет описаний изображений (alt)"),
         ("internal_links_status", "Слабая внутренняя перелинковка"),
     ]
     for key, title in status_checks:
@@ -452,8 +452,8 @@ def _build_seo_default_recommendations(payload: dict[str, Any], problems: list[d
 
     if not recommendations:
         recommendations = [
-            "Закройте критичные ошибки и перепроверьте SEO-аудит после внедрения правок.",
-            "Усилите мета-теги и контент на страницах с приоритетным трафиком.",
+            "Сначала закройте критичные ошибки и перепроверьте SEO-аудит после внедрения правок.",
+            "Усилите заголовки и описания страниц (title/description), чтобы повысить понятность страниц для поиска.",
             "Оптимизируйте скорость и индексацию, чтобы закрепить рост видимости в поиске.",
         ]
     return recommendations[:MAX_ITEMS]
@@ -1897,6 +1897,8 @@ def _build_user_prompt(*, module: str, payload_for_model: dict[str, Any], retry_
         guidance = (
             "Return valid JSON only (no markdown).\n"
             "Language: Russian.\n"
+            "Use simple business language understandable for non-technical users.\n"
+            "Avoid jargon without explanation (for example: alt, canonical, H1, meta description, redirect chain).\n"
             "Use only provided SEO data.\n"
             'Return exactly one object with one key: {"recommendations":[...]}\n'
             'Each recommendation object must contain exactly: {"problem":"...","severity":"high|medium|low","fix":"..."}\n'
