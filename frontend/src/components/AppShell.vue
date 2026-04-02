@@ -99,11 +99,17 @@ const isRefreshing = ref(false);
 const userLabel = computed(() => auth.userEmail || "Пользователь");
 const isDashboardRoute = computed(() => {
   const path = String(route.path || "");
-  return path.startsWith("/app/dashboard") || path.startsWith("/dashboard");
+  return (
+    path.startsWith("/app/dashboard") ||
+    path.startsWith("/dashboard") ||
+    path.startsWith("/app/crm")
+  );
 });
 
 const mainNavItems = [
   { to: "/app/dashboard", label: "Обзор" },
+  { to: "/app/crm", label: "CRM Kanban" },
+  { to: "/app/crm/analytics", label: "CRM Dashboard" },
   { to: "/app/dashboard/seo", label: "SEO-аудит" },
   { to: "/app/dashboard/ai-recommendations", label: "Поведение пользователя на сайте" },
   { to: "/app/reports", label: "Отчёт PDF" },

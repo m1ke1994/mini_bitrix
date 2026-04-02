@@ -1,68 +1,137 @@
-# Mini Bitrix SaaS MVP
+﻿# Mini Bitrix / TrackNode
 
-Production-ready MVP SaaS:
+Production-minded SaaS CRM for lead capture, behavior tracking, analytics, and conversion growth.
 
-- Backend: Django 4 + DRF + PostgreSQL + Redis + Celery + JWT
-- Multi-tenant model via `Client` + unique `api_key`
-- Public API for leads/events with `X-API-KEY`
-- Private CRM/analytics API via JWT
-- Frontend: Vue 3 + Vite + Pinia + Axios + Chart.js
-- Dockerized services (`web`, `db`, `redis`, `worker`)
+## Stack
 
-## Backend API
+- Backend: Django 4, DRF, PostgreSQL, Redis, Celery, JWT, Channels
+- Frontend: Nuxt 3, Vue 3, Pinia, Chart.js, vuedraggable
+- Infra: Docker Compose (`web-init`, `web`, `ws`, `worker`, `beat`, `frontend`, `db`, `redis`)
+- Integrations: Telegram, webhook, email, OpenAI API
+
+## Security and Infra Updates
+
+- `DJANGO_SECRET_KEY` is mandatory (container startup fails if missing).
+- PostgreSQL and Redis are internal-only in main `docker-compose.yml`.
+- Optional dev exposure is available in `docker-compose.dev.yml`.
+- Migrations/static collection are split from app startup via `web-init` service.
+- Health endpoint: `GET /api/health/` (database, redis, celery ping).
+- Public API throttling enabled via DRF scoped throttles.
+
+## Quick Start
+
+1. Create env file:
+   - `cp .env.example .env`
+2. Set required value:
+   - `DJANGO_SECRET_KEY` (must be non-empty and long random)
+3. Start services:
+   - `docker compose up --build`
+4. Open:
+   - Backend: `http://localhost:9000`
+   - Frontend: `http://localhost:9003`
+   - WebSocket: `ws://localhost:9010/ws/leads/`
+
+### Dev Mode With Exposed DB/Redis
+
+Use override file:
+
+- `docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build`
+
+This exposes:
+
+- PostgreSQL: `localhost:9001`
+- Redis: `localhost:9002`
+
+## Main Backend Endpoints
+
+### Auth
 
 - `POST /api/auth/register/`
 - `POST /api/auth/login/`
+- `POST /api/auth/logout/`
 - `POST /api/auth/refresh/`
+
+### Public
+
 - `POST /api/public/lead/` (`X-API-KEY`)
 - `POST /api/public/event/` (`X-API-KEY`)
+- `POST /api/analytics/event/` (`X-API-KEY`)
+- `GET /api/public/widget/variant/` (`X-API-KEY`)
+- `POST /api/public/widget/impression/` (`X-API-KEY`)
+
+### CRM
+
+- `GET /api/pipelines/`
 - `GET /api/leads/`
-- `PATCH /api/leads/{id}/status/`
+- `GET /api/leads/{id}/`
+- `PATCH /api/leads/{id}/status/` (backward-compatible)
+- `POST /api/leads/{id}/move/`
+- `GET /api/leads/{id}/activities/`
+- `POST /api/leads/{id}/note/`
+- `POST /api/leads/{id}/schedule/`
+- `GET/POST/PATCH/DELETE /api/widget-variants/`
+
+### Analytics
+
+- `GET /api/analytics/overview/`
 - `GET /api/analytics/summary/`
-- `GET/PATCH /api/client/settings/`
+- `GET /api/analytics/funnel/`
+- `GET /api/analytics/sources/`
+- `GET /api/analytics/timeline/`
+- `GET /api/analytics/response-time/`
+- `GET /api/analytics/conversion-rate/`
+- `GET /api/analytics/heatmap/`
+- `GET /api/analytics/ai-advisor/`
+- `GET /api/analytics/ai-recommendations/`
 
-## Run
+### Platform
 
-1. Create env:
-   - `cp .env.example .env`
-   - `cp frontend/.env.example frontend/.env`
-2. Build and run:
-   - `docker-compose up --build`
-3. Optional local backend commands:
-   - `python manage.py migrate`
-   - `python manage.py createsuperuser`
+- `GET /api/health/`
+- `GET /tracker.js`
+- `GET /widget.js`
 
-## Tests
+## Frontend Additions
 
-Backend tests include:
+- `GET /app/crm` - CRM Kanban board with drag-and-drop and realtime updates.
+- `GET /app/crm/analytics` - CRM dashboard for funnel/sources/timeline/conversion/heatmap/AI advisor.
 
-- API-key validation for public lead endpoint
-- Lead creation for valid API-key
+## Tracker and Widget Integration
 
-Run tests inside backend container:
+See `CONNECT.md` for examples.
 
-- `python manage.py test`
+## Realtime
 
-## Localization (RU)
+- Backend consumer: `ws://<host>/ws/leads/?token=<JWT_ACCESS_TOKEN>`
+- Events are client-isolated via tenant-scoped channel groups.
 
-Проект локализован для русского языка:
+## Lead Processing Features
 
-- `LANGUAGE_CODE = "ru"`
-- `TIME_ZONE = "Europe/Moscow"`
-- `LocaleMiddleware` включен
-- `LOCALE_PATHS = [BASE_DIR / "locale"]`
+- Pipeline/stage model with default bootstrap.
+- Lead activity timeline (`LeadActivity`).
+- Deduplication by normalized phone/email (merge strategy by default).
+- Automatic lead scoring (0..100).
+- Notification tasks: Telegram/email/webhook.
+- Stale lead reminders.
+- Auto response by client settings (email path implemented).
 
-Сборка переводов внутри Docker:
+## Backup Scaffold
 
-- `docker-compose exec web python manage.py makemessages -l ru`
-- `docker-compose exec web python manage.py compilemessages`
+- Celery task: `core.tasks.create_postgres_backup`
+- Controlled by env:
+  - `BACKUP_ENABLED=true`
+  - schedule: `BACKUP_SCHEDULE_HOUR`, `BACKUP_SCHEDULE_MINUTE`
+  - retention: `BACKUP_KEEP_DAYS`
 
-## Frontend
+## Useful Commands
 
-Frontend now starts with `docker-compose up --build` (service `frontend` on `http://localhost:9003`).
-If PWA icons/manifest do not refresh, open DevTools -> Application -> Service Workers -> `Unregister`, then hard reload.
-Also clear Application -> Storage -> `Clear site data` for a full icon/cache reset.
+- Backend checks:
+  - `python backend/manage.py check`
+- Recalculate scores:
+  - `python backend/manage.py recalculate_lead_scores`
+- Build frontend:
+  - `cd frontend && npm run build`
 
-## External Website Integration
+## Notes
 
-See `CONNECT.md` for lead/event integration examples.
+- Existing `seo_audit` migration drift (if present in your branch) is unrelated to CRM roadmap changes.
+- Existing status endpoint is kept for backward compatibility.

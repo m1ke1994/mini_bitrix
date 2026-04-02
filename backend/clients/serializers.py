@@ -24,6 +24,13 @@ class ClientSettingsSerializer(serializers.ModelSerializer):
             "telegram_status",
             "telegram_connect_url",
             "send_to_telegram",
+            "notification_email",
+            "webhook_url",
+            "webhook_timeout_seconds",
+            "auto_respond_enabled",
+            "auto_respond_subject",
+            "auto_respond_template",
+            "stale_lead_hours",
             "is_active",
             "created_at",
         )
@@ -36,7 +43,6 @@ class ClientSettingsSerializer(serializers.ModelSerializer):
             "telegram_chat_id",
             "telegram_status",
             "telegram_connect_url",
-            "is_active",
             "created_at",
         )
 

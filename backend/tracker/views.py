@@ -12,6 +12,7 @@ from analytics_app.models import ClickEvent as AnalyticsClickEvent
 from analytics_app.models import Event as AnalyticsEvent
 from analytics_app.models import PageView as AnalyticsPageView
 from clients.models import Client
+from leads.tasks import recalculate_lead_score_for_session
 from tracker.models import Event, PageView, Site, Visit
 from tracker.serializers import (
     PageViewSerializer,
@@ -234,6 +235,14 @@ class VisitStartView(TrackBaseAPIView):
                     site.id,
                     client.id,
                 )
+            try:
+                recalculate_lead_score_for_session.delay(
+                    client.id,
+                    serializer.validated_data.get("session_id") or "",
+                    serializer.validated_data.get("visitor_id") or "",
+                )
+            except Exception:
+                logger.exception("track.visit_start failed to enqueue lead score recalculation client_id=%s", client.id)
         logger.info(
             "track.visit_start created visit_id=%s site_id=%s visitor_id=%s session_id=%s",
             visit.id,
@@ -290,6 +299,14 @@ class PageViewCreateView(TrackBaseAPIView):
                     visit.id,
                     client.id,
                 )
+            try:
+                recalculate_lead_score_for_session.delay(
+                    client.id,
+                    serializer.validated_data.get("session_id") or "",
+                    serializer.validated_data.get("visitor_id") or "",
+                )
+            except Exception:
+                logger.exception("track.pageview failed to enqueue lead score recalculation client_id=%s", client.id)
         logger.info(
             "track.pageview created pageview_id=%s visit_id=%s visitor_id=%s session_id=%s",
             pageview.id,
@@ -442,6 +459,14 @@ class EventCreateView(TrackBaseAPIView):
                         event.id,
                         client.id,
                     )
+            try:
+                recalculate_lead_score_for_session.delay(
+                    client.id,
+                    serializer.validated_data.get("session_id") or "",
+                    serializer.validated_data.get("visitor_id") or "",
+                )
+            except Exception:
+                logger.exception("track.event failed to enqueue lead score recalculation client_id=%s", client.id)
         logger.info(
             "track.event created event_id=%s visit_id=%s type=%s visitor_id=%s session_id=%s",
             event.id,

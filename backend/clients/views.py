@@ -1,5 +1,7 @@
 import logging
+from pathlib import Path
 
+from django.conf import settings
 from django.http import HttpResponse
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
@@ -21,7 +23,17 @@ class ClientSettingsView(generics.RetrieveUpdateAPIView):
     def _sanitize_payload(self, request) -> dict:
         raw_data = request.data if isinstance(request.data, dict) else {}
         # Hard whitelist for settings writes: ignore everything else.
-        allowed_fields = {"send_to_telegram", "daily_pdf_enabled"}
+        allowed_fields = {
+            "send_to_telegram",
+            "notification_email",
+            "webhook_url",
+            "webhook_timeout_seconds",
+            "auto_respond_enabled",
+            "auto_respond_subject",
+            "auto_respond_template",
+            "stale_lead_hours",
+            "daily_pdf_enabled",
+        }
         sanitized = {key: raw_data[key] for key in raw_data.keys() if key in allowed_fields}
         dropped = sorted(set(raw_data.keys()) - allowed_fields)
         if dropped:
@@ -44,8 +56,18 @@ class ClientSettingsView(generics.RetrieveUpdateAPIView):
             payload = self._sanitize_payload(request)
 
             client_updates = {}
-            if "send_to_telegram" in payload:
-                client_updates["send_to_telegram"] = payload["send_to_telegram"]
+            for field_name in (
+                "send_to_telegram",
+                "notification_email",
+                "webhook_url",
+                "webhook_timeout_seconds",
+                "auto_respond_enabled",
+                "auto_respond_subject",
+                "auto_respond_template",
+                "stale_lead_hours",
+            ):
+                if field_name in payload:
+                    client_updates[field_name] = payload[field_name]
 
             if "daily_pdf_enabled" in payload:
                 report_settings, _ = ReportSettings.objects.get_or_create(client=instance)
@@ -2506,4 +2528,12 @@ def tracker_js_view(request):
   }
 })();
 """
+    return HttpResponse(script, content_type="application/javascript; charset=utf-8")
+
+
+def widget_js_view(request):
+    widget_path = Path(settings.BASE_DIR) / "static" / "public" / "widget.js"
+    if not widget_path.exists():
+        return HttpResponse("// widget.js is not available", content_type="application/javascript; charset=utf-8", status=404)
+    script = widget_path.read_text(encoding="utf-8")
     return HttpResponse(script, content_type="application/javascript; charset=utf-8")

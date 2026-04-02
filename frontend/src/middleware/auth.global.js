@@ -14,7 +14,10 @@ export default defineNuxtRouteMiddleware(async (to) => {
   const isPublic = to.matched.some((record) => record.meta?.publicPage === true);
   const toPath = String(to.path || "");
   const isAuthPage = AUTH_PATHS.has(toPath) || APP_AUTH_PATHS.has(toPath);
-  const isDashboardPage = toPath.startsWith("/app/dashboard") || toPath.startsWith("/dashboard");
+  const isDashboardPage =
+    toPath.startsWith("/app/dashboard") ||
+    toPath.startsWith("/dashboard") ||
+    toPath.startsWith("/app/crm");
 
   if (!isPublic && !auth.isAuthenticated) {
     return navigateTo("/app/login");

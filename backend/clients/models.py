@@ -42,6 +42,40 @@ class Client(models.Model):
         default=False,
         verbose_name="Send leads to Telegram",
     )
+    notification_email = models.EmailField(
+        null=True,
+        blank=True,
+        verbose_name="Notification email",
+    )
+    webhook_url = models.URLField(
+        max_length=1000,
+        null=True,
+        blank=True,
+        verbose_name="Webhook URL",
+    )
+    webhook_timeout_seconds = models.PositiveSmallIntegerField(
+        default=10,
+        verbose_name="Webhook timeout (sec)",
+    )
+    auto_respond_enabled = models.BooleanField(
+        default=False,
+        verbose_name="Enable auto response",
+    )
+    auto_respond_subject = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        verbose_name="Auto response subject",
+    )
+    auto_respond_template = models.TextField(
+        blank=True,
+        default="",
+        verbose_name="Auto response template",
+    )
+    stale_lead_hours = models.PositiveSmallIntegerField(
+        default=24,
+        verbose_name="Stale lead threshold (hours)",
+    )
     is_active = models.BooleanField(default=True, verbose_name="Active")
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="Created at")
 

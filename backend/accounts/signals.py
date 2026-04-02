@@ -4,6 +4,7 @@ from django.dispatch import receiver
 
 from accounts.models import ClientUser
 from clients.models import Client
+from leads.crm import ensure_default_pipeline
 
 
 def _client_name_for_user(user) -> str:
@@ -77,3 +78,9 @@ def ensure_client_integration(sender, instance, **kwargs):
         fields_to_update.append("email")
     if fields_to_update:
         client_user.save(update_fields=fields_to_update)
+
+    try:
+        ensure_default_pipeline(client)
+    except Exception:
+        # Signal must not block user provisioning.
+        pass
