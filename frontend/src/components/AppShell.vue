@@ -108,8 +108,8 @@ const isDashboardRoute = computed(() => {
 
 const mainNavItems = [
   { to: "/app/dashboard", label: "Обзор" },
-  { to: "/app/crm", label: "CRM Kanban" },
-  { to: "/app/crm/analytics", label: "CRM Dashboard" },
+  { to: "/app/crm", label: "Канбан CRM" },
+  { to: "/app/crm/analytics", label: "Панель CRM" },
   { to: "/app/dashboard/seo", label: "SEO-аудит" },
   { to: "/app/dashboard/ai-recommendations", label: "Поведение пользователя на сайте" },
   { to: "/app/reports", label: "Отчёт PDF" },

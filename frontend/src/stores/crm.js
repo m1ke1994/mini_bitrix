@@ -13,6 +13,11 @@ function cloneLead(lead) {
   return { ...(lead || {}) };
 }
 
+function extractLeadPayload(payload) {
+  if (!payload || typeof payload !== "object") return null;
+  return payload.payload || payload.lead || payload.data || payload;
+}
+
 function normalizeLead(lead) {
   const raw = cloneLead(lead);
 
@@ -68,13 +73,23 @@ export const useCrmStore = defineStore("crm", {
   actions: {
     _rebuildBoard() {
       const nextMap = {};
+      const fallbackStage = this.stages[0] || null;
       this.stages.forEach((stage) => {
         nextMap[String(stage.id)] = [];
       });
 
       this.leads.forEach((lead) => {
         const normalized = normalizeLead(lead);
-        const key = String(normalized.stage_id || "");
+        const effectiveStageId = normalized.stage_id || fallbackStage?.id || null;
+        if (effectiveStageId && !normalized.stage_id) {
+          normalized.stage_id = Number(effectiveStageId);
+          normalized.stage = Number(effectiveStageId);
+          if (!normalized.stage_name && fallbackStage?.name) {
+            normalized.stage_name = fallbackStage.name;
+            normalized.stage_color = fallbackStage.color || normalized.stage_color;
+          }
+        }
+        const key = String(effectiveStageId || "");
         if (!nextMap[key]) nextMap[key] = [];
         nextMap[key].push(normalized);
       });
@@ -114,7 +129,7 @@ export const useCrmStore = defineStore("crm", {
         this.widgetVariants = variants;
         this._rebuildBoard();
       } catch (_error) {
-        this.error = "Failed to load CRM data.";
+        this.error = "Не удалось загрузить данные CRM.";
       } finally {
         this.loading = false;
       }
@@ -170,7 +185,7 @@ export const useCrmStore = defineStore("crm", {
     },
 
     applyRealtimePayload(payload) {
-      const lead = payload?.payload || payload?.lead || payload;
+      const lead = extractLeadPayload(payload);
       if (!lead || !lead.id) return;
       this.upsertLead(lead);
     },

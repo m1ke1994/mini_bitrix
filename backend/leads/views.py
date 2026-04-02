@@ -12,7 +12,13 @@ from rest_framework.views import APIView
 
 from accounts.permissions import IsClientUser
 from clients.permissions import HasValidApiKey
-from leads.crm import add_lead_note, ensure_default_pipeline, move_lead_to_stage, schedule_lead_contact
+from leads.crm import (
+    add_lead_note,
+    assign_default_stage_to_orphan_leads,
+    ensure_default_pipeline,
+    move_lead_to_stage,
+    schedule_lead_contact,
+)
 from leads.models import Lead, LeadActivity, Pipeline, PipelineStage, WidgetVariant
 from leads.realtime import broadcast_lead_event
 from leads.serializers import (
@@ -59,6 +65,7 @@ class PipelineListView(ListAPIView):
 
     def get_queryset(self):
         ensure_default_pipeline(self.request.client)
+        assign_default_stage_to_orphan_leads(self.request.client)
         return (
             Pipeline.objects.filter(client=self.request.client)
             .prefetch_related(
@@ -88,6 +95,7 @@ class LeadViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.Gen
 
     def get_queryset(self):
         ensure_default_pipeline(self.request.client)
+        assign_default_stage_to_orphan_leads(self.request.client)
         queryset = (
             Lead.objects.filter(client=self.request.client)
             .select_related("stage", "assigned_to")

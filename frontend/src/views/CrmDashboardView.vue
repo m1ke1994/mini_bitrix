@@ -2,67 +2,67 @@
   <section class="crm-analytics-page">
     <header class="crm-analytics-head">
       <div>
-        <h1>CRM Dashboard</h1>
-        <p>Funnel, sources, response speed and conversion metrics.</p>
+        <h1>Панель CRM</h1>
+        <p>Воронка, источники, скорость реакции и конверсия.</p>
       </div>
-      <button type="button" @click="manualRefresh" :disabled="loading">Refresh</button>
+      <button type="button" @click="manualRefresh" :disabled="loading">Обновить</button>
     </header>
 
     <form class="crm-filters" @submit.prevent="manualRefresh">
       <label>
-        From
+        С
         <input v-model="dateFrom" type="date" />
       </label>
       <label>
-        To
+        По
         <input v-model="dateTo" type="date" />
       </label>
       <label>
-        Timeline
+        Шаг графика
         <select v-model="granularity">
-          <option value="day">Daily</option>
-          <option value="week">Weekly</option>
+          <option value="day">По дням</option>
+          <option value="week">По неделям</option>
         </select>
       </label>
-      <button type="submit" :disabled="loading">Apply</button>
+      <button type="submit" :disabled="loading">Применить</button>
     </form>
 
     <p v-if="error" class="error">{{ error }}</p>
 
     <div class="crm-metrics-grid">
-      <CrmMetricCard title="Total leads" :value="funnel.total_leads || 0" hint="In selected period" />
+      <CrmMetricCard title="Всего лидов" :value="funnel.total_leads || 0" hint="За выбранный период" />
       <CrmMetricCard
-        title="Avg first response"
-        :value="`${Number(responseTime.avg_first_response_hours || 0).toFixed(2)} h`"
-        hint="Based on lead activity timestamps"
+        title="Средний первый ответ"
+        :value="`${Number(responseTime.avg_first_response_hours || 0).toFixed(2)} ч`"
+        hint="По активности в карточках лидов"
       />
-      <CrmMetricCard title="Top source" :value="topSourceName" :hint="topSourceHint" />
-      <CrmMetricCard title="Top channel conversion" :value="topConversionValue" :hint="topConversionHint" />
+      <CrmMetricCard title="Лучший источник" :value="topSourceName" :hint="topSourceHint" />
+      <CrmMetricCard title="Лучшая конверсия канала" :value="topConversionValue" :hint="topConversionHint" />
     </div>
 
     <div class="crm-chart-grid">
       <article class="chart-card">
-        <h2>Leads Timeline</h2>
+        <h2>Динамика лидов</h2>
         <CrmTimelineChart :items="timeline.items || []" />
       </article>
       <article class="chart-card">
-        <h2>Source Performance</h2>
+        <h2>Эффективность источников</h2>
         <CrmSourcesChart :items="sources.items || []" :top="8" />
       </article>
     </div>
 
     <div class="crm-table-grid">
       <article class="chart-card">
-        <h2>Funnel</h2>
+        <h2>Воронка</h2>
         <div class="table-wrap">
           <table class="table">
             <thead>
               <tr>
-                <th>Stage</th>
-                <th>Leads</th>
-                <th>Conv. from previous</th>
-                <th>Conv. from first</th>
-                <th>Estimated value</th>
+                <th>Стадия</th>
+                <th>Лиды</th>
+                <th>Конв. с прошлой стадии</th>
+                <th>Конв. с первой стадии</th>
+                <th>Оценочная сумма</th>
               </tr>
             </thead>
             <tbody>
@@ -74,7 +74,7 @@
                 <td>{{ formatMoney(row.estimated_value_total) }}</td>
               </tr>
               <tr v-if="!(funnel.stages || []).length">
-                <td colspan="5">No data</td>
+                <td colspan="5">Нет данных</td>
               </tr>
             </tbody>
           </table>
@@ -82,15 +82,15 @@
       </article>
 
       <article class="chart-card">
-        <h2>Conversion by Channel</h2>
+        <h2>Конверсия по каналам</h2>
         <div class="table-wrap">
           <table class="table">
             <thead>
               <tr>
-                <th>Channel</th>
-                <th>Leads</th>
-                <th>Deals</th>
-                <th>Conversion</th>
+                <th>Канал</th>
+                <th>Лиды</th>
+                <th>Сделки</th>
+                <th>Конверсия</th>
               </tr>
             </thead>
             <tbody>
@@ -101,7 +101,7 @@
                 <td>{{ Number(row.conversion_pct || 0).toFixed(2) }}%</td>
               </tr>
               <tr v-if="!(conversionRate.items || []).length">
-                <td colspan="4">No data</td>
+                <td colspan="4">Нет данных</td>
               </tr>
             </tbody>
           </table>
@@ -111,14 +111,14 @@
 
     <div class="crm-table-grid">
       <article class="chart-card">
-        <h2>Heatmap Peaks</h2>
+        <h2>Пики активности (heatmap)</h2>
         <div class="table-wrap">
           <table class="table">
             <thead>
               <tr>
-                <th>Weekday</th>
-                <th>Hour</th>
-                <th>Activity</th>
+                <th>День недели</th>
+                <th>Час</th>
+                <th>Активность</th>
               </tr>
             </thead>
             <tbody>
@@ -128,7 +128,7 @@
                 <td>{{ row.count }}</td>
               </tr>
               <tr v-if="!topHeatmapRows.length">
-                <td colspan="3">No data</td>
+                <td colspan="3">Нет данных</td>
               </tr>
             </tbody>
           </table>
@@ -136,8 +136,8 @@
       </article>
 
       <article class="chart-card">
-        <h2>AI Advisor</h2>
-        <p class="muted">Source: {{ advisor.source || "-" }}</p>
+        <h2>AI-рекомендации</h2>
+        <p class="muted">Источник: {{ advisor.source || "-" }}</p>
         <ul class="crm-advisor-list" v-if="(advisor.recommendations || []).length">
           <li v-for="(item, idx) in advisor.recommendations" :key="`${item.category}-${idx}`">
             <div class="crm-advisor-top">
@@ -148,7 +148,7 @@
             <small>{{ item.expected_impact }}</small>
           </li>
         </ul>
-        <p v-else class="muted">No recommendations yet.</p>
+        <p v-else class="muted">Рекомендаций пока нет.</p>
       </article>
     </div>
   </section>
@@ -192,10 +192,10 @@ const topSource = computed(() => {
   return [...rows].sort((a, b) => Number(b.leads || 0) - Number(a.leads || 0))[0] || null;
 });
 
-const topSourceName = computed(() => topSource.value?.source || "-" );
+const topSourceName = computed(() => topSource.value?.source || "-");
 const topSourceHint = computed(() => {
-  if (!topSource.value) return "No source data";
-  return `${Number(topSource.value.leads || 0)} leads / ${Number(topSource.value.deals || 0)} deals`;
+  if (!topSource.value) return "Нет данных по источникам";
+  return `${Number(topSource.value.leads || 0)} лидов / ${Number(topSource.value.deals || 0)} сделок`;
 });
 
 const topConversion = computed(() => {
@@ -210,8 +210,8 @@ const topConversionValue = computed(() => {
 });
 
 const topConversionHint = computed(() => {
-  if (!topConversion.value) return "No conversion data";
-  return String(topConversion.value.channel || "unknown");
+  if (!topConversion.value) return "Нет данных по конверсии";
+  return String(topConversion.value.channel || "неизвестно");
 });
 
 const topHeatmapRows = computed(() => {
@@ -221,13 +221,13 @@ const topHeatmapRows = computed(() => {
 
 function weekdayLabel(value) {
   const map = {
-    1: "Sunday",
-    2: "Monday",
-    3: "Tuesday",
-    4: "Wednesday",
-    5: "Thursday",
-    6: "Friday",
-    7: "Saturday",
+    1: "Воскресенье",
+    2: "Понедельник",
+    3: "Вторник",
+    4: "Среда",
+    5: "Четверг",
+    6: "Пятница",
+    7: "Суббота",
   };
   return map[Number(value)] || "-";
 }

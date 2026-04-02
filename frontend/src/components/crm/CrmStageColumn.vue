@@ -22,7 +22,7 @@
         <LeadCard :lead="element" @open="$emit('open', $event)" />
       </template>
       <template #footer>
-        <div v-if="!mutableLeads.length" class="crm-stage-empty">No leads in this stage</div>
+        <div v-if="!mutableLeads.length" class="crm-stage-empty">На этой стадии пока нет лидов</div>
       </template>
     </draggable>
   </section>
@@ -57,7 +57,10 @@ watch(
 );
 
 const leadsCountLabel = computed(() => {
-  return `${mutableLeads.value.length} lead${mutableLeads.value.length === 1 ? "" : "s"}`;
+  const count = mutableLeads.value.length;
+  if (count % 10 === 1 && count % 100 !== 11) return `${count} лид`;
+  if ([2, 3, 4].includes(count % 10) && ![12, 13, 14].includes(count % 100)) return `${count} лида`;
+  return `${count} лидов`;
 });
 
 const badgeStyle = computed(() => {

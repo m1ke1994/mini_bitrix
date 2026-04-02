@@ -5,7 +5,7 @@ from tracker.models import Event, PageView, Site, Visit
 
 @admin.register(Site)
 class SiteAdmin(admin.ModelAdmin):
-    list_display = ("id", "domain", "is_active", "created_at")
+    list_display = ("id", "domain", "client", "is_active", "created_at")
     search_fields = ("domain", "token")
     list_filter = ("is_active",)
 

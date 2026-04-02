@@ -113,6 +113,8 @@ class Lead(models.Model):
     utm_campaign = models.CharField(max_length=255, blank=True, null=True, verbose_name="UTM Campaign")
     session_id = models.CharField(max_length=64, blank=True, default="", db_index=True, verbose_name="Session ID")
     visitor_id = models.CharField(max_length=64, blank=True, default="", db_index=True, verbose_name="Visitor ID")
+    tracker_submission_id = models.CharField(max_length=128, blank=True, default="", db_index=True, verbose_name="Tracker submission ID")
+    tracker_dedup_key = models.CharField(max_length=96, blank=True, default="", db_index=True, verbose_name="Tracker dedup key")
     stage = models.ForeignKey(
         PipelineStage,
         on_delete=models.SET_NULL,
@@ -155,6 +157,13 @@ class Lead(models.Model):
             models.Index(fields=["client", "normalized_email"]),
             models.Index(fields=["client", "score"]),
             models.Index(fields=["client", "last_activity_at"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["client", "tracker_dedup_key"],
+                condition=~models.Q(tracker_dedup_key=""),
+                name="leads_unique_tracker_dedup_key_per_client",
+            ),
         ]
 
     def __str__(self):

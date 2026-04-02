@@ -2,49 +2,49 @@
   <aside class="crm-details" v-if="lead">
     <header class="crm-details-head">
       <div>
-        <h2>{{ lead.name || "Unnamed lead" }}</h2>
-        <p>#{{ lead.id }} · {{ lead.stage_name || "No stage" }}</p>
+        <h2>{{ lead.name || "Лид без имени" }}</h2>
+        <p>#{{ lead.id }} · {{ lead.stage_name || "Стадия не назначена" }}</p>
       </div>
-      <button type="button" class="crm-close" @click="$emit('close')">Close</button>
+      <button type="button" class="crm-close" @click="$emit('close')">Закрыть</button>
     </header>
 
     <section class="crm-details-meta">
-      <div><strong>Score:</strong> {{ Number(lead.score || 0) }}</div>
-      <div><strong>Phone:</strong> {{ lead.phone || "-" }}</div>
+      <div><strong>Скоринг:</strong> {{ Number(lead.score || 0) }}</div>
+      <div><strong>Телефон:</strong> {{ lead.phone || "-" }}</div>
       <div><strong>Email:</strong> {{ lead.email || "-" }}</div>
-      <div><strong>Source:</strong> {{ lead.utm_source || lead.utm_medium || lead.source_url || "-" }}</div>
-      <div><strong>Created:</strong> {{ formatDate(lead.created_at) }}</div>
-      <div><strong>Next contact:</strong> {{ formatDate(lead.next_contact_at) || "-" }}</div>
-      <div class="crm-message" v-if="lead.message"><strong>Message:</strong> {{ lead.message }}</div>
+      <div><strong>Источник:</strong> {{ lead.utm_source || lead.utm_medium || lead.source_url || "-" }}</div>
+      <div><strong>Создан:</strong> {{ formatDate(lead.created_at) }}</div>
+      <div><strong>Следующий контакт:</strong> {{ formatDate(lead.next_contact_at) || "-" }}</div>
+      <div class="crm-message" v-if="lead.message"><strong>Сообщение:</strong> {{ lead.message }}</div>
     </section>
 
     <section class="crm-action-block">
-      <h3>Add note</h3>
-      <textarea v-model="noteText" placeholder="Internal note" />
-      <button type="button" @click="submitNote" :disabled="!noteText.trim()">Save note</button>
+      <h3>Добавить заметку</h3>
+      <textarea v-model="noteText" placeholder="Внутренняя заметка" />
+      <button type="button" @click="submitNote" :disabled="!noteText.trim()">Сохранить заметку</button>
     </section>
 
     <section class="crm-action-block">
-      <h3>Schedule contact</h3>
+      <h3>Запланировать контакт</h3>
       <input v-model="scheduleAt" type="datetime-local" />
-      <textarea v-model="scheduleNote" placeholder="Optional note"></textarea>
-      <button type="button" @click="submitSchedule" :disabled="!scheduleAt">Schedule</button>
+      <textarea v-model="scheduleNote" placeholder="Комментарий (необязательно)"></textarea>
+      <button type="button" @click="submitSchedule" :disabled="!scheduleAt">Запланировать</button>
     </section>
 
     <section class="crm-activities">
       <header>
-        <h3>Activity</h3>
-        <button type="button" class="crm-refresh" @click="$emit('refresh')" :disabled="loading">Refresh</button>
+        <h3>Активность</h3>
+        <button type="button" class="crm-refresh" @click="$emit('refresh')" :disabled="loading">Обновить</button>
       </header>
-      <p v-if="loading" class="crm-muted">Loading activity...</p>
+      <p v-if="loading" class="crm-muted">Загрузка активности...</p>
       <ul v-else-if="activities.length" class="crm-activity-list">
         <li v-for="item in activities" :key="item.id">
-          <strong>{{ item.action_type }}</strong>
+          <strong>{{ activityLabel(item.action_type) }}</strong>
           <span>{{ formatDate(item.created_at) }}</span>
-          <p>{{ item.description || "No description" }}</p>
+          <p>{{ item.description || "Описание отсутствует" }}</p>
         </li>
       </ul>
-      <p v-else class="crm-muted">No activity yet.</p>
+      <p v-else class="crm-muted">Активности пока нет.</p>
     </section>
   </aside>
 </template>
@@ -87,6 +87,21 @@ function formatDate(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return String(value);
   return date.toLocaleString("ru-RU");
+}
+
+function activityLabel(value) {
+  const key = String(value || "").trim().toLowerCase();
+  const map = {
+    created: "Лид создан",
+    stage_moved: "Смена стадии",
+    note_added: "Добавлена заметка",
+    scheduled: "Запланирован контакт",
+    duplicate_merged: "Объединён дубликат",
+    score_updated: "Обновлён скоринг",
+    auto_response: "Автоответ отправлен",
+    notified: "Отправлено уведомление",
+  };
+  return map[key] || (value ? String(value) : "Действие");
 }
 
 function submitNote() {

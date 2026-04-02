@@ -1,7 +1,7 @@
 ﻿<template>
   <div class="crm-chart">
     <Bar v-if="hasData" :data="chartData" :options="options" />
-    <div v-else class="crm-chart-empty">No source data</div>
+    <div v-else class="crm-chart-empty">Нет данных по источникам</div>
   </div>
 </template>
 
@@ -40,15 +40,15 @@ const hasData = computed(() => topItems.value.length > 0);
 
 const chartData = computed(() => {
   return {
-    labels: topItems.value.map((item) => String(item.source || "unknown").slice(0, 32)),
+    labels: topItems.value.map((item) => String(item.source || "неизвестно").slice(0, 32)),
     datasets: [
       {
-        label: "Leads",
+        label: "Лиды",
         data: topItems.value.map((item) => Number(item.leads || 0)),
         backgroundColor: "#0ea5e9",
       },
       {
-        label: "Deals",
+        label: "Сделки",
         data: topItems.value.map((item) => Number(item.deals || 0)),
         backgroundColor: "#22c55e",
       },

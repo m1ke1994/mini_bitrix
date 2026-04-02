@@ -1,7 +1,7 @@
 ﻿<template>
   <div class="crm-chart">
     <Line v-if="hasData" :data="chartData" :options="options" />
-    <div v-else class="crm-chart-empty">No timeline data</div>
+    <div v-else class="crm-chart-empty">Нет данных по динамике</div>
   </div>
 </template>
 
@@ -36,7 +36,7 @@ const chartData = computed(() => {
     labels,
     datasets: [
       {
-        label: "Leads",
+        label: "Лиды",
         data: props.items.map((item) => Number(item.leads_count || 0)),
         borderColor: "#2563eb",
         backgroundColor: "rgba(37,99,235,0.15)",
@@ -44,7 +44,7 @@ const chartData = computed(() => {
         tension: 0.22,
       },
       {
-        label: "Deals",
+        label: "Сделки",
         data: props.items.map((item) => Number(item.deals_count || 0)),
         borderColor: "#16a34a",
         backgroundColor: "rgba(22,163,74,0.12)",

@@ -72,6 +72,17 @@ def ensure_lead_stage(lead: Lead) -> Lead:
     return lead
 
 
+def assign_default_stage_to_orphan_leads(client: Client) -> int:
+    stage = get_default_stage(client)
+    if not stage:
+        return 0
+    return Lead.objects.filter(client=client, stage__isnull=True).update(
+        stage=stage,
+        status=_status_for_stage(stage),
+        updated_at=timezone.now(),
+    )
+
+
 def sync_lead_contacts(lead: Lead, *, normalized_phone: str, normalized_email: str) -> None:
     fields_to_update: list[str] = []
     if lead.normalized_phone != normalized_phone:
@@ -176,4 +187,3 @@ def schedule_lead_contact(
 def bootstrap_default_pipelines_for_clients(clients: Iterable[Client]) -> None:
     for client in clients:
         ensure_default_pipeline(client)
-

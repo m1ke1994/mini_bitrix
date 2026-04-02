@@ -54,7 +54,7 @@ export function useCrmAnalytics() {
       heatmap.value = heatmapPayload || { items: [] };
       advisor.value = advisorPayload || { recommendations: [] };
     } catch (_error) {
-      error.value = "Failed to load CRM analytics.";
+      error.value = "Не удалось загрузить аналитику CRM.";
     } finally {
       loading.value = false;
     }

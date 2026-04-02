@@ -1,7 +1,7 @@
 ﻿<template>
   <article class="crm-lead-card" @click="$emit('open', lead)">
     <header class="crm-lead-card-head">
-      <strong class="crm-title">{{ lead.name || "Unnamed lead" }}</strong>
+      <strong class="crm-title">{{ lead.name || "Лид без имени" }}</strong>
       <span class="crm-score">{{ scoreLabel }}</span>
     </header>
 
@@ -10,12 +10,12 @@
     <p class="crm-contact">
       <span v-if="lead.phone">{{ lead.phone }}</span>
       <span v-if="lead.email">{{ lead.email }}</span>
-      <span v-if="!lead.phone && !lead.email">No contacts</span>
+      <span v-if="!lead.phone && !lead.email">Контакты не указаны</span>
     </p>
 
     <footer class="crm-footer">
       <span class="crm-created">{{ formattedCreatedAt }}</span>
-      <span v-if="lead.next_contact_at" class="crm-next-contact">Next: {{ formattedNextContactAt }}</span>
+      <span v-if="lead.next_contact_at" class="crm-next-contact">Следующий контакт: {{ formattedNextContactAt }}</span>
     </footer>
   </article>
 </template>
@@ -33,11 +33,11 @@ const props = defineProps({
 defineEmits(["open"]);
 
 const scoreLabel = computed(() => {
-  return `Score ${Number(props.lead.score || 0)}`;
+  return `Скоринг ${Number(props.lead.score || 0)}`;
 });
 
 const sourceLabel = computed(() => {
-  return props.lead.utm_source || props.lead.utm_medium || props.lead.source_url || "Unknown source";
+  return props.lead.utm_source || props.lead.utm_medium || props.lead.source_url || "Источник не указан";
 });
 
 function formatDate(value) {

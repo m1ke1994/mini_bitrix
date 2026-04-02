@@ -8,6 +8,7 @@ from leads.crm import log_lead_activity
 from leads.models import Lead, LeadActivity
 from tracker.models import Event as TrackerEvent
 from tracker.models import Visit
+from tracker.services.client_scope import tracker_event_site_client_q, visit_site_client_q
 
 
 @dataclass
@@ -34,7 +35,7 @@ class LeadScoringService:
         sid = (session_id or lead.session_id or "").strip()
         vid = (visitor_id or lead.visitor_id or "").strip()
 
-        visits_qs = Visit.objects.filter(site__token=lead.client.api_key, is_bot=False)
+        visits_qs = Visit.objects.filter(visit_site_client_q(lead.client), is_bot=False)
         if sid:
             visits_qs = visits_qs.filter(session_id=sid)
         elif vid:
@@ -65,7 +66,7 @@ class LeadScoringService:
 
         if sid and form_interactions_count == 0:
             form_interactions_count = TrackerEvent.objects.filter(
-                visit__site__token=lead.client.api_key,
+                tracker_event_site_client_q(lead.client),
                 visit__session_id=sid,
                 type="form_submit",
             ).count()
@@ -139,4 +140,3 @@ class LeadScoringService:
             if before != after:
                 updated += 1
         return updated
-

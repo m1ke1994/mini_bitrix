@@ -4,6 +4,8 @@ import secrets
 from django.db import models
 from django.utils import timezone
 
+from clients.models import Client
+
 logger = logging.getLogger(__name__)
 
 
@@ -13,6 +15,13 @@ def generate_site_token() -> str:
 
 class Site(models.Model):
     token = models.CharField(max_length=128, unique=True, db_index=True, default=generate_site_token)
+    client = models.ForeignKey(
+        Client,
+        on_delete=models.SET_NULL,
+        related_name="tracker_sites",
+        null=True,
+        blank=True,
+    )
     domain = models.CharField(max_length=255, blank=True, default="")
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)

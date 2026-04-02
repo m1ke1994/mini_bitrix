@@ -2,18 +2,18 @@
   <section class="crm-kanban-page">
     <header class="crm-page-head">
       <div>
-        <h1>CRM Kanban</h1>
-        <p>Pipeline-based lead workflow with live updates.</p>
+        <h1>Канбан CRM</h1>
+        <p>Воронка лидов с обновлениями в реальном времени.</p>
       </div>
       <div class="crm-page-actions">
-        <span class="crm-ws" :class="{ online: isConnected }">{{ isConnected ? "Live" : "Offline" }}</span>
-        <button type="button" @click="manualRefresh" :disabled="crm.loading">Refresh</button>
+        <span class="crm-ws" :class="{ online: isConnected }">{{ isConnected ? "Онлайн" : "Офлайн" }}</span>
+        <button type="button" @click="manualRefresh" :disabled="crm.loading">Обновить</button>
       </div>
     </header>
 
     <p v-if="crm.error" class="error">{{ crm.error }}</p>
 
-    <div v-if="crm.loading" class="crm-loading">Loading CRM board...</div>
+    <div v-if="crm.loading" class="crm-loading">Загрузка доски CRM...</div>
 
     <div v-else class="crm-board-layout">
       <div class="crm-board" v-if="crm.stages.length">
@@ -26,7 +26,7 @@
           @open="openLead"
         />
       </div>
-      <div v-else class="crm-loading">No stages configured.</div>
+      <div v-else class="crm-loading">Стадии воронки не настроены.</div>
 
       <LeadDetailsPanel
         v-if="crm.selectedLead"
@@ -38,7 +38,7 @@
         @note="createNote"
         @schedule="createSchedule"
       />
-      <aside v-else class="crm-empty-panel">Select a lead card to open details.</aside>
+      <aside v-else class="crm-empty-panel">Выберите карточку лида, чтобы открыть детали.</aside>
     </div>
   </section>
 </template>
@@ -85,7 +85,7 @@ async function onLeadMove({ leadId, toStageId }) {
       await crm.loadActivities(leadId);
     }
   } catch (_error) {
-    crm.error = "Failed to move lead.";
+    crm.error = "Не удалось переместить лид.";
   }
 }
 
@@ -99,7 +99,7 @@ async function createNote(note) {
   try {
     await crm.createNote(crm.selectedLeadId, note);
   } catch (_error) {
-    crm.error = "Failed to save note.";
+    crm.error = "Не удалось сохранить заметку.";
   }
 }
 
@@ -108,7 +108,7 @@ async function createSchedule(payload) {
   try {
     await crm.createSchedule(crm.selectedLeadId, payload.nextContactAt, payload.note || "");
   } catch (_error) {
-    crm.error = "Failed to schedule contact.";
+    crm.error = "Не удалось запланировать контакт.";
   }
 }
 

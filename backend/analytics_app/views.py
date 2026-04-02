@@ -23,6 +23,7 @@ from clients.permissions import HasValidApiKey
 from leads.tasks import recalculate_lead_score_for_session
 from leads.models import Lead, LeadActivity, PipelineStage
 from tracker.models import Visit
+from tracker.services.client_scope import visit_site_client_q
 from subscriptions.permissions import HasActiveSubscription
 
 logger = logging.getLogger(__name__)
@@ -356,7 +357,12 @@ class AnalyticsUniqueDailyView(APIView):
         client = request.client
         date_from, date_to, from_dt, to_dt = _period_range(request, days=14)
         unique_filter = Q(visitor_id__isnull=False) & ~Q(visitor_id="")
-        visits_qs = Visit.objects.filter(site__token=client.api_key, started_at__gte=from_dt, started_at__lte=to_dt, is_bot=False)
+        visits_qs = Visit.objects.filter(
+            visit_site_client_q(client),
+            started_at__gte=from_dt,
+            started_at__lte=to_dt,
+            is_bot=False,
+        )
         rows_with_id = list(
             visits_qs.filter(unique_filter)
             .annotate(day=TruncDate("started_at"))
