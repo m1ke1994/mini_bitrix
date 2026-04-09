@@ -13,7 +13,11 @@ load_dotenv(BASE_DIR.parent / ".env")
 
 # ================= BASIC =================
 
-SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-change-me")
+_django_secret_key = (os.getenv("DJANGO_SECRET_KEY") or os.getenv("SECRET_KEY") or "").strip()
+if not _django_secret_key:
+    raise ImproperlyConfigured("DJANGO_SECRET_KEY is required.")
+
+SECRET_KEY = _django_secret_key
 DEBUG = os.getenv("DEBUG", "False").lower() == "true"
 
 ALLOWED_HOSTS = [
@@ -43,6 +47,8 @@ INSTALLED_APPS = [
     "rest_framework",
     "rest_framework_simplejwt",
     "django_filters",
+    "channels",
+    "core",
     "accounts",
     "clients",
     "leads",
@@ -94,16 +100,24 @@ ASGI_APPLICATION = "saas_platform.asgi.application"
 
 # ================= DATABASE =================
 
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.postgresql",
-        "NAME": os.getenv("POSTGRES_DB", "mini_saas"),
-        "USER": os.getenv("POSTGRES_USER", "mini_saas"),
-        "PASSWORD": os.getenv("POSTGRES_PASSWORD", "mini_saas"),
-        "HOST": os.getenv("POSTGRES_HOST", "db"),
-        "PORT": int(os.getenv("POSTGRES_PORT", "5432")),
+if os.getenv("DJANGO_DB_ENGINE", "postgresql").lower() == "sqlite":
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": BASE_DIR / "db.sqlite3",
+        }
     }
-}
+else:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": os.getenv("POSTGRES_DB", "mini_saas"),
+            "USER": os.getenv("POSTGRES_USER", "mini_saas"),
+            "PASSWORD": os.getenv("POSTGRES_PASSWORD", "mini_saas"),
+            "HOST": os.getenv("POSTGRES_HOST", "db"),
+            "PORT": int(os.getenv("POSTGRES_PORT", "5432")),
+        }
+    }
 
 # ================= REDIS =================
 
@@ -178,10 +192,11 @@ REST_FRAMEWORK = {
         "rest_framework.throttling.ScopedRateThrottle",
     ),
     "DEFAULT_THROTTLE_RATES": {
-        "public_lead": os.getenv("RATE_LIMIT_PUBLIC_LEAD", "60/minute"),
+        "public_lead": os.getenv("RATE_LIMIT_PUBLIC_LEAD", "30/minute"),
         "public_event": os.getenv("RATE_LIMIT_PUBLIC_EVENT", "120/minute"),
         "public_analytics_event": os.getenv("RATE_LIMIT_PUBLIC_ANALYTICS_EVENT", "300/minute"),
         "public_telegram_webhook": os.getenv("RATE_LIMIT_PUBLIC_TELEGRAM_WEBHOOK", "120/minute"),
+        "public_widget_variant": os.getenv("RATE_LIMIT_PUBLIC_WIDGET_VARIANT", "180/minute"),
     },
 }
 
@@ -239,7 +254,47 @@ CELERY_BEAT_SCHEDULE = {
         "task": "subscriptions.tasks.notify_auto_renew_subscriptions_task",
         "schedule": crontab(hour=12, minute=0),
     },
+    "check_stale_leads_every_30_minutes": {
+        "task": "leads.tasks.check_stale_leads",
+        "schedule": crontab(minute="*/30"),
+    },
 }
+
+CHANNELS_USE_INMEMORY = os.getenv("CHANNELS_USE_INMEMORY", "false").lower() == "true"
+if CHANNELS_USE_INMEMORY:
+    CHANNEL_LAYERS = {
+        "default": {
+            "BACKEND": "channels.layers.InMemoryChannelLayer",
+        }
+    }
+else:
+    CHANNEL_LAYERS = {
+        "default": {
+            "BACKEND": "channels_redis.core.RedisChannelLayer",
+            "CONFIG": {"hosts": [os.getenv("REDIS_URL", "redis://redis:6379/1")]},
+        }
+    }
+
+# ================= HEALTH =================
+
+HEALTHCHECK_CELERY_PING_ENABLED = os.getenv("HEALTHCHECK_CELERY_PING_ENABLED", "true").lower() == "true"
+HEALTHCHECK_REQUIRE_CELERY = os.getenv("HEALTHCHECK_REQUIRE_CELERY", "false").lower() == "true"
+HEALTHCHECK_CELERY_PING_TIMEOUT_SECONDS = float(os.getenv("HEALTHCHECK_CELERY_PING_TIMEOUT_SECONDS", "1.5"))
+
+# ================= BACKUPS =================
+
+BACKUP_ENABLED = os.getenv("BACKUP_ENABLED", "false").lower() == "true"
+BACKUP_STORAGE_DIR = Path(os.getenv("BACKUP_STORAGE_DIR", str(BASE_DIR / "backups")))
+BACKUP_KEEP_DAYS = int(os.getenv("BACKUP_KEEP_DAYS", "14"))
+BACKUP_PG_DUMP_PATH = os.getenv("BACKUP_PG_DUMP_PATH", "pg_dump")
+BACKUP_SCHEDULE_HOUR = int(os.getenv("BACKUP_SCHEDULE_HOUR", "3"))
+BACKUP_SCHEDULE_MINUTE = int(os.getenv("BACKUP_SCHEDULE_MINUTE", "0"))
+
+if BACKUP_ENABLED:
+    CELERY_BEAT_SCHEDULE["create_postgres_backup_daily"] = {
+        "task": "core.tasks.create_postgres_backup",
+        "schedule": crontab(hour=BACKUP_SCHEDULE_HOUR, minute=BACKUP_SCHEDULE_MINUTE),
+    }
 
 # ================= EMAIL =================
 

@@ -1,6 +1,7 @@
 x-django-prod-env: &django_prod_env
   DEBUG: "False"
-  SECRET_KEY: ${DJANGO_SECRET_KEY:-tracknode_docker_secret_key_min_32_chars_2026}
+  DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY?DJANGO_SECRET_KEY is required}
+  SECRET_KEY: ${DJANGO_SECRET_KEY?DJANGO_SECRET_KEY is required}
 
 services:
   db:
@@ -13,8 +14,6 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "9001:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
@@ -27,8 +26,6 @@ services:
 
   redis:
     image: redis:7
-    ports:
-      - "9002:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -36,6 +33,26 @@ services:
       retries: 20
       start_period: 3s
     restart: unless-stopped
+    networks:
+      - saas_net
+
+  web-init:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    env_file:
+      - .env
+    environment:
+      <<: *django_prod_env
+    command: ["migrate_collectstatic"]
+    volumes:
+      - ./backend:/app
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: "no"
     networks:
       - saas_net
 
@@ -47,15 +64,14 @@ services:
       - .env
     environment:
       <<: *django_prod_env
-    command:
-      - sh
-      - -c
-      - python manage.py migrate && python manage.py collectstatic --noinput && gunicorn saas_platform.wsgi:application --bind 0.0.0.0:8000
+    command: ["web"]
     volumes:
       - ./backend:/app
     ports:
       - "9000:8000"
     depends_on:
+      web-init:
+        condition: service_completed_successfully
       db:
         condition: service_healthy
       redis:
@@ -63,7 +79,7 @@ services:
     healthcheck:
       test:
         - CMD-SHELL
-        - python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/admin/login/', timeout=5)"
+        - python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health/', timeout=5)"
       interval: 10s
       timeout: 5s
       retries: 20
@@ -80,12 +96,38 @@ services:
       - .env
     environment:
       <<: *django_prod_env
-    command: celery -A saas_platform worker -l info
+    command: ["worker"]
     volumes:
       - ./backend:/app
     depends_on:
       web:
         condition: service_healthy
+      web-init:
+        condition: service_completed_successfully
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - saas_net
+
+  ws:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    env_file:
+      - .env
+    environment:
+      <<: *django_prod_env
+    command: ["websocket"]
+    volumes:
+      - ./backend:/app
+    ports:
+      - "9010:8010"
+    depends_on:
+      web-init:
+        condition: service_completed_successfully
       db:
         condition: service_healthy
       redis:
@@ -102,12 +144,14 @@ services:
       - .env
     environment:
       <<: *django_prod_env
-    command: celery -A saas_platform beat -l info
+    command: ["beat"]
     volumes:
       - ./backend:/app
     depends_on:
       web:
         condition: service_healthy
+      web-init:
+        condition: service_completed_successfully
       db:
         condition: service_healthy
       redis:
@@ -126,12 +170,14 @@ services:
       <<: *django_prod_env
       TELEGRAM_USE_WEBHOOK: ${TELEGRAM_USE_WEBHOOK:-false}
       TELEGRAM_POLLING_LOCK_FILE: ${TELEGRAM_POLLING_LOCK_FILE:-/tmp/tracknode_telegram_polling.lock}
-    command: python manage.py run_telegram_polling
+    command: ["telegram_poller"]
     volumes:
       - ./backend:/app
     depends_on:
       web:
         condition: service_healthy
+      web-init:
+        condition: service_completed_successfully
       db:
         condition: service_healthy
       redis:
@@ -157,6 +203,7 @@ services:
       NITRO_HOST: 0.0.0.0
       NITRO_PORT: 9003
       NUXT_PUBLIC_API_BASE: ${VITE_API_BASE_URL:-/}
+      NUXT_PUBLIC_WS_BASE: ${NUXT_PUBLIC_WS_BASE:-ws://localhost:9010}
     ports:
       - "9003:9003"
     depends_on:

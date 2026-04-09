@@ -12,6 +12,7 @@ from analytics_app.models import ClickEvent as AnalyticsClickEvent
 from analytics_app.models import Event as AnalyticsEvent
 from analytics_app.models import PageView as AnalyticsPageView
 from clients.models import Client
+from leads.tasks import recalculate_lead_score_for_session
 from tracker.models import Event, PageView, Site, Visit
 from tracker.serializers import (
     PageViewSerializer,
@@ -20,6 +21,7 @@ from tracker.serializers import (
     VisitStartSerializer,
 )
 from tracker.services.bot_filter import detect_bot_visit
+from tracker.services.lead_ingestion import ingest_tracker_lead_from_event
 from tracker.tasks import send_tracker_form_submit_notification_task
 
 logger = logging.getLogger(__name__)
@@ -64,19 +66,36 @@ def _extract_visit_context(request):
 
 
 def _site_by_token(token: str):
-    site = Site.objects.filter(token=token, is_active=True).first()
+    site = Site.objects.select_related("client").filter(token=token, is_active=True).first()
     if site:
+        if site.client_id:
+            return site
+        legacy_client = Client.objects.filter(api_key=token, is_active=True).first()
+        if legacy_client:
+            site.client = legacy_client
+            site.save(update_fields=["client"])
         return site
 
     # Compatibility path: promote legacy client api_key to Site token once.
     legacy_client = Client.objects.filter(api_key=token, is_active=True).first()
     if legacy_client:
-        return Site.objects.create(token=token, domain=legacy_client.name, is_active=True)
+        return Site.objects.create(token=token, domain=legacy_client.name, is_active=True, client=legacy_client)
     return None
 
 
-def _client_by_token(token: str):
-    return Client.objects.filter(api_key=token, is_active=True).first()
+def _client_by_token(token: str, *, site: Site | None = None):
+    if site and site.client_id and site.client and site.client.is_active:
+        return site.client
+
+    resolved_site = site or Site.objects.select_related("client").filter(token=token, is_active=True).first()
+    if resolved_site and resolved_site.client_id and resolved_site.client and resolved_site.client.is_active:
+        return resolved_site.client
+
+    client = Client.objects.filter(api_key=token, is_active=True).first()
+    if client and resolved_site and not resolved_site.client_id:
+        resolved_site.client = client
+        resolved_site.save(update_fields=["client"])
+    return client
 
 
 def _safe_url(value: str, fallback: str = "https://tracker.local/") -> str:
@@ -216,7 +235,7 @@ class VisitStartView(TrackBaseAPIView):
             tracked_url=(request.data.get("url") or ""),
             bot_source="visit_start",
         )
-        client = _client_by_token(serializer.validated_data["token"])
+        client = _client_by_token(serializer.validated_data["token"], site=site)
         if client:
             try:
                 event_url = _safe_url(
@@ -234,6 +253,14 @@ class VisitStartView(TrackBaseAPIView):
                     site.id,
                     client.id,
                 )
+            try:
+                recalculate_lead_score_for_session.delay(
+                    client.id,
+                    serializer.validated_data.get("session_id") or "",
+                    serializer.validated_data.get("visitor_id") or "",
+                )
+            except Exception:
+                logger.exception("track.visit_start failed to enqueue lead score recalculation client_id=%s", client.id)
         logger.info(
             "track.visit_start created visit_id=%s site_id=%s visitor_id=%s session_id=%s",
             visit.id,
@@ -265,7 +292,7 @@ class PageViewCreateView(TrackBaseAPIView):
             title=serializer.validated_data.get("title", ""),
             timestamp=serializer.get_timestamp(),
         )
-        client = _client_by_token(serializer.validated_data["token"])
+        client = _client_by_token(serializer.validated_data["token"], site=site)
         if client:
             try:
                 safe_url = _safe_url(serializer.validated_data["url"])
@@ -290,6 +317,14 @@ class PageViewCreateView(TrackBaseAPIView):
                     visit.id,
                     client.id,
                 )
+            try:
+                recalculate_lead_score_for_session.delay(
+                    client.id,
+                    serializer.validated_data.get("session_id") or "",
+                    serializer.validated_data.get("visitor_id") or "",
+                )
+            except Exception:
+                logger.exception("track.pageview failed to enqueue lead score recalculation client_id=%s", client.id)
         logger.info(
             "track.pageview created pageview_id=%s visit_id=%s visitor_id=%s session_id=%s",
             pageview.id,
@@ -338,7 +373,7 @@ class EventCreateView(TrackBaseAPIView):
             payload=payload,
             timestamp=serializer.get_timestamp(),
         )
-        client = _client_by_token(serializer.validated_data["token"])
+        client = _client_by_token(serializer.validated_data["token"], site=site)
         if client:
             try:
                 if event_type == "form_submit":
@@ -442,6 +477,27 @@ class EventCreateView(TrackBaseAPIView):
                         event.id,
                         client.id,
                     )
+            try:
+                ingest_tracker_lead_from_event(
+                    event=event,
+                    site=site,
+                    client=client,
+                )
+            except Exception:
+                logger.exception(
+                    "track.event failed to ingest tracker lead event_id=%s client_id=%s type=%s",
+                    event.id,
+                    client.id,
+                    event_type,
+                )
+            try:
+                recalculate_lead_score_for_session.delay(
+                    client.id,
+                    serializer.validated_data.get("session_id") or "",
+                    serializer.validated_data.get("visitor_id") or "",
+                )
+            except Exception:
+                logger.exception("track.event failed to enqueue lead score recalculation client_id=%s", client.id)
         logger.info(
             "track.event created event_id=%s visit_id=%s type=%s visitor_id=%s session_id=%s",
             event.id,

@@ -6,7 +6,17 @@ from clients.models import Client
 
 @admin.register(Client)
 class ClientAdmin(admin.ModelAdmin):
-    list_display = ("id", "name", "uuid", "owner", "is_active", "send_to_telegram", "created_at")
+    list_display = (
+        "id",
+        "name",
+        "uuid",
+        "owner",
+        "is_active",
+        "send_to_telegram",
+        "notification_email",
+        "auto_respond_enabled",
+        "created_at",
+    )
     search_fields = ("name", "owner__email", "api_key")
     list_filter = ("is_active", "created_at")
     ordering = ("-created_at",)
@@ -26,6 +36,13 @@ class ClientAdmin(admin.ModelAdmin):
                     "public_script_snippet",
                     "telegram_chat_id",
                     "send_to_telegram",
+                    "notification_email",
+                    "webhook_url",
+                    "webhook_timeout_seconds",
+                    "auto_respond_enabled",
+                    "auto_respond_subject",
+                    "auto_respond_template",
+                    "stale_lead_hours",
                     "is_active",
                 )
             },

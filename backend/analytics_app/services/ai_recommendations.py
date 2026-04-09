@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 from analytics_app.models import PageView as AnalyticsPageView
 from tracker.models import Event as TrackerEvent
 from tracker.models import Visit
+from tracker.services.client_scope import tracker_event_site_client_q, visit_site_client_q
 
 SCROLL_DEPTH_THRESHOLDS = (25, 50, 75, 100)
 DEVICE_CATEGORIES = ("desktop", "mobile", "tablet", "unknown")
@@ -334,7 +335,7 @@ def _mean(values: list[int | float]) -> float:
 def _collect_period_anomaly_metrics(client, from_dt, to_dt) -> dict[str, Any]:
     rows = (
         TrackerEvent.objects.filter(
-            visit__site__token=client.api_key,
+            tracker_event_site_client_q(client),
             visit__is_bot=False,
             timestamp__gte=from_dt,
             timestamp__lte=to_dt,
@@ -514,7 +515,7 @@ def build_ai_event_signals_payload(client, from_dt, to_dt) -> dict[str, Any]:
 
     tracker_rows = (
         TrackerEvent.objects.filter(
-            visit__site__token=client.api_key,
+            tracker_event_site_client_q(client),
             visit__is_bot=False,
             timestamp__gte=from_dt,
             timestamp__lte=to_dt,
@@ -770,7 +771,7 @@ def build_ai_event_signals_payload(client, from_dt, to_dt) -> dict[str, Any]:
         first_field_counter[field_key] += 1
 
     visits_rows = Visit.objects.filter(
-        site__token=client.api_key,
+        visit_site_client_q(client),
         started_at__gte=from_dt,
         started_at__lte=to_dt,
         is_bot=False,

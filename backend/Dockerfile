@@ -7,12 +7,14 @@ ENV LC_ALL=ru_RU.UTF-8
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends build-essential libpq-dev gettext && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential libpq-dev gettext postgresql-client && rm -rf /var/lib/apt/lists/*
 
 COPY backend/requirements.txt /app/requirements.txt
 # Includes SEO audit runtime deps (beautifulsoup4, lxml) via requirements.txt.
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY backend /app
+RUN chmod +x /app/entrypoint.sh
 
-CMD ["gunicorn", "saas_platform.wsgi:application", "--bind", "0.0.0.0:8000"]
+ENTRYPOINT ["/app/entrypoint.sh"]
+CMD ["web"]

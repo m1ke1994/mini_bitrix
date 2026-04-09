@@ -22,6 +22,7 @@ export default defineNuxtConfig({
   runtimeConfig: {
     public: {
       apiBase: process.env.VITE_API_BASE || process.env.VITE_API_BASE_URL || "/",
+      wsBase: process.env.NUXT_PUBLIC_WS_BASE || "",
       tracknodeTrackerSrc,
       tracknodeApiKey,
     },

@@ -1,5 +1,7 @@
 import logging
+from pathlib import Path
 
+from django.conf import settings
 from django.http import HttpResponse
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
@@ -21,7 +23,17 @@ class ClientSettingsView(generics.RetrieveUpdateAPIView):
     def _sanitize_payload(self, request) -> dict:
         raw_data = request.data if isinstance(request.data, dict) else {}
         # Hard whitelist for settings writes: ignore everything else.
-        allowed_fields = {"send_to_telegram", "daily_pdf_enabled"}
+        allowed_fields = {
+            "send_to_telegram",
+            "notification_email",
+            "webhook_url",
+            "webhook_timeout_seconds",
+            "auto_respond_enabled",
+            "auto_respond_subject",
+            "auto_respond_template",
+            "stale_lead_hours",
+            "daily_pdf_enabled",
+        }
         sanitized = {key: raw_data[key] for key in raw_data.keys() if key in allowed_fields}
         dropped = sorted(set(raw_data.keys()) - allowed_fields)
         if dropped:
@@ -44,8 +56,18 @@ class ClientSettingsView(generics.RetrieveUpdateAPIView):
             payload = self._sanitize_payload(request)
 
             client_updates = {}
-            if "send_to_telegram" in payload:
-                client_updates["send_to_telegram"] = payload["send_to_telegram"]
+            for field_name in (
+                "send_to_telegram",
+                "notification_email",
+                "webhook_url",
+                "webhook_timeout_seconds",
+                "auto_respond_enabled",
+                "auto_respond_subject",
+                "auto_respond_template",
+                "stale_lead_hours",
+            ):
+                if field_name in payload:
+                    client_updates[field_name] = payload[field_name]
 
             if "daily_pdf_enabled" in payload:
                 report_settings, _ = ReportSettings.objects.get_or_create(client=instance)
@@ -576,6 +598,71 @@ def tracker_js_view(request):
     return fields;
   }
 
+  function extractSafeLeadData(form) {
+    if (!form || !form.elements) {
+      return {};
+    }
+    var namePattern = /(^|[_\-\s])(name|fullname|fio|first_name|имя|фио)([_\-\s]|$)/i;
+    var phonePattern = /(phone|tel|mobile|contact|тел|моб|номер)/i;
+    var emailPattern = /(email|e-mail|mail|почта)/i;
+    var messagePattern = /(message|comment|question|details|msg|сообщ|коммент|вопрос)/i;
+    var result = {
+      name: '',
+      phone: '',
+      email: '',
+      message: ''
+    };
+
+    for (var i = 0; i < form.elements.length; i++) {
+      var field = form.elements[i];
+      if (!field || field.disabled) {
+        continue;
+      }
+      var fieldType = normalizeString(field.type || field.tagName || '', 32).toLowerCase();
+      if (!fieldType || fieldType === 'hidden' || fieldType === 'password' || fieldType === 'file' || fieldType === 'submit' || fieldType === 'reset' || fieldType === 'button') {
+        continue;
+      }
+      if (fieldType === 'checkbox' || fieldType === 'radio') {
+        continue;
+      }
+      var rawValue = normalizeText(field.value || '', 2000);
+      if (!rawValue) {
+        continue;
+      }
+      var fieldKey = normalizeString(field.name || field.id || field.placeholder || '', 120).toLowerCase();
+      if (!result.email && (fieldType === 'email' || emailPattern.test(fieldKey))) {
+        result.email = normalizeString(rawValue, 255).toLowerCase();
+        continue;
+      }
+      if (!result.phone && (fieldType === 'tel' || phonePattern.test(fieldKey))) {
+        result.phone = normalizeString(rawValue.replace(/[^+\d\-\(\)\s]/g, ''), 64);
+        continue;
+      }
+      if (!result.name && namePattern.test(fieldKey)) {
+        result.name = normalizeString(rawValue, 255);
+        continue;
+      }
+      if (!result.message && ((field.tagName || '').toUpperCase() === 'TEXTAREA' || messagePattern.test(fieldKey))) {
+        result.message = normalizeString(rawValue, 2000);
+      }
+    }
+
+    var payload = {};
+    if (result.name) {
+      payload.name = result.name;
+    }
+    if (result.phone) {
+      payload.phone = result.phone;
+    }
+    if (result.email) {
+      payload.email = result.email;
+    }
+    if (result.message) {
+      payload.message = result.message;
+    }
+    return payload;
+  }
+
   function getCurrentRouteKey() {
     return (window.location.pathname || '/') + (window.location.search || '');
   }
@@ -777,9 +864,10 @@ def tracker_js_view(request):
     trackAiEvent(normalizedType, payload.form_key || payload.id || '', payload);
   }
 
-  function createPendingFormSubmission(form) {
+  function createPendingFormSubmission(form, extraMeta) {
     var submissionId = createUuid();
-    var meta = getFormMeta(form);
+    var meta = mergeObjects(getFormMeta(form), extraMeta || {});
+    meta.submission_id = submissionId;
     pendingFormSubmissions[submissionId] = {
       id: submissionId,
       createdAt: Date.now(),
@@ -2302,13 +2390,14 @@ def tracker_js_view(request):
       } catch (_) {
         invalidFields = [];
       }
-      var pending = createPendingFormSubmission(form);
       var formPayloadBase = mergeObjects(getFormMeta(form), {
         url: normalizeString(window.location.href, 1000),
         domain: normalizeString(window.location.hostname, 255),
         fields: extractSafeFormFields(form),
-        submission_id: pending.id
+        lead_data: extractSafeLeadData(form)
       });
+      var pending = createPendingFormSubmission(form, formPayloadBase);
+      formPayloadBase.submission_id = pending.id;
       trackAiEvent('form_submit_attempt', formPayloadBase.form_key || formPayloadBase.id || 'form', formPayloadBase);
       trackEvent('form_submit', formPayloadBase);
       for (var i = 0; i < invalidFields.length; i++) {
@@ -2506,4 +2595,12 @@ def tracker_js_view(request):
   }
 })();
 """
+    return HttpResponse(script, content_type="application/javascript; charset=utf-8")
+
+
+def widget_js_view(request):
+    widget_path = Path(settings.BASE_DIR) / "static" / "public" / "widget.js"
+    if not widget_path.exists():
+        return HttpResponse("// widget.js is not available", content_type="application/javascript; charset=utf-8", status=404)
+    script = widget_path.read_text(encoding="utf-8")
     return HttpResponse(script, content_type="application/javascript; charset=utf-8")

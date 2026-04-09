@@ -7,6 +7,7 @@ from analytics_app.models import Event
 from leads.models import Lead
 from tracker.models import Event as TrackerEvent
 from tracker.models import Visit
+from tracker.services.client_scope import tracker_event_site_client_q, visit_site_client_q
 
 
 def default_period_days(days: int = 14):
@@ -27,7 +28,7 @@ def get_metrics(client, date_from, date_to):
     from_dt, to_dt = period_bounds(date_from, date_to)
 
     visits_qs = Visit.objects.filter(
-        site__token=client.api_key,
+        visit_site_client_q(client),
         started_at__gte=from_dt,
         started_at__lte=to_dt,
         is_bot=False,
@@ -51,7 +52,7 @@ def get_metrics(client, date_from, date_to):
         created_at__lte=to_dt,
     )
     notified_qs = TrackerEvent.objects.filter(
-        visit__site__token=client.api_key,
+        tracker_event_site_client_q(client),
         type="form_submit",
         timestamp__gte=from_dt,
         timestamp__lte=to_dt,

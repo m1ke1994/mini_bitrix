@@ -9,6 +9,7 @@ from analytics_app.services.metrics import get_metrics
 from leads.models import Lead
 from leads.serializers import LeadSerializer
 from tracker.models import Visit
+from tracker.services.client_scope import visit_site_client_q
 
 
 def _count_map(queryset, date_field, value_field="id", distinct=False):
@@ -26,7 +27,12 @@ def build_full_report(client, date_from, date_to):
     from_dt = metrics["from_dt"]
     to_dt = metrics["to_dt"]
 
-    visits_qs = Visit.objects.filter(site__token=client.api_key, started_at__gte=from_dt, started_at__lte=to_dt, is_bot=False)
+    visits_qs = Visit.objects.filter(
+        visit_site_client_q(client),
+        started_at__gte=from_dt,
+        started_at__lte=to_dt,
+        is_bot=False,
+    )
     page_views_qs = PageView.objects.filter(client=client, created_at__gte=from_dt, created_at__lte=to_dt)
     forms_qs = Event.objects.filter(
         client=client,

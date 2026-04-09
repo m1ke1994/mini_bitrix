@@ -2,11 +2,17 @@ from django.db.models import Count
 
 from analytics_app.services.metrics import period_bounds
 from tracker.models import Visit
+from tracker.services.client_scope import visit_site_client_q
 
 
 def get_device_distribution(client, date_from, date_to):
     from_dt, to_dt = period_bounds(date_from, date_to)
-    visits_qs = Visit.objects.filter(site__token=client.api_key, started_at__gte=from_dt, started_at__lte=to_dt, is_bot=False)
+    visits_qs = Visit.objects.filter(
+        visit_site_client_q(client),
+        started_at__gte=from_dt,
+        started_at__lte=to_dt,
+        is_bot=False,
+    )
 
     device_rows = (
         visits_qs.values("device_type")
