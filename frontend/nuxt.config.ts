@@ -1,5 +1,11 @@
+import { getLandingBlogPosts, getLandingCases } from "./src/data/landing.js";
+
 const tracknodeTrackerSrc = process.env.NUXT_PUBLIC_TRACKNODE_TRACKER_SRC || "https://tracknode.ru/tracker.js";
 const tracknodeApiKey = process.env.NUXT_PUBLIC_TRACKNODE_API_KEY || "";
+const BASE_PUBLIC_SEO_ROUTES = ["/", "/seo-audit", "/website-analytics", "/cases", "/pricing", "/blog", "/contacts"];
+const CASE_DETAIL_ROUTES = getLandingCases().map((item) => `/cases/${item.slug}`);
+const BLOG_DETAIL_ROUTES = getLandingBlogPosts().map((item) => `/blog/${item.slug}`);
+const PRERENDER_SEO_ROUTES = [...new Set([...BASE_PUBLIC_SEO_ROUTES, ...CASE_DETAIL_ROUTES, ...BLOG_DETAIL_ROUTES])];
 
 export default defineNuxtConfig({
   srcDir: "src/",
@@ -22,10 +28,15 @@ export default defineNuxtConfig({
   },
   nitro: {
     compressPublicAssets: true,
+    prerender: {
+      crawlLinks: false,
+      routes: PRERENDER_SEO_ROUTES,
+    },
   },
   routeRules: {
     "/": {
       ssr: true,
+      prerender: true,
       headers: {
         "Cache-Control": "public, s-maxage=900, stale-while-revalidate=3600",
       },
@@ -38,48 +49,56 @@ export default defineNuxtConfig({
     },
     "/seo-audit": {
       ssr: true,
+      prerender: true,
       headers: {
         "Cache-Control": "public, s-maxage=900, stale-while-revalidate=3600",
       },
     },
     "/website-analytics": {
       ssr: true,
+      prerender: true,
       headers: {
         "Cache-Control": "public, s-maxage=900, stale-while-revalidate=3600",
       },
     },
     "/cases": {
       ssr: true,
+      prerender: true,
       headers: {
         "Cache-Control": "public, s-maxage=900, stale-while-revalidate=3600",
       },
     },
     "/cases/**": {
       ssr: true,
+      prerender: true,
       headers: {
         "Cache-Control": "public, s-maxage=900, stale-while-revalidate=3600",
       },
     },
     "/pricing": {
       ssr: true,
+      prerender: true,
       headers: {
         "Cache-Control": "public, s-maxage=900, stale-while-revalidate=3600",
       },
     },
     "/blog": {
       ssr: true,
+      prerender: true,
       headers: {
         "Cache-Control": "public, s-maxage=900, stale-while-revalidate=3600",
       },
     },
     "/blog/**": {
       ssr: true,
+      prerender: true,
       headers: {
         "Cache-Control": "public, s-maxage=900, stale-while-revalidate=3600",
       },
     },
     "/contacts": {
       ssr: true,
+      prerender: true,
       headers: {
         "Cache-Control": "public, s-maxage=900, stale-while-revalidate=3600",
       },

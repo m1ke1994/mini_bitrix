@@ -22,8 +22,16 @@
             Запустите аудит домена, чтобы увидеть технические проблемы, точки роста и приоритеты исправлений.
           </p>
         </div>
-        <button type="button" class="seo-export-btn" :disabled="!canExport" @click="exportReport">
-          {{ exporting ? "Подготовка..." : "Экспортировать отчёт" }}
+        <button
+          type="button"
+          class="seo-export-btn"
+          :class="{ 'is-busy': exporting }"
+          :aria-busy="exporting ? 'true' : 'false'"
+          :disabled="!canExport"
+          @click="exportReport"
+        >
+          <span v-if="exporting" class="btn-spinner" aria-hidden="true"></span>
+          <span class="seo-btn-label">{{ exporting ? "Подготовка..." : "Экспортировать отчёт" }}</span>
         </button>
       </div>
 
@@ -42,15 +50,25 @@
         <button
           type="button"
           class="seo-start-btn"
-          :class="{ 'is-busy': isInProgress }"
+          :class="{ 'is-busy': isInProgress || starting }"
+          :aria-busy="starting || isInProgress ? 'true' : 'false'"
           :disabled="!canStartAudit"
           @click="startAudit"
         >
-          {{ starting ? "Запуск..." : "Запустить аудит" }}
+          <span v-if="starting" class="btn-spinner" aria-hidden="true"></span>
+          <span class="seo-btn-label">{{ starting ? "Запуск..." : "Запустить аудит" }}</span>
         </button>
 
-        <button type="button" class="seo-stop-btn" :disabled="!canStopAudit" @click="stopAudit">
-          {{ stopping ? "Остановка..." : "Остановить аудит" }}
+        <button
+          type="button"
+          class="seo-stop-btn"
+          :class="{ 'is-busy': stopping }"
+          :aria-busy="stopping ? 'true' : 'false'"
+          :disabled="!canStopAudit"
+          @click="stopAudit"
+        >
+          <span v-if="stopping" class="btn-spinner" aria-hidden="true"></span>
+          <span class="seo-btn-label">{{ stopping ? "Остановка..." : "Остановить аудит" }}</span>
         </button>
       </div>
 
@@ -75,10 +93,13 @@
         <button
           type="button"
           class="seo-ai-refresh-btn"
+          :class="{ 'is-busy': seoAiLoading }"
+          :aria-busy="seoAiLoading ? 'true' : 'false'"
           :disabled="!canRunSeoAiAnalysis"
           @click="runSeoAiAnalysis"
         >
-          {{ seoAiLoading ? "Анализ..." : "Запустить AI-анализ SEO" }}
+          <span v-if="seoAiLoading" class="btn-spinner" aria-hidden="true"></span>
+          <span class="seo-btn-label">{{ seoAiLoading ? "Анализ..." : "Запустить AI-анализ SEO" }}</span>
         </button>
       </div>
 
@@ -95,7 +116,8 @@
         </div>
       </template>
 
-      <p v-else-if="seoAiLoading" class="muted">
+      <p v-else-if="seoAiLoading" class="muted seo-ai-loading-indicator" role="status" aria-live="polite">
+        <span class="seo-spinner" aria-hidden="true"></span>
         Анализируем результаты аудита и формируем рекомендации...
       </p>
 
@@ -106,7 +128,7 @@
         </div>
 
         <div class="seo-ai-summary-box">
-          <p class="seo-ai-summary">{{ seoAiRecommendations.summary }}</p>
+          <p class="seo-ai-summary">{{ seoAiSummaryText }}</p>
 
           <div class="seo-ai-meta">
             <span class="priority-pill" :class="seoAiPriorityClass(seoAiRecommendations.priority)">
@@ -206,10 +228,13 @@
         <button
           type="button"
           class="seo-ai-refresh-btn seo-ai-retry-btn"
+          :class="{ 'is-busy': seoAiLoading }"
+          :aria-busy="seoAiLoading ? 'true' : 'false'"
           :disabled="!canRunSeoAiAnalysis"
           @click="runSeoAiAnalysis"
         >
-          {{ seoAiLoading ? "Анализ..." : "Повторить запрос" }}
+          <span v-if="seoAiLoading" class="btn-spinner" aria-hidden="true"></span>
+          <span class="seo-btn-label">{{ seoAiLoading ? "Анализ..." : "Повторить запрос" }}</span>
         </button>
       </div>
     </div>
@@ -611,8 +636,8 @@
             <thead>
               <tr>
                 <th>URL</th>
-                <th>Мета-тег robots</th>
-                <th>Canonical URL</th>
+                <th>Правило индексации (meta robots)</th>
+                <th>Основной адрес страницы (canonical)</th>
                 <th>Индексация</th>
                 <th>В sitemap</th>
                 <th>Блок robots</th>
@@ -622,8 +647,8 @@
             <tbody>
               <tr v-for="page in pages" :key="`indexing-${page.id}`">
                 <td data-label="URL" class="url-cell">{{ page.url }}</td>
-                <td data-label="Мета-тег robots">{{ page.meta_robots || "—" }}</td>
-                <td data-label="Canonical URL" class="url-cell">{{ page.canonical_url || "—" }}</td>
+                <td data-label="Правило индексации (meta robots)">{{ page.meta_robots || "—" }}</td>
+                <td data-label="Основной адрес страницы (canonical)" class="url-cell">{{ page.canonical_url || "—" }}</td>
                 <td data-label="Индексация">
                   <span class="severity-pill" :class="indexabilityStatusClass(page.indexability_status)">
                     {{ indexabilityStatusLabel(page.indexability_status) }}
@@ -674,8 +699,8 @@
                 <th>Title</th>
                 <th>Длина Title</th>
                 <th>Длина Description</th>
-                <th>H1</th>
-                <th>Количество H1</th>
+                <th>Главный заголовок страницы (H1)</th>
+                <th>Сколько главных заголовков (H1)</th>
                 <th>Слов</th>
               </tr>
             </thead>
@@ -686,8 +711,8 @@
                 <td data-label="Title">{{ page.title || "—" }}</td>
                 <td data-label="Длина Title">{{ page.title_length }}</td>
                 <td data-label="Длина Description">{{ page.description_length }}</td>
-                <td data-label="H1">{{ page.h1 || "—" }}</td>
-                <td data-label="Количество H1">{{ page.h1_count }}</td>
+                <td data-label="Главный заголовок страницы (H1)">{{ page.h1 || "—" }}</td>
+                <td data-label="Сколько главных заголовков (H1)">{{ page.h1_count }}</td>
                 <td data-label="Слов">{{ page.word_count }}</td>
               </tr>
               <tr v-if="!pages.length">
@@ -813,6 +838,21 @@ const issueFilters = [
   { value: "other", label: "Прочее" },
 ];
 
+const TECH_TERM_HINTS = [
+  { pattern: /\bCTA\b(?!\))/gi, replacement: "призыв к действию (текст кнопки или ссылки)" },
+  { pattern: /\bSTA\b(?!\))/gi, replacement: "призыв к действию (текст кнопки или ссылки)" },
+  { pattern: /\bmeta\s+description\b(?!\))/gi, replacement: "описание страницы в поиске (meta description)" },
+  { pattern: /\bmeta\s+robots\b(?!\))/gi, replacement: "правило индексации страницы (meta robots)" },
+  { pattern: /\bcanonical\b(?!\))/gi, replacement: "основной адрес страницы (canonical)" },
+  { pattern: /\bindexation\b/gi, replacement: "индексация" },
+  { pattern: /\bredirect\s+chain\b(?!\))/gi, replacement: "цепочка перенаправлений (redirect chain)" },
+  { pattern: /\bTTFB\b(?!\))/g, replacement: "время до первого ответа сервера (TTFB)" },
+  { pattern: /\bH1\b(?!\))/g, replacement: "главный заголовок страницы (H1)" },
+  { pattern: /\balt\b(?!\))/gi, replacement: "текстовое описание изображения (alt)" },
+  { pattern: /\bnoindex\b(?!\))/gi, replacement: "запрет индексации страницы (noindex)" },
+  { pattern: /\bnofollow\b(?!\))/gi, replacement: "ограничение передачи веса по ссылкам (nofollow)" },
+];
+
 const seoSectionNavItems = [
   { id: "seo-overview", label: "SEO-аудит сайта" },
   { id: "seo-compare", label: "Сравнение аудитов" },
@@ -855,10 +895,10 @@ const {
 });
 
 const collapsed = ref({
-  speed: true,
-  indexing: true,
-  pages: true,
-  errors: true,
+  speed: false,
+  indexing: false,
+  pages: false,
+  errors: false,
 });
 
 let pollTimer = null;
@@ -963,8 +1003,9 @@ const seoAiResponse = computed(() =>
 );
 
 const seoAiResultMode = computed(() => {
-  if (isAiResponse(seoAiResponse.value)) return "success-ai";
   if (isFallbackResponse(seoAiResponse.value)) return "success-fallback";
+  if (isAiResponse(seoAiResponse.value)) return "success-ai";
+  if (hasStructuredSeoAiContent(seoAiResponse.value)) return "success-ai";
   if (isErrorResponse(seoAiResponse.value)) return "hard-error";
   return "hard-error";
 });
@@ -979,8 +1020,14 @@ const seoAiSourceLabel = computed(() => {
   if (seoAiResultMode.value === "success-fallback") return "Fallback";
   const source = String(seoAiResponse.value?.source || "").trim().toLowerCase();
   if (source === "fallback") return "Fallback";
-  if (source === "ai") return "AI";
+  if (source === "ai" || source === "openai") return "AI";
   return "Не определён";
+});
+
+const seoAiSummaryText = computed(() => {
+  const summary = String(seoAiRecommendations.value?.summary || "").trim();
+  if (summary) return humanizeRecommendationText(summary);
+  return "Краткие рекомендации по исправлению SEO-проблем.";
 });
 
 const seoAiFallbackBannerMessage = computed(() => {
@@ -1028,7 +1075,11 @@ const seoAiOverviewChips = computed(() => {
     .filter((item) => Boolean(item));
 });
 
-const seoAiHighlights = computed(() => normalizeTextList(seoAiRecommendations.value?.highlights, 5));
+const seoAiHighlights = computed(() =>
+  normalizeTextList(seoAiRecommendations.value?.highlights, 5)
+    .map((item) => humanizeRecommendationText(item))
+    .filter((item) => Boolean(item)),
+);
 
 const seoAiMetricsReview = computed(() => {
   if (!Array.isArray(seoAiRecommendations.value?.metrics_review)) return [];
@@ -1037,7 +1088,7 @@ const seoAiMetricsReview = computed(() => {
       label: String(item?.label || "").trim(),
       value: String(item?.value || "").trim(),
       status: normalizeSeoMetricStatus(item?.status),
-      comment: String(item?.comment || "").trim(),
+      comment: humanizeRecommendationText(item?.comment || ""),
     }))
     .filter((item) => item.label && item.value)
     .slice(0, 8);
@@ -1047,9 +1098,9 @@ const seoAiProblems = computed(() => {
   if (!Array.isArray(seoAiRecommendations.value?.problems)) return [];
   return seoAiRecommendations.value.problems
     .map((item) => ({
-      title: String(item?.title || "").trim(),
+      title: humanizeRecommendationText(item?.title || ""),
       severity: normalizeSeverity(item?.severity),
-      description: String(item?.description || "").trim(),
+      description: humanizeRecommendationText(item?.description || ""),
     }))
     .filter((item) => item.title)
     .slice(0, 8);
@@ -1062,8 +1113,8 @@ const seoAiFixPlan = computed(() => {
       const step = Number(item?.step ?? index + 1);
       return {
         step: Number.isFinite(step) && step > 0 ? Math.round(step) : index + 1,
-        title: String(item?.title || "").trim(),
-        details: String(item?.details || "").trim(),
+        title: humanizeRecommendationText(item?.title || ""),
+        details: humanizeRecommendationText(item?.details || ""),
       };
     })
     .filter((item) => item.title)
@@ -1072,9 +1123,21 @@ const seoAiFixPlan = computed(() => {
 });
 
 const seoAiActionItems = computed(() => {
-  const structured = normalizeTextList(seoAiRecommendations.value?.recommendations, 7);
-  if (structured.length) return structured;
-  return normalizeTextList(seoAiRecommendations.value?.items, 7);
+  const compactRows = normalizeSeoRecommendationRows(seoAiRecommendations.value?.recommendations, 10);
+  if (compactRows.length) {
+    return compactRows.map((item) => {
+      const problem = humanizeRecommendationText(item.problem);
+      const fix = humanizeRecommendationText(item.fix);
+      return `${problem}: ${fix}`;
+    });
+  }
+  const structured = normalizeTextList(seoAiRecommendations.value?.recommendations, 10);
+  if (structured.length) {
+    return structured.map((item) => humanizeRecommendationText(item)).filter((item) => Boolean(item));
+  }
+  return normalizeTextList(seoAiRecommendations.value?.items, 7)
+    .map((item) => humanizeRecommendationText(item))
+    .filter((item) => Boolean(item));
 });
 
 const scoreClass = computed(() => scoreClassByValue(scoreValue.value));
@@ -1154,6 +1217,34 @@ function normalizeTextList(rows, maxItems = 7) {
     .slice(0, maxItems);
 }
 
+function humanizeRecommendationText(value) {
+  let text = String(value || "").trim();
+  if (!text) return "";
+  for (const hint of TECH_TERM_HINTS) {
+    text = text.replace(hint.pattern, hint.replacement);
+  }
+  return text.replace(/\s{2,}/g, " ").trim();
+}
+
+function normalizeSeoRecommendationRows(rows, maxItems = 10) {
+  if (!Array.isArray(rows)) return [];
+  const normalized = rows
+    .map((item) => ({
+      problem: String(item?.problem || item?.title || "").trim(),
+      severity: normalizeSeverity(item?.severity),
+      fix: String(item?.fix || item?.recommendation || item?.details || "").trim(),
+    }))
+    .filter((item) => item.problem && item.fix)
+    .slice(0, maxItems);
+  return normalized.sort((left, right) => {
+    const weight = { high: 0, medium: 1, low: 2 };
+    const leftWeight = weight[left.severity] ?? 3;
+    const rightWeight = weight[right.severity] ?? 3;
+    if (leftWeight !== rightWeight) return leftWeight - rightWeight;
+    return left.problem.localeCompare(right.problem);
+  });
+}
+
 function hasStructuredSeoAiContent(payload) {
   if (!payload || typeof payload !== "object") return false;
   const overview = payload.overview && typeof payload.overview === "object" ? payload.overview : null;
@@ -1162,24 +1253,53 @@ function hasStructuredSeoAiContent(payload) {
   const hasMetrics = Array.isArray(payload.metrics_review) && payload.metrics_review.length > 0;
   const hasProblems = Array.isArray(payload.problems) && payload.problems.length > 0;
   const hasFixPlan = Array.isArray(payload.fix_plan) && payload.fix_plan.length > 0;
-  const hasRecommendations = normalizeTextList(payload.recommendations, 1).length > 0;
+  const hasRecommendations =
+    normalizeSeoRecommendationRows(payload.recommendations, 1).length > 0 ||
+    normalizeTextList(payload.recommendations, 1).length > 0;
   const hasItems = normalizeTextList(payload.items, 1).length > 0;
-  return hasOverview || hasHighlights || hasMetrics || hasProblems || hasFixPlan || hasRecommendations || hasItems;
+  const hasSummary = Boolean(String(payload.summary || payload.user_message || "").trim());
+  return (
+    hasOverview ||
+    hasHighlights ||
+    hasMetrics ||
+    hasProblems ||
+    hasFixPlan ||
+    hasRecommendations ||
+    hasItems ||
+    hasSummary
+  );
+}
+
+function normalizeBooleanFlag(value, defaultValue = false) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value !== 0;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["1", "true", "yes", "ok", "success"].includes(normalized)) return true;
+    if (["0", "false", "no", "none", "null", ""].includes(normalized)) return false;
+  }
+  return defaultValue;
+}
+
+function resolveResponseSource(payload) {
+  return String(payload?.source || "").trim().toLowerCase();
 }
 
 function isAiResponse(payload) {
   if (!payload || typeof payload !== "object") return false;
-  const source = String(payload.source || "").trim().toLowerCase();
-  if (source !== "ai") return false;
-  return Boolean(payload.success) || hasStructuredSeoAiContent(payload);
+  const source = resolveResponseSource(payload);
+  const hasContent = hasStructuredSeoAiContent(payload);
+  const fallbackFlag = normalizeBooleanFlag(payload.fallback, source === "fallback");
+  const successFlag = normalizeBooleanFlag(payload.success, source === "ai" || source === "openai");
+  if (fallbackFlag || source === "fallback") return false;
+  if (source === "ai" || source === "openai") return successFlag || hasContent;
+  return successFlag && hasContent;
 }
 
 function isFallbackResponse(payload) {
   if (!payload || typeof payload !== "object") return false;
-  const source = String(payload.source || "").trim().toLowerCase();
-  const fallbackFlag = Boolean(payload.fallback) || source === "fallback";
-  if (!fallbackFlag) return false;
-  return hasStructuredSeoAiContent(payload);
+  const source = resolveResponseSource(payload);
+  return normalizeBooleanFlag(payload.fallback, source === "fallback");
 }
 
 function isErrorResponse(payload) {
@@ -1557,15 +1677,29 @@ async function exportReport() {
     if (selected) params.with_audit_id = selected;
     const response = await api.get(`/api/seo/${auditId.value}/export/`, {
       params,
-      headers: { Accept: "text/csv" },
+      headers: { Accept: "application/pdf" },
+      responseType: "blob",
     });
     const contentDisposition = response?.headers?.get?.("content-disposition") || "";
-    const match = /filename=\"?([^\";]+)\"?/i.exec(contentDisposition);
-    const filename = match?.[1] || `seo-audit-${auditId.value}.csv`;
-    let payload = response?.data;
-    if (typeof payload === "undefined" || payload === null) payload = "";
-    if (typeof payload !== "string") payload = JSON.stringify(payload, null, 2);
-    const blob = new Blob([payload], { type: "text/csv;charset=utf-8;" });
+    const utf8Match = /filename\*=UTF-8''([^;]+)/i.exec(contentDisposition);
+    const plainMatch = /filename=\"?([^\";]+)\"?/i.exec(contentDisposition);
+    let filename = utf8Match?.[1] || plainMatch?.[1] || "";
+    try {
+      filename = decodeURIComponent(filename);
+    } catch {
+      // keep original name
+    }
+    if (!filename) filename = `seo-audit-${auditId.value}.pdf`;
+    if (!String(filename).toLowerCase().endsWith(".pdf")) filename = `${filename}.pdf`;
+
+    const payload = response?.data;
+    const blob =
+      payload instanceof Blob
+        ? payload
+        : new Blob([payload], {
+            type: "application/pdf",
+          });
+
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
@@ -1688,10 +1822,10 @@ onBeforeUnmount(() => {
 
 .seo-input,
 .seo-select {
-  min-height: 2.8rem;
+  min-height: 2.65rem;
   border-radius: 0.75rem;
   border: 1px solid var(--color-border);
-  padding: 0.6rem 0.85rem;
+  padding: 0.52rem 0.82rem;
   font: inherit;
   width: 100%;
   background: #fff;
@@ -1712,10 +1846,15 @@ onBeforeUnmount(() => {
 .seo-ai-refresh-btn,
 .collapse-btn,
 .issue-pages-toggle {
-  min-height: 2.75rem;
-  border-radius: 0.75rem;
+  min-height: 2.4rem;
+  border-radius: 0.68rem;
   border: 1px solid var(--color-border);
-  padding: 0 1rem;
+  padding: 0.42rem 0.82rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.46rem;
+  font-size: 0.9rem;
   font-weight: 700;
   cursor: pointer;
   background: #fff;
@@ -1743,6 +1882,13 @@ onBeforeUnmount(() => {
 .seo-start-btn.is-busy {
   background: linear-gradient(135deg, #64748b, #334155);
   box-shadow: none;
+}
+
+.seo-stop-btn.is-busy,
+.seo-export-btn.is-busy,
+.seo-ai-refresh-btn.is-busy,
+.seo-compare-btn.is-busy {
+  cursor: progress;
 }
 
 .seo-stop-btn {
@@ -1793,6 +1939,33 @@ onBeforeUnmount(() => {
   border: 2px solid #bfdbfe;
   border-top-color: #1d4ed8;
   animation: seo-spin 0.9s linear infinite;
+}
+
+.btn-spinner {
+  width: 0.86rem;
+  height: 0.86rem;
+  border-radius: 999px;
+  border: 2px solid currentColor;
+  border-right-color: rgba(15, 23, 42, 0.2);
+  animation: seo-spin 0.75s linear infinite;
+  flex-shrink: 0;
+}
+
+.seo-start-btn .btn-spinner {
+  border-color: rgba(255, 255, 255, 0.95);
+  border-right-color: rgba(255, 255, 255, 0.35);
+}
+
+.seo-stop-btn .btn-spinner {
+  border-color: #b91c1c;
+  border-right-color: rgba(239, 68, 68, 0.32);
+}
+
+.seo-ai-loading-indicator {
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .seo-hint {
@@ -2016,9 +2189,10 @@ onBeforeUnmount(() => {
 
 .seo-ai-card {
   margin-top: 0.85rem;
-  background: linear-gradient(180deg, #f7fbff 0%, #fdfefe 100%);
-  border: 1px solid #dbeafe;
-  box-shadow: 0 12px 30px rgba(59, 130, 246, 0.05);
+  background: linear-gradient(180deg, #f5faff 0%, #fcfeff 100%);
+  border: 1px solid #bfdbfe;
+  border-left: 4px solid #60a5fa;
+  box-shadow: 0 14px 32px rgba(37, 99, 235, 0.08);
   position: relative;
   overflow: hidden;
 }

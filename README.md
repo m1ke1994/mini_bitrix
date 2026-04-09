@@ -32,6 +32,59 @@ Production-ready MVP SaaS:
    - `python manage.py migrate`
    - `python manage.py createsuperuser`
 
+## Ollama Local AI Provider
+
+This project supports two AI providers for recommendations:
+
+- `ollama` (default)
+- `openai`
+
+### Start with Docker Compose
+
+1. Ensure `.env` contains:
+   - `AI_PROVIDER=ollama`
+   - `OLLAMA_BASE_URL=http://ollama:11434`
+   - `OLLAMA_MODEL_SEO=qwen2.5:7b`
+   - `OLLAMA_MODEL_CONVERSION=qwen2.5:7b`
+2. Start services:
+   - `docker compose up -d --build`
+3. Check Ollama availability:
+   - `curl http://localhost:11434/api/tags`
+
+### Pull `qwen2.5:7b`
+
+Models are pulled by one-time `ollama_init` service automatically.
+You can also pull manually:
+
+- `docker compose exec ollama ollama pull qwen2.5:7b`
+
+### Warm Up Model
+
+Warm up configured Ollama models from the Django container:
+
+- `docker compose exec web python manage.py warmup_ollama`
+
+### Switch Provider
+
+- Use Ollama:
+  - `AI_PROVIDER=ollama`
+- Use OpenAI:
+  - `AI_PROVIDER=openai`
+  - `OPENAI_API_KEY=<your_key>`
+
+### Common Issues
+
+- Model is not downloaded:
+  - run `docker compose logs -f ollama_init` and `docker compose exec ollama ollama list`
+- First response is slow:
+  - this is expected on first load; run warmup command to preload models
+- Not enough RAM:
+  - use a smaller model or increase Docker memory limit
+- Timeout errors:
+  - increase `OLLAMA_REQUEST_TIMEOUT_SECONDS`
+- Ollama service is unavailable:
+  - verify `OLLAMA_BASE_URL`, service name `ollama`, and `docker compose logs -f ollama`
+
 ## Tests
 
 Backend tests include:

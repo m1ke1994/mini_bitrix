@@ -21,6 +21,12 @@ MAX_HIGHLIGHTS = 5
 MAX_METRICS_REVIEW = 8
 MAX_PROBLEMS = 8
 MAX_FIX_PLAN = 7
+MAX_SEO_RECOMMENDATIONS = 10
+MAX_SEO_PROMPT_PROBLEMS = 14
+MAX_SEO_PAGES_PER_PROBLEM = 2
+MAX_OUTPUT_DIAGNOSTIC_ITEMS = 12
+MAX_TEXT_DIAGNOSTIC_PATHS = 20
+MAX_LOG_TEXT_PREVIEW = 200
 
 
 @dataclass
@@ -36,6 +42,13 @@ class OpenAIRequestError(Exception):
 
     def __str__(self) -> str:
         return self.message
+
+
+@dataclass
+class OutputTextExtraction:
+    text: str
+    path: str
+    candidate_paths: list[str]
 
 
 def _cache_get_safe(cache_key: str) -> dict[str, Any] | None:
@@ -89,6 +102,43 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
         return float(value or 0.0)
     except Exception:
         return default
+
+
+def _safe_int_setting(name: str, default: int) -> int:
+    try:
+        return int(getattr(settings, name, default) or default)
+    except Exception:
+        return default
+
+
+def _resolve_max_output_tokens(module: str) -> int:
+    fallback = _safe_int_setting("AI_RECOMMENDATIONS_MAX_OUTPUT_TOKENS", 900)
+    module_key = str(module or "").strip().lower()
+    if module_key == "seo":
+        return max(256, _safe_int_setting("AI_RECOMMENDATIONS_MAX_OUTPUT_TOKENS_SEO", 700))
+    if module_key == "conversion":
+        return max(
+            256,
+            _safe_int_setting("AI_RECOMMENDATIONS_MAX_OUTPUT_TOKENS_CONVERSION", fallback),
+        )
+    return max(256, fallback)
+
+
+def _resolve_retry_max_output_tokens(module: str, base_tokens: int) -> int:
+    base = max(256, int(base_tokens or 0))
+    default_cap = 1200 if str(module or "").strip().lower() == "seo" else 2000
+    retry_cap = max(base, _safe_int_setting("AI_RECOMMENDATIONS_MAX_OUTPUT_TOKENS_RETRY_CAP", default_cap))
+    retry_candidate = max(base + 150, int(base * 1.35))
+    return min(retry_candidate, retry_cap)
+
+
+def _truncate_for_log(value: Any, *, limit: int = MAX_LOG_TEXT_PREVIEW) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if len(text) <= limit:
+        return text
+    return f"{text[:limit]}..."
 
 
 def _normalize_text_list(value: Any, *, max_items: int, max_len: int = 260) -> list[str]:
@@ -293,14 +343,14 @@ def _build_seo_default_metrics_review(payload: dict[str, Any]) -> list[dict[str,
 def _default_recommendation_for_issue(issue_type: str, title: str) -> str:
     issue_key = str(issue_type or "").strip().lower()
     mapping = {
-        "missing_title": "Добавьте уникальные title на приоритетные страницы с коммерческим трафиком.",
-        "missing_description": "Заполните meta description с понятным оффером и релевантными ключевыми фразами.",
-        "missing_h1": "Добавьте уникальный H1, отражающий основной поисковый интент страницы.",
-        "missing_canonical": "Укажите canonical на страницах с риском дублей, чтобы консолидировать индекс.",
+        "missing_title": "Добавьте уникальные заголовки страниц в поиске (title) на приоритетные страницы с трафиком.",
+        "missing_description": "Заполните описание страницы для поиска (meta description): коротко, понятно и по смыслу страницы.",
+        "missing_h1": "Добавьте один понятный главный заголовок страницы (H1), чтобы пользователь сразу видел тему страницы.",
+        "missing_canonical": "Укажите основной адрес страницы (canonical), чтобы убрать дубли и не распылять результаты индексации.",
         "low_word_count": "Усилите контент: добавьте полезные блоки и ответы на вопросы пользователя.",
         "thin_content": "Расширьте слабый контент, чтобы покрыть интент и повысить релевантность страницы.",
-        "missing_alt": "Добавьте alt-теги к изображениям с коротким описанием содержания.",
-        "slow_ttfb": "Проверьте серверный отклик и настройте кеширование/CDN для снижения задержки.",
+        "missing_alt": "Добавьте текстовые описания изображений (alt), чтобы поисковые системы понимали, что показано на картинке.",
+        "slow_ttfb": "Сервер отвечает слишком долго (TTFB). Проверьте кеширование, базу данных и серверные настройки.",
         "slow_response": "Оптимизируйте ресурсы страницы и устраните тяжёлые скрипты для ускорения загрузки.",
     }
     if issue_key in mapping:
@@ -337,14 +387,14 @@ def _build_seo_default_problems(payload: dict[str, Any]) -> list[dict[str, str]]
 
     generated: list[dict[str, str]] = []
     status_checks = [
-        ("title_status", "Проблемы с title"),
-        ("description_status", "Проблемы с description"),
-        ("h1_status", "Проблемы с H1"),
-        ("canonical_status", "Проблемы с canonical"),
+        ("title_status", "Проблемы с заголовком страницы в поиске (title)"),
+        ("description_status", "Проблемы с описанием страницы в поиске (description)"),
+        ("h1_status", "Проблемы с главным заголовком страницы (H1)"),
+        ("canonical_status", "Проблемы с основным адресом страницы (canonical)"),
         ("indexing_status", "Риски индексации"),
         ("page_speed_status", "Проблемы скорости страниц"),
         ("content_length_status", "Слабый контент"),
-        ("image_alt_status", "Отсутствуют alt у изображений"),
+        ("image_alt_status", "Нет описаний изображений (alt)"),
         ("internal_links_status", "Слабая внутренняя перелинковка"),
     ]
     for key, title in status_checks:
@@ -402,8 +452,8 @@ def _build_seo_default_recommendations(payload: dict[str, Any], problems: list[d
 
     if not recommendations:
         recommendations = [
-            "Закройте критичные ошибки и перепроверьте SEO-аудит после внедрения правок.",
-            "Усилите мета-теги и контент на страницах с приоритетным трафиком.",
+            "Сначала закройте критичные ошибки и перепроверьте SEO-аудит после внедрения правок.",
+            "Усилите заголовки и описания страниц (title/description), чтобы повысить понятность страниц для поиска.",
             "Оптимизируйте скорость и индексацию, чтобы закрепить рост видимости в поиске.",
         ]
     return recommendations[:MAX_ITEMS]
@@ -491,6 +541,203 @@ def _normalize_overview(items: Any, default_item: dict[str, str]) -> dict[str, s
         if value:
             result[key] = value[:140]
     return result
+
+
+def _severity_sort_value(value: Any) -> int:
+    key = _severity_key(value)
+    if key == "high":
+        return 0
+    if key == "medium":
+        return 1
+    return 2
+
+
+def _normalize_problem_pages(value: Any, *, max_items: int = MAX_SEO_PAGES_PER_PROBLEM) -> list[str]:
+    if not isinstance(value, (list, tuple)):
+        return []
+
+    pages: list[str] = []
+    seen: set[str] = set()
+    for raw in value:
+        page = str(raw or "").strip()
+        if not page or page in seen:
+            continue
+        seen.add(page)
+        pages.append(page[:220])
+        if len(pages) >= max_items:
+            break
+    return pages
+
+
+def _normalize_seo_recommendations(items: Any, *, max_items: int = MAX_SEO_RECOMMENDATIONS) -> list[dict[str, str]]:
+    if not isinstance(items, (list, tuple)):
+        return []
+
+    result: list[dict[str, str]] = []
+    seen: set[str] = set()
+
+    for raw in items:
+        problem = ""
+        severity = "medium"
+        fix = ""
+        issue_type = ""
+
+        if isinstance(raw, dict):
+            problem = str(
+                raw.get("problem")
+                or raw.get("title")
+                or raw.get("issue")
+                or raw.get("issue_title")
+                or ""
+            ).strip()
+            severity = _severity_key(raw.get("severity"))
+            fix = str(
+                raw.get("fix")
+                or raw.get("recommendation")
+                or raw.get("details")
+                or raw.get("action")
+                or ""
+            ).strip()
+            issue_type = str(raw.get("issue_type") or "").strip().lower()
+        else:
+            text = str(raw or "").strip()
+            if text:
+                problem = text
+                fix = text
+
+        if not problem and fix:
+            problem = fix
+
+        if problem and not fix:
+            fix = _default_recommendation_for_issue(issue_type, problem)
+
+        if not (problem and fix):
+            continue
+
+        normalized_problem = problem[:180]
+        normalized_fix = fix[:320]
+        key = f"{normalized_problem.lower()}::{normalized_fix.lower()}"
+        if key in seen:
+            continue
+        seen.add(key)
+
+        result.append(
+            {
+                "problem": normalized_problem,
+                "severity": severity,
+                "fix": normalized_fix,
+            }
+        )
+        if len(result) >= max_items:
+            break
+
+    result.sort(key=lambda item: (_severity_sort_value(item.get("severity")), item.get("problem") or ""))
+    return result[:max_items]
+
+
+def _build_seo_fallback_recommendations(payload_for_model: dict[str, Any]) -> list[dict[str, str]]:
+    problems = payload_for_model.get("problems")
+    if not isinstance(problems, list):
+        return []
+
+    generated: list[dict[str, str]] = []
+    for problem in problems:
+        if not isinstance(problem, dict):
+            continue
+
+        problem_title = str(problem.get("problem") or problem.get("title") or "").strip()
+        if not problem_title:
+            continue
+        severity = _severity_key(problem.get("severity"))
+        issue_type = str(problem.get("issue_type") or "").strip().lower()
+        fix = str(problem.get("fix_hint") or "").strip() or _default_recommendation_for_issue(issue_type, problem_title)
+
+        generated.append(
+            {
+                "problem": problem_title[:180],
+                "severity": severity,
+                "fix": fix[:320],
+            }
+        )
+        if len(generated) >= MAX_SEO_RECOMMENDATIONS:
+            break
+
+    generated.sort(key=lambda item: (_severity_sort_value(item.get("severity")), item.get("problem") or ""))
+    return generated[:MAX_SEO_RECOMMENDATIONS]
+
+
+def _build_seo_compact_result(
+    *,
+    parsed: dict[str, Any] | None,
+    payload_for_model: dict[str, Any],
+    fallback_text: str,
+) -> dict[str, Any]:
+    parsed = parsed or {}
+
+    recommendations_raw = parsed.get("recommendations")
+    if not isinstance(recommendations_raw, list):
+        if isinstance(recommendations_raw, dict):
+            recommendations_raw = [recommendations_raw]
+        elif isinstance(parsed.get("recommendations"), str):
+            recommendations_raw = [parsed.get("recommendations")]
+        if isinstance(parsed.get("items"), list):
+            recommendations_raw = parsed.get("items")
+        elif isinstance(parsed.get("problems"), list):
+            recommendations_raw = parsed.get("problems")
+        else:
+            recommendations_raw = []
+
+    if not recommendations_raw:
+        single_problem = str(parsed.get("problem") or "").strip()
+        single_fix = str(parsed.get("fix") or "").strip()
+        if single_problem and single_fix:
+            recommendations_raw = [
+                {
+                    "problem": single_problem,
+                    "severity": _severity_key(parsed.get("severity")),
+                    "fix": single_fix,
+                }
+            ]
+
+    recommendations = _normalize_seo_recommendations(recommendations_raw, max_items=MAX_SEO_RECOMMENDATIONS)
+
+    if not recommendations and str(fallback_text or "").strip():
+        text_lines = [
+            re.sub(r"^[\s\-\*\u2022\d\.\)\(]+", "", str(line or "").strip())
+            for line in str(fallback_text or "").splitlines()
+        ]
+        text_lines = [line for line in text_lines if line]
+        recommendations = _normalize_seo_recommendations(text_lines, max_items=MAX_SEO_RECOMMENDATIONS)
+
+    if not recommendations:
+        fallback_candidate = _extract_json_candidate(fallback_text)
+        fallback_list: Any = None
+        for variant in (fallback_candidate, str(fallback_text or "").strip()):
+            if not variant:
+                continue
+            try:
+                parsed_variant = json.loads(variant)
+            except Exception:
+                continue
+            if isinstance(parsed_variant, list):
+                fallback_list = parsed_variant
+                break
+            if isinstance(parsed_variant, dict) and isinstance(parsed_variant.get("recommendations"), list):
+                fallback_list = parsed_variant.get("recommendations")
+                break
+
+        if isinstance(fallback_list, list):
+            recommendations = _normalize_seo_recommendations(fallback_list, max_items=MAX_SEO_RECOMMENDATIONS)
+
+    if not recommendations:
+        recommendations = _build_seo_fallback_recommendations(payload_for_model)
+
+    return {
+        "success": True,
+        "source": "openai",
+        "fallback": False,
+        "recommendations": recommendations[:MAX_SEO_RECOMMENDATIONS],
+    }
 
 
 def _build_seo_structured_result(
@@ -610,54 +857,409 @@ def _extract_json_candidate(text: str) -> str:
     if candidate.startswith("{") and candidate.endswith("}"):
         return candidate
 
-    match = re.search(r"\{.*\}", candidate, flags=re.DOTALL)
-    if match:
-        return match.group(0)
+    balanced = _extract_first_balanced_json_object(candidate)
+    if balanced:
+        return balanced
 
     return candidate
 
 
-def _extract_output_text(response_data: dict[str, Any]) -> str:
-    def _as_text(value: Any) -> str:
-        if isinstance(value, str):
-            return value.strip()
-
-        if isinstance(value, dict):
-            if isinstance(value.get("value"), str):
-                return str(value.get("value") or "").strip()
-            if isinstance(value.get("text"), str):
-                return str(value.get("text") or "").strip()
-
-        if isinstance(value, list):
-            chunks = [_as_text(item) for item in value]
-            return "\n".join([chunk for chunk in chunks if chunk]).strip()
-
+def _extract_first_balanced_json_object(text: str) -> str:
+    raw = str(text or "")
+    if not raw:
         return ""
 
-    top_level_output_text = response_data.get("output_text")
-    normalized_top_level_text = _as_text(top_level_output_text)
-    if normalized_top_level_text:
-        return normalized_top_level_text
+    start = raw.find("{")
+    if start < 0:
+        return ""
 
-    chunks: list[str] = []
-    for item in response_data.get("output") or []:
-        if not isinstance(item, dict):
+    depth = 0
+    in_string = False
+    escaped = False
+    for idx in range(start, len(raw)):
+        char = raw[idx]
+
+        if in_string:
+            if escaped:
+                escaped = False
+                continue
+            if char == "\\":
+                escaped = True
+                continue
+            if char == '"':
+                in_string = False
             continue
 
-        content = item.get("content") or []
-        for part in content:
-            if not isinstance(part, dict):
+        if char == '"':
+            in_string = True
+            continue
+        if char == "{":
+            depth += 1
+            continue
+        if char == "}":
+            depth -= 1
+            if depth == 0:
+                return raw[start : idx + 1]
+
+    return ""
+
+
+def _try_parse_json_object(candidate: str) -> dict[str, Any] | None:
+    raw = str(candidate or "").strip()
+    if not raw:
+        return None
+
+    attempts: list[str] = []
+    for variant in (raw, _extract_json_candidate(raw), _extract_first_balanced_json_object(raw)):
+        normalized = str(variant or "").strip()
+        if normalized and normalized not in attempts:
+            attempts.append(normalized)
+
+    for variant in attempts:
+        try:
+            parsed = json.loads(variant)
+        except Exception:
+            continue
+
+        if isinstance(parsed, dict):
+            return parsed
+
+        # Some models return a JSON object wrapped as a string.
+        if isinstance(parsed, str):
+            nested = str(parsed or "").strip()
+            if nested and nested != variant:
+                nested_parsed = _try_parse_json_object(nested)
+                if isinstance(nested_parsed, dict):
+                    return nested_parsed
+
+    return None
+
+
+def _dedupe_non_empty(items: list[str]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        text = str(item or "").strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        result.append(text)
+    return result
+
+
+def _as_text_value(value: Any, *, _depth: int = 0) -> str:
+    if _depth > 8:
+        return ""
+
+    if isinstance(value, str):
+        return value.strip()
+
+    if isinstance(value, (int, float, bool)):
+        return str(value).strip()
+
+    if isinstance(value, dict):
+        preferred = (
+            "text",
+            "output_text",
+            "value",
+            "content",
+            "message",
+            "result",
+            "arguments",
+            "summary",
+            "response",
+        )
+        chunks: list[str] = []
+        for key in preferred:
+            if key not in value:
                 continue
+            chunk = _as_text_value(value.get(key), _depth=_depth + 1)
+            if chunk:
+                chunks.append(chunk)
+        if chunks:
+            return "\n".join(_dedupe_non_empty(chunks)).strip()
+        if len(value) == 1:
+            only_value = next(iter(value.values()))
+            return _as_text_value(only_value, _depth=_depth + 1)
+        return ""
 
-            part_type = str(part.get("type") or "").strip()
-            if part_type and part_type != "output_text":
-                continue
+    if isinstance(value, list):
+        chunks = [_as_text_value(item, _depth=_depth + 1) for item in value]
+        return "\n".join(_dedupe_non_empty(chunks)).strip()
 
-            part_text = _as_text(part.get("text"))
-            if part_text:
-                chunks.append(part_text)
+    return ""
 
-    return "\n".join(chunks).strip()
+
+def _collect_text_candidates(
+    value: Any,
+    *,
+    path: str,
+    out: list[tuple[str, str]],
+    max_items: int = MAX_TEXT_DIAGNOSTIC_PATHS,
+    _depth: int = 0,
+) -> None:
+    if len(out) >= max_items or _depth > 10:
+        return
+
+    if isinstance(value, str):
+        text = value.strip()
+        if text:
+            out.append((path, text))
+        return
+
+    if isinstance(value, list):
+        for index, item in enumerate(value):
+            if len(out) >= max_items:
+                return
+            _collect_text_candidates(
+                item,
+                path=f"{path}[{index}]",
+                out=out,
+                max_items=max_items,
+                _depth=_depth + 1,
+            )
+        return
+
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if len(out) >= max_items:
+                return
+            safe_key = str(key or "").strip()
+            child = f"{path}.{safe_key}" if safe_key else path
+            _collect_text_candidates(item, path=child, out=out, max_items=max_items, _depth=_depth + 1)
+
+
+def _is_known_output_text_path(path: str) -> bool:
+    normalized = str(path or "").strip()
+    if not normalized:
+        return False
+    patterns = (
+        r"^response\.output_text$",
+        r"^response\.output\[\d+\]\.text$",
+        r"^response\.output\[\d+\]\.output_text$",
+        r"^response\.output\[\d+\]\.content\[\d+\]\.text$",
+        r"^response\.output\[\d+\]\.content\[\d+\]\.output_text$",
+        r"^response\.output\[\d+\]\.content\[\d+\]\.value$",
+        r"^response\.output\[\d+\]\.content\[\d+\]\.text\.value$",
+    )
+    return any(re.match(pattern, normalized) for pattern in patterns)
+
+
+def _is_useful_text_candidate(path: str, text: str) -> bool:
+    normalized_path = str(path or "").strip().lower()
+    normalized_text = str(text or "").strip()
+    if not normalized_text:
+        return False
+
+    if normalized_path.endswith((".id", ".model", ".status", ".type", ".role", ".object", ".reason", ".code")):
+        return False
+    if "usage" in normalized_path:
+        return False
+    if not any(marker in normalized_path for marker in ("output", "content", "message", "response", "result")):
+        return False
+
+    if normalized_text.startswith("{") or normalized_text.startswith("["):
+        return True
+    if "\n" in normalized_text:
+        return True
+    if len(normalized_text) >= 12:
+        return True
+    return False
+
+
+def _output_item_diagnostics(output_items: list[Any]) -> list[dict[str, Any]]:
+    diagnostics: list[dict[str, Any]] = []
+    for idx, item in enumerate(output_items[:MAX_OUTPUT_DIAGNOSTIC_ITEMS]):
+        if not isinstance(item, dict):
+            diagnostics.append(
+                {
+                    "index": idx,
+                    "type": type(item).__name__,
+                    "has_content": False,
+                    "content_types": [],
+                    "text_len": len(_as_text_value(item)),
+                    "content_parts": [],
+                }
+            )
+            continue
+
+        content = item.get("content")
+        content_parts = content if isinstance(content, list) else []
+        content_types: list[str] = []
+        part_meta: list[dict[str, Any]] = []
+        for part_idx, part in enumerate(content_parts[:MAX_OUTPUT_DIAGNOSTIC_ITEMS]):
+            if isinstance(part, dict):
+                part_type = str(part.get("type") or "").strip() or "unknown"
+                content_types.append(part_type)
+                part_meta.append(
+                    {
+                        "index": part_idx,
+                        "type": part_type,
+                        "text_len": len(_as_text_value(part.get("text"))),
+                        "output_text_len": len(_as_text_value(part.get("output_text"))),
+                        "value_len": len(_as_text_value(part.get("value"))),
+                    }
+                )
+            else:
+                part_meta.append(
+                    {
+                        "index": part_idx,
+                        "type": type(part).__name__,
+                        "text_len": len(_as_text_value(part)),
+                        "output_text_len": 0,
+                        "value_len": 0,
+                    }
+                )
+
+        diagnostics.append(
+            {
+                "index": idx,
+                "type": str(item.get("type") or "").strip() or "unknown",
+                "has_content": bool(content_parts),
+                "content_types": content_types,
+                "text_len": len(_as_text_value(item.get("text"))),
+                "output_text_len": len(_as_text_value(item.get("output_text"))),
+                "content_parts": part_meta,
+            }
+        )
+    return diagnostics
+
+
+def _build_openai_response_diagnostics(response_data: dict[str, Any]) -> dict[str, Any]:
+    output_items = response_data.get("output") if isinstance(response_data.get("output"), list) else []
+
+    text_candidates: list[tuple[str, str]] = []
+    _collect_text_candidates(response_data, path="response", out=text_candidates)
+    unexpected_text_paths = [
+        {"path": path, "length": len(text)}
+        for path, text in text_candidates
+        if _is_useful_text_candidate(path, text) and not _is_known_output_text_path(path)
+    ][:MAX_TEXT_DIAGNOSTIC_PATHS]
+
+    output_types = []
+    for item in output_items:
+        if isinstance(item, dict):
+            output_types.append(str(item.get("type") or "").strip() or "unknown")
+        else:
+            output_types.append(type(item).__name__)
+
+    return {
+        "response_id": response_data.get("id"),
+        "response_status": str(response_data.get("status") or "").strip() or "unknown",
+        "incomplete_details": response_data.get("incomplete_details")
+        if isinstance(response_data.get("incomplete_details"), dict)
+        else None,
+        "output_items_count": len(output_items),
+        "output_types": output_types[:MAX_OUTPUT_DIAGNOSTIC_ITEMS],
+        "top_level_output_text_present": bool(_as_text_value(response_data.get("output_text"))),
+        "top_level_output_text_len": len(_as_text_value(response_data.get("output_text"))),
+        "output_items": _output_item_diagnostics(output_items),
+        "unexpected_text_paths": unexpected_text_paths,
+    }
+
+
+def _extract_output_text_details(response_data: dict[str, Any]) -> OutputTextExtraction:
+    candidate_paths: list[str] = []
+
+    top_level_output_text = _as_text_value(response_data.get("output_text"))
+    if top_level_output_text:
+        return OutputTextExtraction(
+            text=top_level_output_text,
+            path="output_text",
+            candidate_paths=["output_text"],
+        )
+
+    output = response_data.get("output")
+    output_items = output if isinstance(output, list) else []
+
+    content_chunks: list[str] = []
+    for item_idx, item in enumerate(output_items):
+        if not isinstance(item, dict):
+            continue
+        content = item.get("content")
+        if not isinstance(content, list):
+            continue
+        for part_idx, part in enumerate(content):
+            if isinstance(part, dict):
+                for key in ("text", "output_text"):
+                    chunk = _as_text_value(part.get(key))
+                    if chunk:
+                        content_chunks.append(chunk)
+                        candidate_paths.append(f"output[{item_idx}].content[{part_idx}].{key}")
+            else:
+                chunk = _as_text_value(part)
+                if chunk:
+                    content_chunks.append(chunk)
+                    candidate_paths.append(f"output[{item_idx}].content[{part_idx}]")
+
+    content_chunks = _dedupe_non_empty(content_chunks)
+    if content_chunks:
+        return OutputTextExtraction(
+            text="\n".join(content_chunks).strip(),
+            path="output[*].content[*].text|output_text",
+            candidate_paths=_dedupe_non_empty(candidate_paths),
+        )
+
+    direct_chunks: list[str] = []
+    for item_idx, item in enumerate(output_items):
+        if not isinstance(item, dict):
+            continue
+        for key in ("text", "output_text"):
+            chunk = _as_text_value(item.get(key))
+            if chunk:
+                direct_chunks.append(chunk)
+                candidate_paths.append(f"output[{item_idx}].{key}")
+
+    direct_chunks = _dedupe_non_empty(direct_chunks)
+    if direct_chunks:
+        return OutputTextExtraction(
+            text="\n".join(direct_chunks).strip(),
+            path="output[*].text|output_text",
+            candidate_paths=_dedupe_non_empty(candidate_paths),
+        )
+
+    nested_candidates: list[tuple[str, str]] = []
+    for item_idx, item in enumerate(output_items):
+        _collect_text_candidates(item, path=f"response.output[{item_idx}]", out=nested_candidates)
+    nested_text_chunks = [
+        text
+        for path, text in nested_candidates
+        if _is_useful_text_candidate(path, text) and not _is_known_output_text_path(path)
+    ]
+    nested_text_chunks = _dedupe_non_empty(nested_text_chunks)
+    if nested_text_chunks:
+        for path, text in nested_candidates:
+            if _is_useful_text_candidate(path, text) and not _is_known_output_text_path(path):
+                candidate_paths.append(path.replace("response.", "", 1))
+        return OutputTextExtraction(
+            text="\n".join(nested_text_chunks).strip(),
+            path="output[*].<nested_text_fields>",
+            candidate_paths=_dedupe_non_empty(candidate_paths),
+        )
+
+    top_level_candidates: list[tuple[str, str]] = []
+    _collect_text_candidates(response_data, path="response", out=top_level_candidates)
+    top_level_chunks = [
+        text
+        for path, text in top_level_candidates
+        if _is_useful_text_candidate(path, text) and not _is_known_output_text_path(path)
+    ]
+    top_level_chunks = _dedupe_non_empty(top_level_chunks)
+    if top_level_chunks:
+        for path, text in top_level_candidates:
+            if _is_useful_text_candidate(path, text) and not _is_known_output_text_path(path):
+                candidate_paths.append(path.replace("response.", "", 1))
+        return OutputTextExtraction(
+            text="\n".join(top_level_chunks).strip(),
+            path="response.<nested_text_fields>",
+            candidate_paths=_dedupe_non_empty(candidate_paths),
+        )
+
+    return OutputTextExtraction(text="", path="none", candidate_paths=_dedupe_non_empty(candidate_paths))
+
+
+def _extract_output_text(response_data: dict[str, Any]) -> str:
+    return _extract_output_text_details(response_data).text
 
 
 def _build_result_from_text(*, module: str, text: str) -> dict[str, Any]:
@@ -715,19 +1317,18 @@ def _normalize_ai_payload(
 ) -> dict[str, Any]:
     candidate = _extract_json_candidate(raw_text)
 
-    parsed: dict[str, Any] | None = None
-    try:
-        maybe = json.loads(candidate)
-        if isinstance(maybe, dict):
-            parsed = maybe
-    except Exception:
-        parsed = None
+    parsed: dict[str, Any] | None = _try_parse_json_object(candidate)
+    if not parsed:
+        parsed = _try_parse_json_object(raw_text)
 
     if not parsed:
         parsed = _extract_json_like_payload(candidate)
 
+    if not parsed:
+        parsed = _extract_json_like_payload(raw_text)
+
     if module == "seo":
-        return _build_seo_structured_result(
+        return _build_seo_compact_result(
             parsed=parsed,
             payload_for_model=payload_for_model or {},
             fallback_text=raw_text,
@@ -846,42 +1447,18 @@ def _build_seo_fallback_result(
     exc: Exception,
     period: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    error_payload = _build_error_response(
-        module="seo",
-        model=model,
-        cache_scope=cache_scope,
-        payload_for_model=payload_for_model,
-        exc=exc,
-        period=period,
-    )
-
-    overview = _build_seo_default_overview(payload_for_model)
-    highlights = _build_seo_default_highlights(payload_for_model)
-    metrics_review = _build_seo_default_metrics_review(payload_for_model)
-    problems = _build_seo_default_problems(payload_for_model)
-    fix_plan = _build_seo_default_fix_plan(problems)
-    recommendations = _build_seo_default_recommendations(payload_for_model, problems)
+    recommendations = _build_seo_fallback_recommendations(payload_for_model)
+    if not recommendations:
+        recommendations = _normalize_seo_recommendations(
+            _build_seo_default_recommendations(payload_for_model, _build_seo_default_problems(payload_for_model)),
+            max_items=MAX_SEO_RECOMMENDATIONS,
+        )
 
     result = {
         "success": True,
         "source": "fallback",
         "fallback": True,
-        "title": "Рекомендации по SEO временно недоступны",
-        "summary": "Сейчас AI-анализ временно недоступен. Ниже показаны базовые рекомендации на основе данных последнего SEO-аудита.",
-        "user_message": "AI-анализ временно недоступен. Показаны базовые рекомендации по данным последнего аудита.",
-        "priority": "medium",
-        "overview": overview,
-        "highlights": highlights[:MAX_HIGHLIGHTS],
-        "metrics_review": metrics_review[:MAX_METRICS_REVIEW],
-        "problems": problems[:MAX_PROBLEMS],
-        "fix_plan": fix_plan[:MAX_FIX_PLAN],
-        "recommendations": recommendations[:MAX_ITEMS],
-        # backward compatibility for existing UI/composables
-        "items": recommendations[:MAX_ITEMS],
-        "debug": error_payload.get("debug"),
-        "debug_context": error_payload.get("debug_context"),
-        "generated_at": error_payload.get("generated_at") or timezone.now().isoformat(),
-        "cached": False,
+        "recommendations": recommendations[:MAX_SEO_RECOMMENDATIONS],
     }
 
     if period:
@@ -911,7 +1488,7 @@ def _request_openai(
             error_type="configuration_error",
         )
 
-    default_max_output_tokens = int(getattr(settings, "AI_RECOMMENDATIONS_MAX_OUTPUT_TOKENS", 900) or 900)
+    default_max_output_tokens = _safe_int_setting("AI_RECOMMENDATIONS_MAX_OUTPUT_TOKENS", 900)
     max_output_tokens = int(max_output_tokens_override or default_max_output_tokens)
 
     body: dict[str, Any] = {
@@ -933,59 +1510,37 @@ def _request_openai(
         len(str(system_prompt or "")),
     )
 
-    response: requests.Response | None = None
-    current_timeout = timeout_seconds
-
-    for attempt in (1, 2):
-        try:
-            response = requests.post(
-                OPENAI_RESPONSES_URL,
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                },
-                json=body,
-                timeout=current_timeout,
-            )
-            break
-
-        except requests.exceptions.ReadTimeout as exc:
-            logger.warning(
-                "ai_recommendations openai timeout: model=%s attempt=%s timeout=%s error=%s",
-                safe_model,
-                attempt,
-                current_timeout,
-                exc,
-            )
-            if attempt == 1:
-                current_timeout = max(timeout_seconds * 2, timeout_seconds + 10)
-                continue
-
-            raise OpenAIRequestError(
-                f"OpenAI request timed out after retry: {exc}",
-                error_type="network_timeout",
-            ) from exc
-
-        except requests.exceptions.RequestException as exc:
-            logger.warning(
-                "ai_recommendations openai network error: model=%s attempt=%s error=%s",
-                safe_model,
-                attempt,
-                exc,
-            )
-            if attempt == 1:
-                continue
-
-            raise OpenAIRequestError(
-                f"OpenAI request failed: {exc}",
-                error_type="network_error",
-            ) from exc
-
-    if response is None:
-        raise OpenAIRequestError(
-            "OpenAI request failed before receiving response.",
-            error_type="network_error",
+    try:
+        response = requests.post(
+            OPENAI_RESPONSES_URL,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json=body,
+            timeout=timeout_seconds,
         )
+    except requests.exceptions.ReadTimeout as exc:
+        logger.warning(
+            "ai_recommendations openai timeout: model=%s timeout=%s error=%s",
+            safe_model,
+            timeout_seconds,
+            exc,
+        )
+        raise OpenAIRequestError(
+            f"OpenAI request timed out: {exc}",
+            error_type="network_timeout",
+        ) from exc
+    except requests.exceptions.RequestException as exc:
+        logger.warning(
+            "ai_recommendations openai network error: model=%s error=%s",
+            safe_model,
+            exc,
+        )
+        raise OpenAIRequestError(
+            f"OpenAI request failed: {exc}",
+            error_type="network_error",
+        ) from exc
 
     response_headers = getattr(response, "headers", {}) or {}
     if not hasattr(response_headers, "get"):
@@ -1043,7 +1598,46 @@ def _request_openai(
 
     payload_status = str(payload.get("status") or "").strip() or "unknown"
     incomplete_details = payload.get("incomplete_details")
-    output_items = payload.get("output") if isinstance(payload.get("output"), list) else []
+    response_diagnostics = _build_openai_response_diagnostics(payload)
+    extracted_probe = _extract_output_text_details(payload)
+
+    logger.info(
+        "openai response received: model=%s status=%s request_id=%s response_id=%s response_status=%s incomplete_details=%s output_items=%s output_types=%s has_output_text=%s has_top_level_output_text=%s",
+        safe_model,
+        response.status_code,
+        request_id,
+        response_diagnostics.get("response_id"),
+        payload_status,
+        incomplete_details if isinstance(incomplete_details, dict) else None,
+        response_diagnostics.get("output_items_count"),
+        response_diagnostics.get("output_types"),
+        bool(extracted_probe.text),
+        bool(response_diagnostics.get("top_level_output_text_present")),
+    )
+    logger.info(
+        "openai response diagnostics: model=%s request_id=%s top_level_output_text_len=%s extraction_probe_path=%s extraction_probe_text_len=%s output_items_meta=%s unexpected_text_paths=%s",
+        safe_model,
+        request_id,
+        response_diagnostics.get("top_level_output_text_len"),
+        extracted_probe.path,
+        len(extracted_probe.text),
+        response_diagnostics.get("output_items"),
+        response_diagnostics.get("unexpected_text_paths"),
+    )
+    if extracted_probe.text:
+        logger.info(
+            "openai response text preview: model=%s request_id=%s text_preview=%s",
+            safe_model,
+            request_id,
+            _truncate_for_log(extracted_probe.text),
+        )
+    if extracted_probe.candidate_paths:
+        logger.info(
+            "openai response candidate text paths: model=%s request_id=%s paths=%s",
+            safe_model,
+            request_id,
+            extracted_probe.candidate_paths,
+        )
 
     logger.info(
         "ai_recommendations openai response: model=%s status=%s request_id=%s response_status=%s output_items=%s has_output_text=%s incomplete_details=%s",
@@ -1051,8 +1645,8 @@ def _request_openai(
         response.status_code,
         request_id,
         payload_status,
-        len(output_items),
-        bool(payload.get("output_text")),
+        response_diagnostics.get("output_items_count"),
+        bool(extracted_probe.text),
         incomplete_details if isinstance(incomplete_details, dict) else None,
     )
 
@@ -1070,70 +1664,78 @@ def _is_ai_enabled() -> bool:
 
 
 def _seo_prompt_payload(detail_payload: dict[str, Any]) -> dict[str, Any]:
-    issue_groups = detail_payload.get("issue_groups") or []
-    errors = detail_payload.get("errors") or []
-    top_issues: list[dict[str, Any]] = []
+    issue_groups = [item for item in (detail_payload.get("issue_groups") or []) if isinstance(item, dict)]
+    errors = [item for item in (detail_payload.get("errors") or []) if isinstance(item, dict)]
 
-    severity_order = {"high": 0, "medium": 1, "low": 2}
     sorted_groups = sorted(
-        [group for group in issue_groups if isinstance(group, dict)],
+        issue_groups,
         key=lambda group: (
-            severity_order.get(str(group.get("severity") or "").lower(), 3),
-            -int(group.get("pages_affected") or 0),
+            _severity_sort_value(group.get("severity")),
+            -_safe_int(group.get("pages_affected")),
+            -_safe_int(group.get("issues_count")),
         ),
     )
 
-    for group in sorted_groups[:10]:
-        top_issues.append(
+    problems: list[dict[str, Any]] = []
+    for group in sorted_groups:
+        title = str(group.get("title") or group.get("issue_title") or group.get("issue_type") or "").strip()
+        if not title:
+            continue
+        problems.append(
             {
-                "issue_type": group.get("issue_type"),
-                "title": group.get("title"),
-                "severity": group.get("severity"),
-                "pages_affected": int(group.get("pages_affected") or 0),
-                "description": group.get("description"),
+                "problem": title[:180],
+                "severity": _severity_key(group.get("severity")),
+                "issue_type": str(group.get("issue_type") or "").strip().lower(),
+                "pages_affected": _safe_int(group.get("pages_affected")),
+                "pages": _normalize_problem_pages(group.get("pages"), max_items=MAX_SEO_PAGES_PER_PROBLEM),
+                "fix_hint": str(group.get("description") or "").strip()[:320],
             }
         )
+        if len(problems) >= MAX_SEO_PROMPT_PROBLEMS:
+            break
 
-    def has_issue(issue_type: str) -> bool:
-        return any(
-            str(item.get("issue_type") or "").strip().lower() == issue_type
-            for item in errors
-            if isinstance(item, dict)
-        )
+    if not problems and errors:
+        grouped_errors: dict[str, dict[str, Any]] = {}
+        for item in errors:
+            issue_type = str(item.get("issue_type") or "").strip().lower()
+            title = str(item.get("issue_title") or issue_type or "").strip()
+            if not title:
+                continue
+            key = issue_type or title.lower()
+            entry = grouped_errors.get(key)
+            if not entry:
+                entry = {
+                    "problem": title[:180],
+                    "severity": _severity_key(item.get("severity")),
+                    "issue_type": issue_type,
+                    "pages_affected": 0,
+                    "pages": [],
+                    "fix_hint": str(item.get("recommendation") or "").strip()[:320],
+                }
+                grouped_errors[key] = entry
+            entry["severity"] = _severity_key(
+                entry["severity"]
+                if _severity_sort_value(entry["severity"]) <= _severity_sort_value(item.get("severity"))
+                else item.get("severity")
+            )
+            entry["pages_affected"] = int(entry["pages_affected"] or 0) + 1
+            page_url = str(item.get("page_url") or "").strip()
+            if page_url and page_url not in entry["pages"] and len(entry["pages"]) < MAX_SEO_PAGES_PER_PROBLEM:
+                entry["pages"].append(page_url[:220])
 
-    breakdown = detail_payload.get("breakdown") or {}
+        problems = sorted(
+            list(grouped_errors.values()),
+            key=lambda problem: (
+                _severity_sort_value(problem.get("severity")),
+                -_safe_int(problem.get("pages_affected")),
+            ),
+        )[:MAX_SEO_PROMPT_PROBLEMS]
 
     return {
-        "domain": detail_payload.get("domain"),
+        "domain": str(detail_payload.get("domain") or "").strip(),
         "seo_score": int(detail_payload.get("score") or detail_payload.get("seo_score") or 0),
-        "critical_issues_count": int(breakdown.get("high_issues") or 0),
-        "warning_issues_count": int(breakdown.get("medium_issues") or 0),
-        "low_issues_count": int(breakdown.get("low_issues") or 0),
         "pages_count": int(detail_payload.get("pages_count") or 0),
-        "title_status": "issues" if has_issue("missing_title") else "ok",
-        "description_status": "issues" if has_issue("missing_description") else "ok",
-        "h1_status": "issues" if has_issue("missing_h1") else "ok",
-        "canonical_status": "issues" if has_issue("missing_canonical") else "ok",
-        "robots_status": "ok" if detail_payload.get("has_robots_txt") else "missing",
-        "sitemap_status": "ok" if detail_payload.get("has_sitemap_xml") else "missing",
-        "indexing_status": "issues" if int(detail_payload.get("pages_with_indexing_issues") or 0) > 0 else "ok",
-        "page_speed_status": "issues" if int(detail_payload.get("pages_with_speed_issues") or 0) > 0 else "ok",
-        "pages_with_speed_issues": int(detail_payload.get("pages_with_speed_issues") or 0),
-        "pages_with_indexing_issues": int(detail_payload.get("pages_with_indexing_issues") or 0),
-        "content_length_status": (
-            "issues"
-            if any(has_issue(name) for name in ("thin_content", "too_short_content", "low_word_count"))
-            else "ok"
-        ),
-        "image_alt_status": (
-            "issues"
-            if any(has_issue(name) for name in ("missing_alt", "missing_image_alt"))
-            else "ok"
-        ),
-        "internal_links_status": "issues" if has_issue("low_internal_links") else "ok",
-        "avg_ttfb_ms": int(detail_payload.get("avg_ttfb_ms") or 0),
-        "avg_performance_score": int(detail_payload.get("avg_performance_score") or 0),
-        "top_issues": top_issues,
+        "problems": problems[:MAX_SEO_PROMPT_PROBLEMS],
     }
 
 
@@ -1288,45 +1890,40 @@ def _conversion_prompt_payload(summary_payload: dict[str, Any]) -> dict[str, Any
     }
 
 
-def _build_user_prompt(*, module: str, payload_for_model: dict[str, Any]) -> str:
+def _build_user_prompt(*, module: str, payload_for_model: dict[str, Any], retry_mode: bool = False) -> str:
+    payload_json = json.dumps(payload_for_model, ensure_ascii=False)
+
     if module == "seo":
+        guidance = (
+            "Return valid JSON only (no markdown).\n"
+            "Language: Russian.\n"
+            "Use simple business language understandable for non-technical users.\n"
+            "Avoid jargon without explanation (for example: alt, canonical, H1, meta description, redirect chain).\n"
+            "Use only provided SEO data.\n"
+            'Return exactly one object with one key: {"recommendations":[...]}\n'
+            'Each recommendation object must contain exactly: {"problem":"...","severity":"high|medium|low","fix":"..."}\n'
+            "Do not include summary, title, overview, metrics, highlights, fix_plan, comments, or extra keys.\n"
+            f"Max {MAX_SEO_RECOMMENDATIONS} recommendations.\n"
+            "Sort by severity: high, then medium, then low.\n"
+            "Fix must be short, practical, and actionable in 1 sentence.\n"
+            'If there are no issues, return {"recommendations": []}.\n'
+        )
+
+        if retry_mode:
+            return (
+                f"{guidance}"
+                "Retry mode: keep wording even shorter and avoid long explanations.\n"
+                f"SEO data:\n{payload_json}"
+            )
+
+        return f"{guidance}SEO data:\n{payload_json}"
+
+    if retry_mode:
         return (
-            "Верни строго JSON без markdown и комментариев.\n"
-            "Анализируй только переданные данные SEO-аудита, ничего не выдумывай.\n"
-            "Все формулировки делай на русском, кратко и прикладно.\n"
-            "Обязательная структура ответа:\n"
-            "{\n"
-            '  "title": "AI-рекомендации по SEO",\n'
-            '  "summary": "Краткая оценка текущего состояния SEO сайта.",\n'
-            '  "priority": "high|medium|low",\n'
-            '  "overview": {\n'
-            '    "seo_score_label": "...",\n'
-            '    "pages_checked_label": "...",\n'
-            '    "errors_label": "...",\n'
-            '    "speed_label": "...",\n'
-            '    "indexing_label": "..."\n'
-            "  },\n"
-            '  "highlights": ["..."],\n'
-            '  "metrics_review": [\n'
-            '    {"label":"...","value":"...","status":"good|warning|bad|info","comment":"..."}\n'
-            "  ],\n"
-            '  "problems": [\n'
-            '    {"title":"...","severity":"high|medium|low","description":"..."}\n'
-            "  ],\n"
-            '  "fix_plan": [\n'
-            '    {"step":1,"title":"...","details":"..."}\n'
-            "  ],\n"
-            '  "recommendations": ["..."]\n'
-            "}\n"
-            "Требования:\n"
-            "- highlights: 3-5 пунктов.\n"
-            "- metrics_review: 5-8 пунктов.\n"
-            "- problems: 2-6 пунктов.\n"
-            "- fix_plan: 3-7 шагов по приоритету.\n"
-            "- recommendations: 3-7 конкретных действий.\n"
-            "- В metrics_review обязательно оцени: SEO-оценку, число страниц, число ошибок, скорость, robots.txt и sitemap.xml (если данные есть).\n"
-            "- Отмечай не только проблемы, но и сильные стороны.\n"
-            f"Данные SEO-аудита:\n{json.dumps(payload_for_model, ensure_ascii=False)}"
+            "Return JSON only without markdown.\n"
+            'Format: {"title":"...","summary":"...","items":["..."],"priority":"high|medium|low"}\n'
+            "Language: Russian. Keep concise: summary 1 sentence, items 3-5.\n"
+            f"Data:\n{payload_json}"
         )
 
     return (
@@ -1334,7 +1931,7 @@ def _build_user_prompt(*, module: str, payload_for_model: dict[str, Any]) -> str
         'Format: {"title":"...","summary":"...","items":["..."],"priority":"high|medium|low"}\n'
         "Requirements: 3-7 concrete actions, practical style, based only on provided data.\n"
         "Important: response language must be Russian.\n"
-        f"Data:\n{json.dumps(payload_for_model, ensure_ascii=False)}"
+        f"Data:\n{payload_json}"
     )
 
 
@@ -1359,6 +1956,7 @@ def _generate_recommendations(
             fallback_reason = _extract_error_type(disabled_error)
             logger.warning("seo ai fallback activated")
             logger.warning("seo ai fallback reason=%s", fallback_reason)
+            logger.warning("openai fallback activated: reason=%s", fallback_reason)
             return _build_seo_fallback_result(
                 model=model,
                 cache_scope=cache_scope,
@@ -1382,7 +1980,7 @@ def _generate_recommendations(
         if cached_payload:
             cached_success = bool(cached_payload.get("success"))
             cached_source = str(cached_payload.get("source") or "").strip().lower()
-            if cached_success and cached_source == "ai":
+            if cached_success and cached_source in {"ai", "openai"}:
                 cached_payload = dict(cached_payload)
                 cached_payload["cached"] = True
                 return cached_payload
@@ -1395,28 +1993,50 @@ def _generate_recommendations(
                 cached_source or "unknown",
             )
 
+    initial_max_tokens = _resolve_max_output_tokens(module)
     payload_size = len(json.dumps(payload_for_model, ensure_ascii=False))
     logger.info(
-        "ai_recommendations request start: module=%s model=%s endpoint=%s timeout=%s payload_size=%s force_refresh=%s",
+        "ai_recommendations request start: module=%s model=%s endpoint=%s timeout=%s payload_size=%s max_output_tokens=%s force_refresh=%s",
         module,
         model,
         OPENAI_RESPONSES_URL,
         timeout_seconds,
         payload_size,
+        initial_max_tokens,
         force_refresh,
     )
+    if module == "seo":
+        seo_problems = payload_for_model.get("problems") if isinstance(payload_for_model, dict) else []
+        logger.info(
+            "seo ai payload summary: problems_count=%s seo_score=%s pages_count=%s",
+            len(seo_problems) if isinstance(seo_problems, list) else 0,
+            payload_for_model.get("seo_score") if isinstance(payload_for_model, dict) else None,
+            payload_for_model.get("pages_count") if isinstance(payload_for_model, dict) else None,
+        )
 
-    user_prompt = _build_user_prompt(module=module, payload_for_model=payload_for_model)
+    user_prompt = _build_user_prompt(module=module, payload_for_model=payload_for_model, retry_mode=False)
+    if module == "seo":
+        logger.info(
+            "seo ai prompt prepared: prompt_chars=%s retry_mode=%s",
+            len(user_prompt),
+            False,
+        )
 
     try:
         raw_response = _request_openai(
             model=model,
             system_prompt=system_prompt,
             user_prompt=user_prompt,
+            max_output_tokens_override=initial_max_tokens,
         )
 
         response_status = str(raw_response.get("status") or "").strip()
         incomplete_details = raw_response.get("incomplete_details")
+        incomplete_reason = (
+            str(incomplete_details.get("reason") or "").strip()
+            if isinstance(incomplete_details, dict)
+            else ""
+        )
 
         logger.info(
             "ai_recommendations response meta: module=%s model=%s status=%s incomplete_details=%s",
@@ -1426,79 +2046,117 @@ def _generate_recommendations(
             incomplete_details if isinstance(incomplete_details, dict) else None,
         )
 
-        output_text = _extract_output_text(raw_response)
+        extraction = _extract_output_text_details(raw_response)
+        output_text = extraction.text
 
         logger.info(
-            "ai_recommendations parsed output: module=%s model=%s output_items=%s extracted_text_len=%s",
+            "ai_recommendations parsed output: module=%s model=%s output_items=%s extracted_text_len=%s extraction_path=%s candidate_paths=%s",
             module,
             model,
             len(raw_response.get("output") or []) if isinstance(raw_response.get("output"), list) else 0,
             len(output_text),
+            extraction.path,
+            extraction.candidate_paths,
+        )
+        logger.info(
+            "openai extraction path used: module=%s model=%s path=%s extracted_text_len=%s",
+            module,
+            model,
+            extraction.path,
+            len(output_text),
         )
 
+        if output_text and response_status == "incomplete":
+            logger.info(
+                "openai partial text accepted despite incomplete status: module=%s model=%s reason=%s extracted_text_len=%s",
+                module,
+                model,
+                incomplete_reason or "unknown",
+                len(output_text),
+            )
+
         if not output_text:
-            incomplete_reason = ""
-            if isinstance(incomplete_details, dict):
-                incomplete_reason = str(incomplete_details.get("reason") or "").strip()
-
-            if incomplete_reason == "max_output_tokens":
-                retry_max = min(
-                    int(getattr(settings, "AI_RECOMMENDATIONS_MAX_OUTPUT_TOKENS", 900) or 900) * 2,
-                    1800,
-                )
-
-                logger.warning(
-                    "ai_recommendations retry due to incomplete output: module=%s model=%s reason=%s retry_max_output_tokens=%s",
-                    module,
-                    model,
-                    incomplete_reason,
-                    retry_max,
-                )
-
-                retry_response = _request_openai(
-                    model=model,
-                    system_prompt=system_prompt,
-                    user_prompt=user_prompt,
-                    max_output_tokens_override=retry_max,
-                )
-                retry_text = _extract_output_text(retry_response)
-
+            retry_max = _resolve_retry_max_output_tokens(module, initial_max_tokens)
+            retry_prompt = _build_user_prompt(module=module, payload_for_model=payload_for_model, retry_mode=True)
+            if module == "seo":
                 logger.info(
-                    "ai_recommendations retry parsed output: module=%s model=%s output_items=%s extracted_text_len=%s",
-                    module,
-                    model,
-                    len(retry_response.get("output") or []) if isinstance(retry_response.get("output"), list) else 0,
-                    len(retry_text),
+                    "seo ai prompt prepared: prompt_chars=%s retry_mode=%s",
+                    len(retry_prompt),
+                    True,
                 )
+            logger.warning(
+                "openai retry triggered due to missing usable text: module=%s model=%s response_status=%s incomplete_reason=%s retry_max_output_tokens=%s",
+                module,
+                model,
+                response_status or "unknown",
+                incomplete_reason or "unknown",
+                retry_max,
+            )
 
-                if retry_text:
-                    result = _normalize_ai_payload(
-                        module=module,
-                        raw_text=retry_text,
-                        payload_for_model=payload_for_model,
-                    )
-                    _cache_set_safe(
-                        cache_key,
-                        result,
-                        ttl_seconds=int(getattr(settings, "AI_RECOMMENDATIONS_TTL_SECONDS", 10800) or 10800),
-                    )
+            retry_response = _request_openai(
+                model=model,
+                system_prompt=system_prompt,
+                user_prompt=retry_prompt,
+                max_output_tokens_override=retry_max,
+            )
+            retry_status = str(retry_response.get("status") or "").strip()
+            retry_incomplete_details = retry_response.get("incomplete_details")
+            retry_reason = (
+                str(retry_incomplete_details.get("reason") or "").strip()
+                if isinstance(retry_incomplete_details, dict)
+                else ""
+            )
+            retry_extraction = _extract_output_text_details(retry_response)
+
+            logger.info(
+                "ai_recommendations retry parsed output: module=%s model=%s status=%s output_items=%s extracted_text_len=%s extraction_path=%s candidate_paths=%s",
+                module,
+                model,
+                retry_status or "unknown",
+                len(retry_response.get("output") or []) if isinstance(retry_response.get("output"), list) else 0,
+                len(retry_extraction.text),
+                retry_extraction.path,
+                retry_extraction.candidate_paths,
+            )
+            logger.info(
+                "openai extraction path used: module=%s model=%s path=%s extracted_text_len=%s",
+                module,
+                model,
+                retry_extraction.path,
+                len(retry_extraction.text),
+            )
+
+            if retry_extraction.text:
+                output_text = retry_extraction.text
+                response_status = retry_status
+                incomplete_details = retry_incomplete_details
+                incomplete_reason = retry_reason
+                if retry_status == "incomplete":
                     logger.info(
-                        "ai_recommendations retry success: module=%s model=%s items=%s",
+                        "openai partial text accepted despite incomplete status: module=%s model=%s reason=%s extracted_text_len=%s",
                         module,
                         model,
-                        len(result.get("items") or []),
+                        retry_reason or "unknown",
+                        len(output_text),
                     )
-                    if period:
-                        result["period"] = period
-                    return result
-
-            raise OpenAIRequestError(
-                message="OpenAI returned empty output.",
-                error_type="empty_output",
-                error_code=incomplete_reason or None,
-                response_status=response_status or None,
-                incomplete_details=incomplete_details if isinstance(incomplete_details, dict) else None,
-            )
+                logger.info(
+                    "ai_recommendations retry success: module=%s model=%s extracted_text_len=%s",
+                    module,
+                    model,
+                    len(output_text),
+                )
+            else:
+                raise OpenAIRequestError(
+                    message="OpenAI returned empty output.",
+                    error_type="empty_output",
+                    error_code=retry_reason or incomplete_reason or "missing_usable_text",
+                    response_status=retry_status or response_status or None,
+                    incomplete_details=(
+                        retry_incomplete_details
+                        if isinstance(retry_incomplete_details, dict)
+                        else (incomplete_details if isinstance(incomplete_details, dict) else None)
+                    ),
+                )
 
         result = _normalize_ai_payload(
             module=module,
@@ -1515,10 +2173,16 @@ def _generate_recommendations(
             "ai_recommendations request success: module=%s model=%s items=%s",
             module,
             model,
-            len(result.get("items") or []),
+            len(result.get("items") or []) if module != "seo" else len(result.get("recommendations") or []),
         )
         if module == "seo":
-            logger.info("seo ai success: model=%s source=%s", model, result.get("source"))
+            logger.info(
+                "seo ai success: model=%s source=%s recommendations_count=%s output_size=%s",
+                model,
+                result.get("source"),
+                len(result.get("recommendations") or []),
+                len(output_text or ""),
+            )
 
         if period:
             result["period"] = period
@@ -1536,6 +2200,7 @@ def _generate_recommendations(
             fallback_reason = _extract_error_type(exc)
             logger.warning("seo ai fallback activated")
             logger.warning("seo ai fallback reason=%s", fallback_reason)
+            logger.warning("openai fallback activated: reason=%s", fallback_reason)
             try:
                 return _build_seo_fallback_result(
                     model=model,
@@ -1574,11 +2239,10 @@ def get_seo_ai_recommendations(
     model = str(getattr(settings, "OPENAI_MODEL_SEO", "gpt-5-mini") or "gpt-5-mini")
 
     system_prompt = (
-        "Ты senior SEO-аналитик продукта TrackNode. "
-        "Анализируй только переданные данные SEO-аудита. "
-        "Не выдумывай факты и не добавляй общую теорию. "
-        "Сначала давай приоритетные проблемы, затем быстрые улучшения. "
-        "Ответ всегда на русском и строго в JSON-структуре из запроса."
+        "You are a senior technical SEO specialist. "
+        "Analyze only provided SEO issues. "
+        "Return only short practical fixes in compact JSON. "
+        "Do not include explanations outside requested schema."
     )
 
     return _generate_recommendations(
@@ -1670,3 +2334,4 @@ def run_ai_connectivity_check(model: str | None = None) -> dict[str, Any]:
             )["debug"],
             "generated_at": timezone.now().isoformat(),
         }
+

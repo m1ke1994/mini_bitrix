@@ -31,28 +31,46 @@
           :disabled="aiRecommendationsLoading"
           @click="refreshAiRecommendations"
         >
+          <span v-if="aiRecommendationsLoading" class="ai-spinner ai-spinner-inline" aria-hidden="true"></span>
           {{ aiRecommendationsLoading ? "Обновление..." : "Обновить рекомендации" }}
         </button>
       </div>
       <p class="muted block-help">
         Короткая сводка по точкам роста: как упростить путь пользователя и повысить число заявок.
       </p>
-      <p v-if="aiRecommendationsLoading" class="muted">Готовим рекомендации...</p>
-      <template v-else>
-        <p class="ai-summary">{{ aiRecommendations.summary }}</p>
-        <div class="ai-meta">
-          <span class="status-badge" :class="`status-priority-${aiRecommendations.priority || 'medium'}`">
-            Приоритет: {{ aiPriorityLabel(aiRecommendations.priority) }}
+      <div v-if="behaviorAiMode === 'loading'" class="ai-state ai-state-loading">
+        <span class="ai-spinner" aria-hidden="true"></span>
+        <p class="muted">Готовим рекомендации по поведенческим данным...</p>
+      </div>
+      <template v-else-if="behaviorAiMode === 'ai-success' || behaviorAiMode === 'fallback'">
+        <p class="ai-summary">{{ behaviorAiSummary }}</p>
+        <div class="ai-meta ai-meta-spaced">
+          <span class="status-badge" :class="`status-priority-${behaviorAiPriority}`">
+            Приоритет: {{ aiPriorityLabel(behaviorAiPriority) }}
           </span>
-          <span class="muted">{{ aiRecommendations.source === "ai" ? "Источник: AI" : "Источник: fallback" }}</span>
-          <span v-if="aiRecommendations.cached" class="muted">Кэшированный ответ</span>
+          <span class="muted">Источник: {{ behaviorAiSourceLabel }}</span>
+          <span v-if="aiRecommendations.cached && behaviorAiMode === 'ai-success'" class="muted">
+            Кэшированный ответ
+          </span>
         </div>
-        <ul v-if="aiRecommendations.items?.length" class="ai-items">
-          <li v-for="(item, idx) in aiRecommendations.items" :key="`behavior-ai-item-${idx}`">{{ item }}</li>
+
+        <div v-if="behaviorAiMode === 'fallback'" class="ai-fallback-banner" role="status" aria-live="polite">
+          {{ behaviorAiFallbackMessage }}
+        </div>
+
+        <ul v-if="behaviorAiItems.length" class="ai-items">
+          <li v-for="(item, idx) in behaviorAiItems" :key="`behavior-ai-item-${idx}`">{{ item }}</li>
         </ul>
         <p v-else class="muted">Пока нет готовых рекомендаций. Попробуйте обновить позже.</p>
-        <p v-if="aiRecommendationsError" class="muted">{{ aiRecommendationsError }}</p>
       </template>
+      <div v-else-if="behaviorAiMode === 'empty-data'" class="ai-state ai-state-empty">
+        <p class="muted">
+          Недостаточно данных для точных рекомендаций. Соберите больше визитов и взаимодействий.
+        </p>
+      </div>
+      <div v-else class="ai-state ai-state-error">
+        <p class="muted">{{ behaviorAiErrorMessage }}</p>
+      </div>
     </div>
 
     <p v-if="error" class="error">{{ error }}</p>
@@ -578,6 +596,140 @@ const microConversionUsersValue = computed(() => {
   return microRows.value.reduce((sum, row) => sum + Number(row.unique_users || 0), 0);
 });
 
+const BEHAVIOR_RECOMMENDATIONS_MAX = 6;
+const BEHAVIOR_RECOMMENDATIONS_MIN = 3;
+const BEHAVIOR_MIN_USERS_FOR_RECOMMENDATIONS = 12;
+const BEHAVIOR_MIN_VISITS_FOR_RECOMMENDATIONS = 30;
+
+const internalBehaviorPathPatterns = [
+  /^\/app\/dashboard/i,
+  /^\/api(\/|$)/i,
+  /^\/admin(\/|$)/i,
+  /^\/auth(\/|$)/i,
+  /^\/login(\/|$)/i,
+  /^\/register(\/|$)/i,
+];
+
+const blockedBehaviorRecommendationKeywords = [
+  "seo",
+  "индексац",
+  "meta",
+  "title",
+  "description",
+  "canonical",
+  "robots",
+  "sitemap",
+  "h1",
+  "ttfb",
+];
+
+const behaviorPageRows = computed(() =>
+  normalizeBehaviorPageRows(summary.value.conversion_by_pages, summary.value.engagement_pages)
+);
+
+const behaviorTotalVisits = computed(() =>
+  behaviorPageRows.value.reduce((sum, row) => sum + Number(row.visits || 0), 0)
+);
+
+const hasEnoughDataForRecommendations = computed(() => {
+  if (uniqueUsersInAnalysis.value >= BEHAVIOR_MIN_USERS_FOR_RECOMMENDATIONS) return true;
+  if (behaviorTotalVisits.value >= BEHAVIOR_MIN_VISITS_FOR_RECOMMENDATIONS) return true;
+  if (formStartedCount.value >= 6) return true;
+  if (formSubmitSuccessCount.value >= 2) return true;
+  return false;
+});
+
+const localBehaviorFallbackRecommendations = computed(() =>
+  buildBehaviorFallbackRecommendations({
+    pages: behaviorPageRows.value,
+    totalVisits: behaviorTotalVisits.value,
+    uniqueUsers: uniqueUsersInAnalysis.value,
+    avgScrollDepth: avgScrollDepthValue.value,
+    formVisible: formVisibleCount.value,
+    formStarted: formStartedCount.value,
+    formSubmitAttempt: formSubmitAttemptCount.value,
+    formSubmitSuccess: formSubmitSuccessCount.value,
+    formSubmitError: formSubmitErrorCount.value,
+    ctaRows: ctaRows.value,
+    hasEnoughData: hasEnoughDataForRecommendations.value,
+  })
+);
+
+const aiNormalizedItems = computed(() => normalizeBehaviorAiItems(aiRecommendations.value));
+const aiSource = computed(() => String(aiRecommendations.value?.source || "").trim().toLowerCase());
+const aiFallbackFlag = computed(
+  () => normalizeBooleanFlag(aiRecommendations.value?.fallback, aiSource.value === "fallback") || aiSource.value === "fallback"
+);
+const aiSuccessFlag = computed(() =>
+  normalizeBooleanFlag(aiRecommendations.value?.success, aiSource.value === "ai" || aiSource.value === "openai")
+);
+
+const aiHasUsableRecommendations = computed(() => aiNormalizedItems.value.length > 0);
+const aiResponseLooksSuccessful = computed(() => {
+  if (aiFallbackFlag.value) return false;
+  if (aiSource.value === "ai" || aiSource.value === "openai") return aiHasUsableRecommendations.value || aiSuccessFlag.value;
+  return aiSuccessFlag.value && aiHasUsableRecommendations.value;
+});
+
+const behaviorAiMode = computed(() => {
+  if (loading.value || aiRecommendationsLoading.value) return "loading";
+  if (aiResponseLooksSuccessful.value && aiHasUsableRecommendations.value) return "ai-success";
+  if (localBehaviorFallbackRecommendations.value.length) return "fallback";
+  if (!hasEnoughDataForRecommendations.value) return "empty-data";
+  if (aiRecommendationsError.value) return "error";
+  return "empty-data";
+});
+
+const behaviorAiItems = computed(() => {
+  if (behaviorAiMode.value === "ai-success") return aiNormalizedItems.value.slice(0, BEHAVIOR_RECOMMENDATIONS_MAX);
+  if (behaviorAiMode.value === "fallback") {
+    return localBehaviorFallbackRecommendations.value.slice(0, BEHAVIOR_RECOMMENDATIONS_MAX);
+  }
+  return [];
+});
+
+const behaviorAiPriority = computed(() => {
+  if (behaviorAiMode.value !== "ai-success") return "medium";
+  const normalized = String(aiRecommendations.value?.priority || "").trim().toLowerCase();
+  if (normalized === "high" || normalized === "medium" || normalized === "low") return normalized;
+  return "medium";
+});
+
+const behaviorAiSummary = computed(() => {
+  if (behaviorAiMode.value === "ai-success") {
+    const fromAi = sanitizeBehaviorRecommendationText(aiRecommendations.value?.summary, 220);
+    if (fromAi) return fromAi;
+    return "AI выделил ключевые поведенческие точки роста для повышения конверсии.";
+  }
+  if (behaviorAiMode.value === "fallback") {
+    return "Локальные рекомендации собраны по фактическим метрикам поведения пользователей.";
+  }
+  if (behaviorAiMode.value === "empty-data") {
+    return "Недостаточно данных для точных рекомендаций.";
+  }
+  return "Не удалось получить рекомендации по поведенческим данным.";
+});
+
+const behaviorAiSourceLabel = computed(() => {
+  if (behaviorAiMode.value === "ai-success") return "AI";
+  if (behaviorAiMode.value === "fallback") return "локальный анализ";
+  return "не определён";
+});
+
+const behaviorAiFallbackMessage = computed(() => {
+  const requestError = sanitizeBehaviorRecommendationText(aiRecommendationsError.value, 220);
+  if (requestError) return `AI временно недоступен: ${requestError}`;
+  const payloadMessage = sanitizeBehaviorRecommendationText(aiRecommendations.value?.user_message, 220);
+  if (payloadMessage) return payloadMessage;
+  return "AI не вернул пригодный ответ. Показаны fallback-рекомендации по текущей аналитике.";
+});
+
+const behaviorAiErrorMessage = computed(() => {
+  const requestError = sanitizeBehaviorRecommendationText(aiRecommendationsError.value, 220);
+  if (requestError) return requestError;
+  return "Не удалось загрузить рекомендации. Попробуйте обновить данные позже.";
+});
+
 const firstFieldStartedLabel = computed(() => {
   const item = fieldAnalytics.value.first_field_starts?.[0];
   if (!item) return "—";
@@ -601,6 +753,293 @@ const topRevisitLabel = computed(() => {
   if (!item) return "—";
   return `${item.field_name || "поле"} (${item.count || 0})`;
 });
+
+function normalizeBooleanFlag(value, defaultValue = false) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value !== 0;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["1", "true", "yes", "ok", "success"].includes(normalized)) return true;
+    if (["0", "false", "no", "none", "null", ""].includes(normalized)) return false;
+  }
+  return defaultValue;
+}
+
+function sanitizeBehaviorRecommendationText(value, maxLen = 220) {
+  let text = String(value || "").trim();
+  if (!text) return "";
+  text = text
+    .replace(/[`_*#]+/g, " ")
+    .replace(/\r?\n+/g, " ")
+    .replace(/^\s*[-*+\d.)\]]+\s*/g, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+  if (!text) return "";
+  if (text.length > maxLen) {
+    return `${text.slice(0, maxLen - 3).trim()}...`;
+  }
+  return text;
+}
+
+function normalizePathname(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  try {
+    if (/^https?:\/\//i.test(raw)) {
+      const parsed = new URL(raw);
+      const path = String(parsed.pathname || "/").trim();
+      return path || "/";
+    }
+  } catch {
+    // ignore and keep raw
+  }
+  const [withoutQuery] = raw.split(/[?#]/);
+  if (!withoutQuery) return "/";
+  return withoutQuery.startsWith("/") ? withoutQuery : `/${withoutQuery}`;
+}
+
+function isInternalBehaviorPath(pathname) {
+  const normalized = String(pathname || "").trim().toLowerCase();
+  if (!normalized) return true;
+  return internalBehaviorPathPatterns.some((pattern) => pattern.test(normalized));
+}
+
+function shortPathnameLabel(pathname) {
+  const normalized = normalizePathname(pathname);
+  if (!normalized) return "/";
+  const clipped = normalized.length > 46 ? `${normalized.slice(0, 43)}...` : normalized;
+  return clipped;
+}
+
+function normalizeBehaviorPageRows(conversionRows, engagementRows) {
+  const resultMap = new Map();
+
+  const readRows = (rows, type) => {
+    if (!Array.isArray(rows)) return;
+    for (const row of rows) {
+      const pathname = normalizePathname(
+        row?.pathname || row?.path || row?.url || row?.page_pathname || row?.page || ""
+      );
+      if (!pathname || isInternalBehaviorPath(pathname)) continue;
+
+      const visits =
+        Number(row?.visits || row?.visits_count || row?.sessions || row?.views || row?.count || 0) || 0;
+      const leads = Number(row?.leads || row?.form_submit_success || row?.conversions || 0) || 0;
+      const conversionPctRaw = Number(row?.conversion_pct || row?.conversion_rate_pct || 0) || 0;
+      const conversionPct = conversionPctRaw > 0 ? conversionPctRaw : visits > 0 ? (leads / visits) * 100 : 0;
+
+      const prev = resultMap.get(pathname) || { pathname, visits: 0, leads: 0, conversionPct: 0, source: type };
+      const mergedVisits = Math.max(prev.visits, visits);
+      const mergedLeads = Math.max(prev.leads, leads);
+      const mergedConversion = mergedVisits > 0 ? (mergedLeads / mergedVisits) * 100 : Math.max(prev.conversionPct, conversionPct);
+
+      resultMap.set(pathname, {
+        pathname,
+        visits: Math.round(mergedVisits),
+        leads: Math.round(mergedLeads),
+        conversionPct: Number(mergedConversion.toFixed(2)),
+        source: prev.source === "conversion" || type === "conversion" ? "conversion" : type,
+      });
+    }
+  };
+
+  readRows(conversionRows, "conversion");
+  readRows(engagementRows, "engagement");
+
+  return [...resultMap.values()]
+    .filter((row) => row.visits > 0)
+    .sort((left, right) => right.visits - left.visits);
+}
+
+function formatPathList(rows, maxItems = 2) {
+  return rows
+    .slice(0, maxItems)
+    .map((row) => `"${shortPathnameLabel(row.pathname)}"`)
+    .join(", ");
+}
+
+function isBehaviorRecommendationAllowed(text) {
+  const normalized = String(text || "").trim().toLowerCase();
+  if (!normalized) return false;
+  if (normalized.includes("```") || normalized.includes("json") || normalized.includes("prompt")) return false;
+  return !blockedBehaviorRecommendationKeywords.some((keyword) => normalized.includes(keyword));
+}
+
+function normalizeBehaviorAiItems(payload) {
+  if (!payload || typeof payload !== "object") return [];
+  const result = [];
+  const seen = new Set();
+
+  const pushItem = (value) => {
+    const cleaned = sanitizeBehaviorRecommendationText(value, 240);
+    if (!cleaned || !isBehaviorRecommendationAllowed(cleaned)) return;
+    const dedupeKey = cleaned.toLowerCase();
+    if (seen.has(dedupeKey)) return;
+    seen.add(dedupeKey);
+    result.push(cleaned);
+  };
+
+  if (Array.isArray(payload.items)) {
+    payload.items.forEach((item) => pushItem(item));
+  }
+
+  if (Array.isArray(payload.recommendations)) {
+    payload.recommendations.forEach((item) => {
+      if (typeof item === "string") {
+        pushItem(item);
+        return;
+      }
+      const problem = sanitizeBehaviorRecommendationText(item?.problem || item?.title || "", 130);
+      const fix = sanitizeBehaviorRecommendationText(item?.fix || item?.details || item?.recommendation || "", 210);
+      if (problem && fix) {
+        pushItem(`${problem}: ${fix}`);
+      } else if (fix) {
+        pushItem(fix);
+      } else if (problem) {
+        pushItem(problem);
+      }
+    });
+  }
+
+  if (!result.length && typeof payload.text === "string") {
+    payload.text
+      .split(/\r?\n/)
+      .map((line) => sanitizeBehaviorRecommendationText(line, 240))
+      .filter((line) => line.length > 12)
+      .forEach((line) => pushItem(line));
+  }
+
+  return result.slice(0, BEHAVIOR_RECOMMENDATIONS_MAX);
+}
+
+function buildBehaviorFallbackRecommendations({
+  pages,
+  totalVisits,
+  uniqueUsers,
+  avgScrollDepth,
+  formVisible,
+  formStarted,
+  formSubmitAttempt,
+  formSubmitSuccess,
+  formSubmitError,
+  ctaRows,
+  hasEnoughData,
+}) {
+  if (!hasEnoughData) return [];
+
+  const recommendations = [];
+  const usedKeys = new Set();
+  const pushRecommendation = (key, text) => {
+    if (usedKeys.has(key)) return;
+    const cleaned = sanitizeBehaviorRecommendationText(text, 260);
+    if (!cleaned) return;
+    usedKeys.add(key);
+    recommendations.push(cleaned);
+  };
+
+  const highTrafficThreshold = Math.max(20, Math.round(totalVisits * 0.12));
+  const highTrafficPages = pages.filter((row) => row.visits >= highTrafficThreshold);
+  const zeroLeadPages = highTrafficPages.filter((row) => row.leads === 0);
+  const lowConversionPages = highTrafficPages.filter(
+    (row) => row.visits >= highTrafficThreshold && row.conversionPct < 1 && row.leads <= 1
+  );
+  const bestConvertingPage = [...pages]
+    .filter((row) => row.visits >= 10 && row.leads >= 2 && row.conversionPct > 0)
+    .sort((left, right) => right.conversionPct - left.conversionPct)[0];
+
+  if (zeroLeadPages.length) {
+    pushRecommendation(
+      "zero-lead-pages",
+      `На страницах ${formatPathList(zeroLeadPages)} есть трафик без заявок. Усильте оффер первого экрана и добавьте заметный CTA рядом с ключевым контентом.`
+    );
+  }
+
+  if (lowConversionPages.length) {
+    pushRecommendation(
+      "low-conversion-pages",
+      `На страницах ${formatPathList(lowConversionPages)} много визитов и слабая конверсия. Проверьте понятность следующего шага и уберите лишние действия до заявки.`
+    );
+  }
+
+  if (formVisible > 0) {
+    const formStartRate = (formStarted / formVisible) * 100;
+    if (formStartRate < 22) {
+      pushRecommendation(
+        "form-visibility",
+        "Переход к началу формы слабый. Сделайте кнопку и форму заметнее в первом экране и добавьте короткий оффер рядом с CTA."
+      );
+    }
+  }
+
+  if (formStarted > 0) {
+    const formCompletionRate = (formSubmitSuccess / formStarted) * 100;
+    if (formCompletionRate < 45) {
+      pushRecommendation(
+        "form-completion",
+        "Пользователи начинают, но не завершают форму. Сократите количество полей, уберите лишние шаги и оставьте только критично важные данные."
+      );
+    }
+  }
+
+  if (formSubmitAttempt > 0) {
+    const formErrorRate = (formSubmitError / formSubmitAttempt) * 100;
+    if (formErrorRate >= 12) {
+      pushRecommendation(
+        "form-errors",
+        "Доля ошибок при отправке формы заметная. Проверьте валидацию полей и тексты ошибок, чтобы пользователь понимал, как быстро исправить ввод."
+      );
+    }
+  }
+
+  if (avgScrollDepth > 0 && avgScrollDepth < 45 && uniqueUsers >= BEHAVIOR_MIN_USERS_FOR_RECOMMENDATIONS) {
+    pushRecommendation(
+      "low-scroll-depth",
+      "Глубина просмотра ниже ожидаемой. Упростите структуру ключевых страниц, добавьте более явные подзаголовки и CTA в верхней части контента."
+    );
+  }
+
+  if (bestConvertingPage && (zeroLeadPages.length || lowConversionPages.length)) {
+    pushRecommendation(
+      "best-page-pattern",
+      `Страница ${shortPathnameLabel(bestConvertingPage.pathname)} конвертирует лучше других. Перенесите её паттерны оффера и CTA на слабые страницы с высоким трафиком.`
+    );
+  }
+
+  const weakCta = Array.isArray(ctaRows)
+    ? ctaRows.find((row) => {
+        const shows = Number(row?.shows || 0);
+        const ctr = Number(row?.ctr_pct || 0);
+        return shows >= 40 && ctr > 0 && ctr < 1.2;
+      })
+    : null;
+  if (weakCta) {
+    pushRecommendation(
+      "weak-cta",
+      "На части кнопок низкий CTR. Перепроверьте текст CTA: добавьте конкретную пользу и действие, которое пользователь получит сразу после клика."
+    );
+  }
+
+  if (recommendations.length < BEHAVIOR_RECOMMENDATIONS_MIN) {
+    pushRecommendation(
+      "primary-cta-focus",
+      "На ключевых страницах оставьте один главный сценарий до заявки: один основной CTA, короткий оффер и минимум отвлекающих блоков."
+    );
+  }
+  if (recommendations.length < BEHAVIOR_RECOMMENDATIONS_MIN) {
+    pushRecommendation(
+      "trust-near-form",
+      "Добавьте рядом с формой блоки доверия: кейсы, гарантии, сроки ответа и быстрый способ связи для сомневающихся пользователей."
+    );
+  }
+  if (recommendations.length < BEHAVIOR_RECOMMENDATIONS_MIN) {
+    pushRecommendation(
+      "measure-form-steps",
+      "Проверьте шаги до заявки по этапам воронки и закрепите целевой ориентир: рост перехода от начала формы к успешной отправке."
+    );
+  }
+
+  return recommendations.slice(0, BEHAVIOR_RECOMMENDATIONS_MAX);
+}
 
 function formStageUsers(stage) {
   const row = formFunnelRows.value.find((item) => item.stage === stage);
@@ -776,12 +1215,53 @@ onMounted(manualRefresh);
   color: #1e40af;
   padding: 0 0.85rem;
   font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
   cursor: pointer;
 }
 
 .ai-refresh-btn:disabled {
   opacity: 0.65;
   cursor: default;
+}
+
+.ai-spinner {
+  width: 0.92rem;
+  height: 0.92rem;
+  border-radius: 999px;
+  border: 2px solid #bfdbfe;
+  border-top-color: #2563eb;
+  animation: behavior-ai-spin 0.9s linear infinite;
+  flex-shrink: 0;
+}
+
+.ai-spinner-inline {
+  width: 0.82rem;
+  height: 0.82rem;
+}
+
+.ai-state {
+  border: 1px solid #dbeafe;
+  border-radius: 0.8rem;
+  background: #f8fbff;
+  padding: 0.72rem 0.8rem;
+}
+
+.ai-state-loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.52rem;
+}
+
+.ai-state-loading p {
+  margin: 0;
+}
+
+.ai-state-empty,
+.ai-state-error {
+  display: block;
 }
 
 .ai-summary {
@@ -795,8 +1275,23 @@ onMounted(manualRefresh);
   margin-bottom: 0.55rem;
 }
 
+.ai-meta-spaced {
+  margin-bottom: 0.5rem;
+}
+
 .ai-meta .status-badge {
   text-transform: none;
+}
+
+.ai-fallback-banner {
+  margin-bottom: 0.58rem;
+  padding: 0.58rem 0.68rem;
+  border-radius: 0.72rem;
+  border: 1px solid #fde68a;
+  background: #fffbeb;
+  color: #92400e;
+  font-size: 0.84rem;
+  line-height: 1.45;
 }
 
 .ai-items {
@@ -918,5 +1413,14 @@ onMounted(manualRefresh);
 
 .compact-note {
   margin-bottom: 1rem;
+}
+
+@keyframes behavior-ai-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 </style>
