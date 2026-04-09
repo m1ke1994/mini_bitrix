@@ -1,11 +1,65 @@
-import { getLandingBlogPosts, getLandingCases } from "./src/data/landing.js";
+import {
+  AUTH_NOINDEX_PATHS,
+  PRIVATE_EXACT_PATHS,
+  PRIVATE_GLOB_PATHS,
+  PUBLIC_DYNAMIC_ROUTE_GLOBS,
+  PUBLIC_STATIC_SEO_PATHS,
+  TECHNICAL_NOINDEX_PATHS,
+  getPublicPrerenderPaths,
+} from "./src/data/seo-routes.js";
 
 const tracknodeTrackerSrc = process.env.NUXT_PUBLIC_TRACKNODE_TRACKER_SRC || "https://tracknode.ru/tracker.js";
 const tracknodeApiKey = process.env.NUXT_PUBLIC_TRACKNODE_API_KEY || "";
-const BASE_PUBLIC_SEO_ROUTES = ["/", "/seo-audit", "/website-analytics", "/cases", "/pricing", "/blog", "/contacts"];
-const CASE_DETAIL_ROUTES = getLandingCases().map((item) => `/cases/${item.slug}`);
-const BLOG_DETAIL_ROUTES = getLandingBlogPosts().map((item) => `/blog/${item.slug}`);
-const PRERENDER_SEO_ROUTES = [...new Set([...BASE_PUBLIC_SEO_ROUTES, ...CASE_DETAIL_ROUTES, ...BLOG_DETAIL_ROUTES])];
+const PRERENDER_SEO_ROUTES = getPublicPrerenderPaths();
+const PUBLIC_CACHE_CONTROL = "public, s-maxage=900, stale-while-revalidate=3600";
+const NOINDEX_HEADERS = {
+  "Cache-Control": "no-store",
+  "X-Robots-Tag": "noindex,nofollow",
+};
+
+const PUBLIC_ROUTE_RULES = Object.fromEntries(
+  [...new Set([...PUBLIC_STATIC_SEO_PATHS, ...PUBLIC_DYNAMIC_ROUTE_GLOBS])].map((path) => [
+    path,
+    {
+      ssr: true,
+      prerender: true,
+      headers: {
+        "Cache-Control": PUBLIC_CACHE_CONTROL,
+      },
+    },
+  ]),
+);
+
+const PRIVATE_ROUTE_RULES = Object.fromEntries(
+  [...new Set([...PRIVATE_EXACT_PATHS, ...PRIVATE_GLOB_PATHS])].map((path) => [
+    path,
+    {
+      ssr: false,
+      headers: NOINDEX_HEADERS,
+    },
+  ]),
+);
+
+const AUTH_ROUTE_RULES = Object.fromEntries(
+  AUTH_NOINDEX_PATHS.map((path) => [
+    path,
+    {
+      ssr: true,
+      headers: NOINDEX_HEADERS,
+    },
+  ]),
+);
+
+const TECHNICAL_ROUTE_RULES = Object.fromEntries(
+  TECHNICAL_NOINDEX_PATHS.map((path) => [
+    path,
+    {
+      headers: {
+        "X-Robots-Tag": "noindex,nofollow",
+      },
+    },
+  ]),
+);
 
 export default defineNuxtConfig({
   srcDir: "src/",
@@ -34,132 +88,10 @@ export default defineNuxtConfig({
     },
   },
   routeRules: {
-    "/": {
-      ssr: true,
-      prerender: true,
-      headers: {
-        "Cache-Control": "public, s-maxage=900, stale-while-revalidate=3600",
-      },
-    },
-    "/about": {
-      ssr: true,
-      headers: {
-        "Cache-Control": "public, s-maxage=900, stale-while-revalidate=3600",
-      },
-    },
-    "/seo-audit": {
-      ssr: true,
-      prerender: true,
-      headers: {
-        "Cache-Control": "public, s-maxage=900, stale-while-revalidate=3600",
-      },
-    },
-    "/website-analytics": {
-      ssr: true,
-      prerender: true,
-      headers: {
-        "Cache-Control": "public, s-maxage=900, stale-while-revalidate=3600",
-      },
-    },
-    "/cases": {
-      ssr: true,
-      prerender: true,
-      headers: {
-        "Cache-Control": "public, s-maxage=900, stale-while-revalidate=3600",
-      },
-    },
-    "/cases/**": {
-      ssr: true,
-      prerender: true,
-      headers: {
-        "Cache-Control": "public, s-maxage=900, stale-while-revalidate=3600",
-      },
-    },
-    "/pricing": {
-      ssr: true,
-      prerender: true,
-      headers: {
-        "Cache-Control": "public, s-maxage=900, stale-while-revalidate=3600",
-      },
-    },
-    "/blog": {
-      ssr: true,
-      prerender: true,
-      headers: {
-        "Cache-Control": "public, s-maxage=900, stale-while-revalidate=3600",
-      },
-    },
-    "/blog/**": {
-      ssr: true,
-      prerender: true,
-      headers: {
-        "Cache-Control": "public, s-maxage=900, stale-while-revalidate=3600",
-      },
-    },
-    "/contacts": {
-      ssr: true,
-      prerender: true,
-      headers: {
-        "Cache-Control": "public, s-maxage=900, stale-while-revalidate=3600",
-      },
-    },
-    "/analitika": {
-      ssr: true,
-      headers: {
-        "Cache-Control": "public, s-maxage=900, stale-while-revalidate=3600",
-      },
-    },
-    "/otchety": {
-      ssr: true,
-      headers: {
-        "Cache-Control": "public, s-maxage=900, stale-while-revalidate=3600",
-      },
-    },
-    "/tarify": {
-      ssr: true,
-      headers: {
-        "Cache-Control": "public, s-maxage=900, stale-while-revalidate=3600",
-      },
-    },
-    "/telegram": {
-      ssr: true,
-      headers: {
-        "Cache-Control": "public, s-maxage=900, stale-while-revalidate=3600",
-      },
-    },
-    "/dashboard": {
-      ssr: false,
-      headers: {
-        "Cache-Control": "no-store",
-        "X-Robots-Tag": "noindex, nofollow",
-      },
-    },
-    "/dashboard/**": {
-      ssr: false,
-      headers: {
-        "Cache-Control": "no-store",
-        "X-Robots-Tag": "noindex, nofollow",
-      },
-    },
-    "/app": {
-      ssr: false,
-      headers: {
-        "Cache-Control": "no-store",
-        "X-Robots-Tag": "noindex, nofollow",
-      },
-    },
-    "/app/**": {
-      ssr: false,
-      headers: {
-        "Cache-Control": "no-store",
-        "X-Robots-Tag": "noindex, nofollow",
-      },
-    },
-    "/settings": { ssr: false },
-    "/account": { ssr: false },
-    "/integration": { ssr: false },
-    "/reports": { ssr: false },
-    "/instructions": { ssr: false },
+    ...PUBLIC_ROUTE_RULES,
+    ...PRIVATE_ROUTE_RULES,
+    ...AUTH_ROUTE_RULES,
+    ...TECHNICAL_ROUTE_RULES,
   },
   app: {
     head: {

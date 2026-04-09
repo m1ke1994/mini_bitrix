@@ -1,11 +1,6 @@
-import { getLandingBlogPosts, getLandingCases } from "~/data/landing";
+import { SITE_URL, getPublicSitemapPaths } from "~/data/seo-routes";
 
-const SITE_URL = "https://tracknode.ru";
-
-const BASE_PUBLIC_PATHS = ["/", "/seo-audit", "/website-analytics", "/cases", "/pricing", "/blog", "/contacts"];
-const CASE_DETAIL_PATHS = getLandingCases().map((item) => `/cases/${item.slug}`);
-const BLOG_DETAIL_PATHS = getLandingBlogPosts().map((item) => `/blog/${item.slug}`);
-const PUBLIC_PATHS = [...new Set([...BASE_PUBLIC_PATHS, ...CASE_DETAIL_PATHS, ...BLOG_DETAIL_PATHS])];
+const PUBLIC_PATHS = getPublicSitemapPaths();
 
 export default defineEventHandler(() => {
   const lastmod = new Date().toISOString().split("T")[0];
@@ -27,6 +22,7 @@ ${PUBLIC_PATHS.map((path) => {
     headers: {
       "Content-Type": "application/xml; charset=utf-8",
       "Cache-Control": "public, s-maxage=900, stale-while-revalidate=3600",
+      "X-Robots-Tag": "noindex,nofollow",
     },
   });
 });
