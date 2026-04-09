@@ -7,7 +7,9 @@
           :key="caseItem.slug"
           class="case-card"
         >
-          <img :src="caseItem.previewImage" :alt="caseItem.title" class="case-card__image" loading="lazy" />
+          <div class="case-card__media">
+            <img :src="caseItem.previewImage" :alt="caseItem.title" class="case-card__image" loading="lazy" />
+          </div>
 
           <h2 class="case-card__title">{{ caseItem.title }}</h2>
           <p class="case-card__description">{{ caseItem.shortDescription }}</p>
@@ -66,12 +68,19 @@ useLandingSeoPage({
   padding: 14px;
   display: flex;
   flex-direction: column;
+  height: 100%;
 }
 
 .case-card__image {
+  display: block;
   width: 100%;
   aspect-ratio: 16 / 9;
   object-fit: cover;
+  transition: transform 0.28s ease;
+}
+
+.case-card__media {
+  overflow: hidden;
   border-radius: 12px;
   border: 1px solid rgba(200, 217, 242, 0.9);
 }
@@ -115,9 +124,15 @@ useLandingSeoPage({
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  width: 100%;
   font-size: 0.93rem;
   font-weight: 700;
-  margin-top: 1rem;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .case-card:hover .case-card__image {
+    transform: scale(1.06);
+  }
 }
 
 @media (max-width: 1023px) {
