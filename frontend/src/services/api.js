@@ -124,6 +124,8 @@ async function executeRawRequest(requestConfig) {
     params: requestConfig.params,
     headers: requestConfig.headers,
     body: typeof requestConfig.data === "undefined" ? undefined : requestConfig.data,
+    responseType: requestConfig.responseType,
+    parseResponse: requestConfig.parseResponse,
   });
 
   return {

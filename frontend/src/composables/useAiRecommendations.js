@@ -24,6 +24,17 @@ function normalizePriority(value) {
   return "medium";
 }
 
+function normalizeBoolean(value, defaultValue = false) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value !== 0;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["1", "true", "yes", "ok", "success"].includes(normalized)) return true;
+    if (["0", "false", "no", "none", "null", ""].includes(normalized)) return false;
+  }
+  return defaultValue;
+}
+
 function normalizeItems(items) {
   if (!Array.isArray(items)) return [];
   return items
@@ -38,8 +49,9 @@ function normalizePayload(payload, fallback) {
   const summary = String(payload.summary || "").trim() || fallback.summary;
   const items = normalizeItems(payload.items);
   const source = String(payload.source || fallback.source).trim().toLowerCase() || fallback.source;
-  const fallbackMode = Boolean(payload.fallback) || source === "fallback";
+  const fallbackMode = normalizeBoolean(payload.fallback, false) || source === "fallback";
   const userMessage = String(payload.user_message || "").trim();
+  const successBySource = source === "ai" || source === "openai" || source === "fallback";
   return {
     ...fallback,
     ...payload,
@@ -47,7 +59,7 @@ function normalizePayload(payload, fallback) {
     summary,
     items,
     priority: normalizePriority(payload.priority),
-    success: Boolean(payload.success),
+    success: normalizeBoolean(payload.success, successBySource),
     source,
     fallback: fallbackMode,
     user_message: userMessage || summary,

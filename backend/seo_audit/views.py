@@ -1,19 +1,19 @@
 ﻿# -*- coding: utf-8 -*-
-import csv
 import logging
-from io import StringIO
+from urllib.parse import quote
 
 from celery.result import AsyncResult
 from django.db.models import Prefetch
 from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
-from rest_framework import permissions, renderers, status
+from rest_framework import permissions, status
 from rest_framework.views import APIView
 
 from accounts.permissions import IsClientUser
-from core.services.ai_recommendations import get_seo_ai_recommendations
 from seo_audit.models import SEOIssue, SEOPage, SiteSEOAudit
 from seo_audit.serializers import SEOAuditStartSerializer, SEOIssueSerializer, SEOPageSerializer, SiteSEOAuditSerializer
+from seo_audit.services.local_recommendations import build_seo_recommendations
+from seo_audit.services.pdf_export import build_seo_audit_pdf
 from seo_audit.services.scoring import (
     build_audit_comparison,
     build_commercial_summary,
@@ -24,22 +24,6 @@ from seo_audit.services.scoring import (
 from subscriptions.permissions import HasActiveSubscription
 
 logger = logging.getLogger(__name__)
-
-
-class CSVRenderer(renderers.BaseRenderer):
-    media_type = "text/csv"
-    format = "csv"
-    charset = "utf-8"
-    render_style = "binary"
-
-    def render(self, data, accepted_media_type=None, renderer_context=None):
-        if data is None:
-            return b""
-        if isinstance(data, bytes):
-            return data
-        if isinstance(data, str):
-            return data.encode(self.charset)
-        return str(data).encode(self.charset)
 
 
 def json_response(data, http_status: int):
@@ -205,18 +189,8 @@ def _build_audit_detail_payload(*, audit: SiteSEOAudit, client) -> dict:
     if not (audit.status == SiteSEOAudit.Status.RUNNING and audit.finished_at is None):
         payload["finished_at"] = audit_payload.get("finished_at", audit.finished_at)
 
+    payload["recommendations"] = build_seo_recommendations(payload)
     return payload
-
-
-def _csv_response(filename: str, rows: list[list]):
-    buffer = StringIO()
-    writer = csv.writer(buffer)
-    for row in rows:
-        writer.writerow(row)
-    payload = buffer.getvalue()
-    response = HttpResponse(payload, content_type="text/csv; charset=utf-8")
-    response["Content-Disposition"] = f'attachment; filename="{filename}"'
-    return response
 
 
 class SEOAuditStartView(APIView):
@@ -371,20 +345,12 @@ class SEOAuditAiRecommendationsView(APIView):
         if not audit:
             return json_response({"detail": "Аудит не найден.", "ok": False}, http_status=status.HTTP_404_NOT_FOUND)
 
-        force_refresh = str(request.query_params.get("refresh") or "").strip().lower() in {"1", "true", "yes"}
         detail_payload = _build_audit_detail_payload(audit=audit, client=request.client)
-        payload = get_seo_ai_recommendations(
-            client_id=request.client.id,
-            audit_id=audit.id,
-            audit_payload=detail_payload,
-            force_refresh=force_refresh,
-        )
-        return json_response(payload, http_status=status.HTTP_200_OK)
+        return json_response(detail_payload.get("recommendations") or build_seo_recommendations(detail_payload), http_status=status.HTTP_200_OK)
 
 
 class SEOAuditExportView(APIView):
     permission_classes = [permissions.IsAuthenticated, IsClientUser, HasActiveSubscription]
-    renderer_classes = [CSVRenderer, renderers.JSONRenderer]
 
     def get(self, request, audit_id: int):
         audit = SiteSEOAudit.objects.filter(id=audit_id, client=request.client).first()
@@ -408,103 +374,13 @@ class SEOAuditExportView(APIView):
                 exclude_audit_id=audit.id,
             ).first()
         comparison = _build_comparison_or_stub(current_audit=audit, previous_audit=previous_audit)
+        pdf_bytes, filename = build_seo_audit_pdf(detail_payload=detail_payload, comparison=comparison)
+        quoted_filename = quote(filename)
 
-        rows: list[list] = []
-        rows.append(["section", "key", "value", "extra_1", "extra_2", "extra_3"])
-        rows.append(["summary", "audit_id", detail_payload.get("id"), "", "", ""])
-        rows.append(["summary", "domain", detail_payload.get("domain"), "", "", ""])
-        rows.append(["summary", "status", detail_payload.get("status"), "", "", ""])
-        rows.append(["summary", "score", int(detail_payload.get("score") or 0), "", "", ""])
-        rows.append(["summary", "pages_count", int(detail_payload.get("pages_count") or 0), "", "", ""])
-
-        for item in detail_payload.get("fix_plan") or []:
-            rows.append(
-                [
-                    "fix_plan",
-                    item.get("title"),
-                    item.get("why_it_matters"),
-                    item.get("priority_label"),
-                    int(item.get("pages_affected") or 0),
-                    item.get("target_block"),
-                ]
-            )
-
-        for item in detail_payload.get("issue_groups") or []:
-            rows.append(
-                [
-                    "issue_groups",
-                    item.get("title"),
-                    item.get("description"),
-                    item.get("severity"),
-                    int(item.get("pages_affected") or 0),
-                    item.get("target_block"),
-                ]
-            )
-
-        for page in detail_payload.get("commercial_summary", {}).get("pages") or []:
-            rows.append(
-                [
-                    "commercial_pages",
-                    page.get("url"),
-                    page.get("commercial_status_label"),
-                    int(page.get("commercial_readiness_score") or 0),
-                    " | ".join(page.get("commercial_recommendations") or []),
-                    "",
-                ]
-            )
-
-        for issue in detail_payload.get("errors") or []:
-            rows.append(
-                [
-                    "issues",
-                    issue.get("page_url"),
-                    issue.get("issue_title"),
-                    issue.get("severity"),
-                    issue.get("issue_type"),
-                    issue.get("recommendation"),
-                ]
-            )
-
-        for page in detail_payload.get("pages") or []:
-            rows.append(
-                [
-                    "pages",
-                    page.get("url"),
-                    int(page.get("status_code") or 0),
-                    int(page.get("ttfb_ms") or 0),
-                    int(page.get("performance_score") or 0),
-                    page.get("indexability_status"),
-                ]
-            )
-
-        if comparison.get("has_data"):
-            rows.append(
-                [
-                    "comparison",
-                    "trend",
-                    comparison.get("trend_label"),
-                    comparison.get("score", {}).get("before"),
-                    comparison.get("score", {}).get("after"),
-                    comparison.get("score", {}).get("delta"),
-                ]
-            )
-            rows.append(
-                [
-                    "comparison",
-                    "new_issues_count",
-                    comparison.get("new_issues_count"),
-                    "fixed_issues_count",
-                    comparison.get("fixed_issues_count"),
-                    "",
-                ]
-            )
-        else:
-            rows.append(["comparison", "status", "Недостаточно данных для сравнения", "", "", ""])
-
-        safe_domain = "".join(ch if ch.isalnum() or ch in ("-", "_") else "-" for ch in (audit.domain or "site")).strip("-")
-        date_part = timezone.now().date().isoformat()
-        filename = f"seo-audit-{safe_domain or 'site'}-{date_part}.csv"
-        return _csv_response(filename, rows)
+        response = HttpResponse(pdf_bytes, content_type="application/pdf")
+        response["Content-Disposition"] = f"attachment; filename=\"{filename}\"; filename*=UTF-8''{quoted_filename}"
+        response["Cache-Control"] = "no-store"
+        return response
 
 
 class SEOAuditStopView(APIView):
@@ -547,3 +423,5 @@ class SEOAuditStopView(APIView):
         except Exception:
             logger.exception("seo_audit.stop error audit_id=%s client_id=%s", audit_id, getattr(request.client, "id", None))
             return json_response({"detail": "Внутренняя ошибка сервера.", "ok": False}, http_status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
